@@ -34,6 +34,15 @@
 | ⚡ | **Quick Entry** | <kbd>⌥</kbd> <kbd>Space</kbd> anywhere. Paste images, <kbd>Esc</kbd> to dismiss. |
 | 🖥️ | **Terminal and diffs** | Built-in terminal pane and a Changes pane for your code sessions. |
 | 🧠 | **Memory** | Facts it remembers across conversations. You control them. |
+| 📁 | **Projects** | Group chats under shared instructions. |
+| 🧪 | **Artifacts** | Code and pages from your chats collected in one view, with charts and diagrams rendered. |
+| ⏰ | **Scheduled tasks** | Run a prompt every N minutes, daily or on weekdays. |
+| 📨 | **Dispatch** | Start a background code session and check on it later. |
+| 🌿 | **Worktrees** | Work on a new git branch in a separate worktree. |
+| 🌍 | **SSH sessions** | Run a code session's file and shell tools on a remote host. |
+| 🎨 | **Design systems** | Colors, fonts and guidelines the model follows when it builds interfaces. |
+| 🌐 | **Browser tools** | Let code sessions drive a real browser through the Playwright connector. |
+| 📈 | **Usage and billing** | Token usage across Chat and Code by model (7, 30 or 90 days) and estimated spend on this Mac. No subscription, no fees. |
 
 ## 🚀 Quick start
 
@@ -45,6 +54,12 @@ npm start          # launch GrizzyCode
 1. 🔑 **Sign in.** Settings → Account → **Continue in browser** signs in to OpenRouter (OAuth + PKCE, Claude models included). Or open the Anthropic Console, copy a key and GrizzyCode picks it up.
 2. 💬 **Start.** Choose **New chat**, or **Code** and pick a folder.
 3. ⚡ **Go fast.** <kbd>⌥</kbd> <kbd>Space</kbd> opens Quick Entry, <kbd>⌃</kbd> <kbd>`</kbd> toggles the terminal, <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>D</kbd> toggles Changes, <kbd>⌘</kbd> <kbd>/</kbd> lists every shortcut. Right-click a session for more.
+
+> [!NOTE]
+> **Privacy:** no telemetry, no analytics. Conversations go only to the provider you chose. API keys are encrypted with the system keychain and never included in exports. Settings → Privacy can delete old chats automatically, export your data, or delete it.
+
+> [!NOTE]
+> **System:** launch at login, keep running in the menu bar, keep the Mac awake while working, a rebindable Quick Entry shortcut, light and dark themes and font choices.
 
 > [!NOTE]
 > Settings and data live in `~/.GrizzyCode` (`data/`, `mods/`, `logs/`). On first launch, data from `~/Library/Application Support/GrizzyCode` is copied there.
@@ -70,10 +85,24 @@ Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx
 > [!IMPORTANT]
 > On a new computer, install the Claude Code CLI first: `npm i -g @anthropic-ai/claude-code`, then `claude /login`. Make sure Node and `npx` are available. GrizzyCode shows a reminder in the model picker when `claude` isn't found.
 
-## 🧰 Connectors and skills
+## 🧰 Connectors, extensions, plugins and skills
 
 - **MCP servers:** Settings → Connectors → **Add connector** (local command or remote URL, with Test), or **Import JSON**.
+- **Extensions:** Settings → Extensions has one-click connectors (Filesystem, Knowledge graph memory, Sequential thinking, Browser (Playwright), Fetch, Git, Time) and installs `.mcpb` / `.dxt` bundles.
+- **Plugins:** Settings → Plugins installs a folder or `.plugin` / `.zip` that bundles skills, connectors and slash commands.
 - **Skills:** Settings → Skills. GrizzyCode ships `docx`, `pdf`, `pptx`, `xlsx`, `frontend-design` and `mod-authoring`.
+- **Web access:** Settings → Capabilities → **Fetch web pages** lets the model read public pages and APIs. Local and private addresses are always blocked.
+
+## 👨‍💻 Code sessions
+
+| | | |
+|---|---|---|
+| 📂 | **Folders** | Each session works in a folder you pick. Trusted folders skip the trust prompt; pinned folders appear in the Code sidebar. Tool approvals still follow the permission mode. |
+| 🌿 | **Worktrees** | Branches are named `prefix + task` (Settings → Claude Code) in a worktree folder you choose. |
+| 🌍 | **SSH** | Connect to `user@host` or a config alias; file and shell tools run there with your system `ssh`. |
+| 📥 | **Import** | Bring in Claude Code CLI session transcripts from `~/.claude/projects` as GrizzyCode code sessions. |
+| 🔁 | **Max steps** | A cap on model turns per message stops a runaway loop. |
+| ⏰ | **Scheduled** and 📨 **Dispatch** | Unattended runs deny anything the permission mode wouldn't already allow. |
 
 ## 🤝 Agents that work together
 
