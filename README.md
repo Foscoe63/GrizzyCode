@@ -1,24 +1,161 @@
-# GrizzyCode
+<div align="center">
 
-Electron desktop AI assistant modelled on the feature set of Claude.app (see `docs/RE-FINDINGS.md`).
+<img src="src/assets/icon-128.png" alt="GrizzyCode" width="112" height="112">
+
+# 🐻 GrizzyCode
+
+**A desktop AI assistant for your Mac: chat, a code agent, MCP tools, skills, mods and quick entry.**
+
+![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
+![Version](https://img.shields.io/badge/version-0.5.3-8A2BE2)
+![License](https://img.shields.io/badge/license-MIT-2EA44F)
+![MCP](https://img.shields.io/badge/MCP-ready-FF6B35)
+
+[✨ Features](#-features) · [🚀 Quick start](#-quick-start) · [🔌 Providers](#-providers) · [🧩 Mods](#-mods) · [💸 Token savers](#-token-savers) · [🛠️ Development](#️-development)
+
+</div>
+
+---
+
+## ✨ Features
+
+| | Feature | What it does |
+|---|---|---|
+| 💬 | **Chat** | Conversations with any model from any provider you turn on. |
+| 👨‍💻 | **Code sessions** | Pick a folder; the agent reads, searches, edits and runs commands. Risky tools ask first. |
+| 🔐 | **Permission modes** | Ask · Accept edits · Plan · Bypass. Plan mode is read-only until you approve the plan. |
+| 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, or any compatible endpoint. |
+| 🧰 | **Connectors (MCP)** | Local commands or remote URLs, with a Test button and JSON import. |
+| 🎓 | **Skills** | Installable instruction folders the model loads when relevant. |
+| 🤝 | **Agents** | Hand tasks to Engineer, Reviewer or your own agents. They run in parallel, and you can message them later. |
+| 🧩 | **Mods** | Panels, status lines and slash commands around your chats. Create, export and publish your own. |
+| 💸 | **Token savers** | Tool router, output compression, history compaction and pinned facts. |
+| ⚡ | **Quick Entry** | <kbd>⌥</kbd> <kbd>Space</kbd> anywhere. Paste images, <kbd>Esc</kbd> to dismiss. |
+| 🖥️ | **Terminal and diffs** | Built-in terminal pane and a Changes pane for your code sessions. |
+| 🧠 | **Memory** | Facts it remembers across conversations. You control them. |
+
+## 🚀 Quick start
 
 ```bash
-npm install                      # if Electron's binary is missing: cd node_modules/electron && node install.js
-npm start                        # launch
-npx electron scripts/check.js    # headless backend tests (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, skills)
-npx electron scripts/shot.js out # render the real UI to PNGs (light; add `dark`)
+npm install        # if Electron's binary is missing: cd node_modules/electron && node install.js
+npm start          # launch GrizzyCode
 ```
 
-1. Settings → Account: **Continue in browser** signs in to OpenRouter (OAuth + PKCE, Claude models included), or open the Anthropic Console, copy a key and GrizzyCode picks it up. Model & API also takes any OpenAI-compatible base URL (presets for Anthropic, OpenRouter, OpenAI, Ollama).
-2. **New chat** or **Code** (pick a folder; risky tools ask for approval).
-3. Alt+Space opens Quick Entry (paste images, Esc dismisses). Code sessions have permission modes (Ask / Accept edits / Plan / Bypass), a terminal pane (⌃`) and a Changes pane (⇧⌘D). ⌘/ lists all shortcuts; right-click a session for more.
-4. MCP servers: Settings → Connectors → Add connector (local command or remote URL, with Test), or Import JSON. Skills: Settings → Skills.
+1. 🔑 **Sign in.** Settings → Account → **Continue in browser** signs in to OpenRouter (OAuth + PKCE, Claude models included). Or open the Anthropic Console, copy a key and GrizzyCode picks it up.
+2. 💬 **Start.** Choose **New chat**, or **Code** and pick a folder.
+3. ⚡ **Go fast.** <kbd>⌥</kbd> <kbd>Space</kbd> opens Quick Entry, <kbd>⌃</kbd> <kbd>`</kbd> toggles the terminal, <kbd>⇧</kbd> <kbd>⌘</kbd> <kbd>D</kbd> toggles Changes, <kbd>⌘</kbd> <kbd>/</kbd> lists every shortcut. Right-click a session for more.
 
-5. **Providers** (Settings → Providers): Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama and LM Studio are built in; add any OpenAI- or Anthropic-compatible endpoint. Each provider has its own base URL, key, model list, and an on/off switch; every provider that is on appears (grouped, collapsible, searchable) in the model picker.
-6. **Mods** (Settings → Mods, or `/mods` in a chat): GrizzyCode runs Claude Code mods (function-hook plugins) in worker threads. Mods installed with `claude plugin install` are found automatically; turn each on after reviewing it. Mods are programs with file and process access, so only enable ones you trust. Supported: slash commands, bands above the prompt, side panes, status lines, `$.ask` dialogs, mod tools, message rewrites (e.g. screen-share), prompt/tool/turn hooks, `$.model`, `$.fs`, `$.process`, `$.store`/`$.state`. Not supported: agent spawning, terminal-only surfaces, `$.http`, `$.mcp.connect`, audio.
+> [!NOTE]
+> Settings and data live in `~/.GrizzyCode` (`data/`, `mods/`, `logs/`). On first launch, data from `~/Library/Application Support/GrizzyCode` is copied there.
 
-7. **Grizzy agent** (model picker → Grizzy): runs the real Claude Code CLI through `npx -y @zed-industries/claude-code-acp`. **On a new computer, install the Claude Code CLI first** (`npm i -g @anthropic-ai/claude-code`, then `claude /login`) and make sure Node/npx is available. GrizzyCode shows a reminder in the model picker and in the error message when `claude` isn't found.
+## 🔌 Providers
 
-8. **Agents that work together** (Settings → Capabilities → Agents): the model can hand a task to any enabled agent (Engineer, Reviewer, your own…) with `delegate_agent`. Each runs as its own conversation with its persona, model and tools, several in one turn run in parallel, and its report comes back as the tool result. `message_agent` sends a follow-up to an agent by id (or relays one agent's findings to another). Agents can delegate one level further; their tool calls use the conversation's permission mode (a delegated agent can only be stricter, never looser) and approval cards name the agent. Delegated agents are saved with the conversation, so you can keep messaging them after a restart.
+Settings → **Providers**. Each provider has its own base URL, key, model list and on/off switch. Every provider that is on appears in the model picker (grouped, collapsible, searchable).
 
-Settings and data live in `~/.GrizzyCode` (`data/`, `mods/`, `logs/`). On first launch, data from `~/Library/Application Support/GrizzyCode` is copied there.
+| Provider | | Provider | |
+|---|---|---|---|
+| 🅰️ Anthropic | built in | 🧠 DeepSeek | built in |
+| 🌐 OpenRouter | built in | ✖️ xAI | built in |
+| 🤖 OpenAI | built in | 🌬️ Mistral | built in |
+| ✨ Google Gemini | built in | 🦙 Ollama | local, no key |
+| ⚡ Groq | built in | 🖥️ LM Studio | local, no key |
+
+Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
+
+### 🐻 Grizzy agent
+
+Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx -y @zed-industries/claude-code-acp`.
+
+> [!IMPORTANT]
+> On a new computer, install the Claude Code CLI first: `npm i -g @anthropic-ai/claude-code`, then `claude /login`. Make sure Node and `npx` are available. GrizzyCode shows a reminder in the model picker when `claude` isn't found.
+
+## 🧰 Connectors and skills
+
+- **MCP servers:** Settings → Connectors → **Add connector** (local command or remote URL, with Test), or **Import JSON**.
+- **Skills:** Settings → Skills. GrizzyCode ships `docx`, `pdf`, `pptx`, `xlsx`, `frontend-design` and `mod-authoring`.
+
+## 🤝 Agents that work together
+
+Settings → Capabilities → **Agents**.
+
+- 📤 `delegate_agent` hands a task to any enabled agent. Each runs as its own conversation with its own persona, model and tools. Several in one turn run in parallel, and the report comes back as the tool result.
+- 💌 `message_agent` sends a follow-up to an agent by id, or relays one agent's findings to another.
+- 🔒 A delegated agent can only be **stricter** than the conversation's permission mode, never looser, and approval cards name the agent.
+- 💾 Delegated agents are saved with the conversation, so you can keep messaging them after a restart.
+
+## 🧩 Mods
+
+GrizzyCode runs Claude Code **mods** (function-hook plugins), each in its own worker thread. Settings → Mods, or `/mods` in a chat.
+
+| | Action | How |
+|---|---|---|
+| 🆕 | **Create** | **New mod…** scaffolds a working mod in `~/.GrizzyCode/mods/<name>`. It never touches Claude Code's folders or any marketplace. |
+| 📥 | **Install** | **Install from folder or .zip…**, or any mod installed with `claude plugin install` is found automatically. |
+| 🔄 | **Reload** | Re-reads the mod's files after you edit them. |
+| 📦 | **Export** | **Export .zip** makes a file anyone can install. |
+| 🚀 | **Publish** | **Publish…** adds the mod to a marketplace folder you choose and shows the `/plugin marketplace add` lines. |
+| 🗑️ | **Delete** | Removes a mod from GrizzyCode's own folder. |
+
+**Supported:** slash commands, bands above the prompt, side panes, status lines, `$.ui.ask` dialogs, mod tools, message rewrites, prompt/tool/turn hooks, `$.model`, `$.fs`, `$.process`, `$.store`, `$.state`.
+**Not supported:** agent spawning, terminal-only surfaces, `$.http`, `$.mcp.connect`, audio.
+
+> [!WARNING]
+> Mods are programs with file and process access. Turn on only mods you trust. GrizzyCode asks before enabling each one.
+
+On/off switches live in `~/.GrizzyCode/mods/switches.json`, separate from Claude Code's.
+
+## 💸 Token savers
+
+Settings → Capabilities → **Token savers**. Figures are estimates (about 4 characters per token).
+
+| | Saver | Default | What it does |
+|---|---|---|---|
+| 🧭 | **Connector tool router** | on | With six or more MCP tools, sends a short catalog plus `mcp_tools` and `mcp_invoke` instead of every schema on every request. |
+| 🗜️ | **Output compression** | on | Cuts long command, search, web and connector output to the start, the end and any error lines. The full text is saved locally, and the model reads it back with `retrieve_output`. File reads are never compressed. |
+| 📚 | **Conversation compaction** | off | Past a context threshold, older turns become a summary. Your latest messages stay as they are. `/compact` does it on demand. |
+| 📌 | **Pinned facts** | always | `/pin <fact>`, `/pins`, `/unpin <n>`. Pinned facts are in every system prompt and survive compaction. |
+| 📊 | **Savings stats** | always | Running totals in Settings and in `/usage`. |
+
+## ⌨️ Slash commands
+
+| Command | |
+|---|---|
+| `/plan` `/accept` `/ask` `/bypass` | Switch permission mode |
+| `/compact` | Summarize older messages now |
+| `/pin` `/pins` `/unpin` | Manage pinned facts |
+| `/usage` | Token usage and savings for this session |
+| `/export` | Export the chat as Markdown |
+| `/terminal` `/changes` | Toggle panes |
+| `/clear` | Start a fresh session |
+| `/mods` | Open the mods switchboard |
+
+## 🛠️ Development
+
+```bash
+npm start                         # launch
+npx electron scripts/check.js     # headless backend tests (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, skills, mods, token savers)
+npx electron scripts/shot.js out  # render the real UI to PNGs (add `dark` for dark mode)
+npm run dist                      # build the signed DMG and zip into dist/
+```
+
+📁 **Layout**
+
+```
+src/main/        main process: agent loop, providers, MCP, tools, savings, mods host
+src/main/mods/   mod host, worker sandbox, authoring (create/export/publish)
+src/renderer/    the UI
+skills/          bundled skills
+scripts/         tests and screenshots
+docs/            reverse-engineering notes (RE-FINDINGS.md)
+```
+
+## 📄 License
+
+MIT. See `package.json`.
+
+<div align="center">
+
+Made with 🐻 for people who live in their editor.
+
+</div>
