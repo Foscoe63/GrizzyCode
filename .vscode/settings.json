@@ -1,0 +1,11 @@
+{
+  "rea": {
+    "command": "/opt/homebrew/bin/rea",
+    "args": [
+      "mcp"
+    ],
+    "env": {
+      "HOPPER_LAUNCHER_PATH": "/Users/ewg/Applications/Hopper Disassembler.app/Contents/MacOS/hopper"
+    }
+  }
+}

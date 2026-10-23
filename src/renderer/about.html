@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>About</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<style>
+:root{--bg:#f9f9f7;--fg:#20201f;--mute:#898781}@media(prefers-color-scheme:dark){:root{--bg:#20201f;--fg:#f0efec}}
+body{margin:0;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);color:var(--fg);font:13px/1.6 ui-sans-serif,system-ui,sans-serif;-webkit-app-region:drag;text-align:center}
+.mark{font-size:46px;color:#d97757;line-height:1}h1{font:400 24px ui-serif,Georgia,serif;margin:8px 0 2px}small{color:var(--mute)}p{margin:12px 28px 0;color:var(--mute);font-size:12px}
+</style>
+<img src="../assets/icon-128.png" width="84" height="84" alt=""><h1 id="n">GrizzyCode</h1><div id="v"></div><small id="b"></small>
+<p>An independent, open reimplementation of a desktop AI assistant. Bring your own API key.</p>
+<script>gc.build().then(b=>{v.textContent='Version '+b.version;document.getElementById('b').innerHTML='Electron '+b.electron+' · Chromium '+b.chrome+'<br>Node '+b.node+' · '+b.platform});</script>

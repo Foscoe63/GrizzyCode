@@ -1,0 +1,397 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>GrizzyCode</title>
+<link rel="icon" href="../assets/icon-128.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css"><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div id="tb" class="nodrag">
+  <button id="sideBtn" class="ib" title="Toggle sidebar (⌘B)"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg></button>
+  <button id="backBtn" class="ib" title="Back (⌘[)"><svg viewBox="0 0 16 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg></button>
+  <button id="fwdBtn" class="ib" title="Forward (⌘])"><svg viewBox="0 0 16 16"><path d="M6.5 3.5 11 8l-4.5 4.5"/></svg></button>
+</div>
+<aside id="side">
+  <div class="top drag">
+    <span class="grow"></span>
+    <div id="modeSw" class="mode-sw nodrag">
+      <button id="viewChat" title="Chat"><svg viewBox="0 0 16 16"><path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11H7l-3 2.5V11A1.5 1.5 0 0 1 3 9.5z"/></svg></button>
+      <button id="viewCode" title="Code"><svg viewBox="0 0 16 16"><path d="m6 5-3 3 3 3M10 5l3 3-3 3"/></svg></button>
+    </div>
+  </div>
+  <input id="search" placeholder="Search">
+  <nav class="navs">
+    <button id="nNew" class="nav"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New</button>
+    <button id="nProjects" class="nav"><svg viewBox="0 0 16 16"><path d="M2.5 5.5h11v7h-11zM2.5 5.5l1-2h4l1 2"/></svg>Projects<span class="badge">Beta</span></button>
+    <button id="nArtifacts" class="nav"><svg viewBox="0 0 16 16"><path d="M8 2 13.5 5v6L8 14 2.5 11V5zM2.5 5 8 8l5.500-3M8 8v6"/></svg>Artifacts</button>
+    <button id="nScheduled" class="nav"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.500"/><path d="M8 5v3l2 1.500"/></svg>Scheduled</button>
+    <button id="nDispatch" class="nav"><svg viewBox="0 0 16 16"><rect x="4" y="3" width="8" height="10" rx="2"/><path d="M6.500 6h3"/></svg>Dispatch<span class="badge">Beta</span></button>
+    <button id="nCustomize" class="nav"><svg viewBox="0 0 16 16"><rect x="2.500" y="5.500" width="11" height="7" rx="1.500"/><path d="M6 5.500V4h4v1.500"/></svg>Customize</button>
+    <button id="nMore" class="nav"><svg viewBox="0 0 16 16"><path d="M3.500 8h.01M8 8h.01M12.500 8h.01"/></svg>More</button>
+    <div id="moreItems" hidden>
+      <button id="nImport" class="nav"><svg viewBox="0 0 16 16"><path d="M8 2.500v8M4.500 7.500 8 11l3.500-3.500M3 13.500h10"/></svg>Import sessions</button>
+      <button id="nShortcuts" class="nav"><svg viewBox="0 0 16 16"><rect x="2" y="4.500" width="12" height="7" rx="1.500"/><path d="M5 8h6"/></svg>Keyboard shortcuts</button>
+    </div>
+  </nav>
+  <div id="list"></div>
+  <div class="side-foot">
+    <img class="avatar" src="../assets/icon-128.png" alt="">
+    <span class="acct"><b>GrizzyCode</b><i>Local</i></span>
+    <span class="grow"></span>
+    <button id="openSettings" class="ib" title="Settings (⌘,)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 1.500v2M8 12.500v2M1.500 8h2M12.500 8h2M3.400 3.400l1.400 1.400M11.200 11.200l1.400 1.400M3.400 12.600l1.400-1.400M11.200 4.800l1.400-1.400"/></svg></button>
+  </div>
+</aside>
+<main>
+  <header class="drag">
+    <span id="title"></span><span id="branch" class="chip" hidden></span>
+    <span class="spacer"></span>
+    <button id="rsBtn" class="ib nodrag" title="Sidebar (⌥⌘B)"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M10 3v10"/></svg></button><button id="termBtn" class="ib nodrag" title="Terminal (⌃`)"><svg viewBox="0 0 16 16"><path d="m3.500 5 3 3-3 3M8 11.500h4.500"/></svg></button>
+    <button id="diffBtn" class="ib nodrag" title="Changes (⇧⌘D)"><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg></button>
+  </header>
+  <div id="findbar" hidden><input id="findInput" placeholder="Find"><button id="findPrev">↑</button><button id="findNext">↓</button><button id="findClose">✕</button></div>
+  <div id="page"></div>
+  <div class="work">
+    <div class="col" id="col">
+      <div id="msgs"></div>
+      <div id="home">
+        <div id="empty"><img class="mark" src="../assets/icon-128.png" width="56" height="56" alt=""><h1 id="homeTitle">Let’s get started</h1><p id="emptySub"></p></div>
+        <div id="envCard" hidden><div id="envList"></div><button id="envChoose" type="button">Choose environment <span>⌄</span></button></div>
+      </div>
+      <div id="term"><div id="termHost"></div></div>
+      <div id="modBand" hidden></div>
+      <form id="composer" style="position:relative">
+        <div id="slash" hidden></div>
+        <div class="card">
+          <div id="atts"></div>
+          <textarea id="input" rows="1" placeholder="Describe a task or ask a question"></textarea>
+          <div class="bar">
+            <button type="button" id="attach" class="ib" title="Attach files, folders or images"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
+            <span class="spacer"></span>
+            <button id="sendBtn" type="submit" title="Send">↑</button>
+          </div>
+        </div>
+        <div class="foot-row">
+          <button type="button" id="envChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><rect x="3" y="3.500" width="10" height="7" rx="1"/><path d="M2 12.500h12"/></svg><span id="envName">This computer</span></button>
+          <button type="button" id="dirChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg><span id="dirName"></span></button>
+          <button type="button" id="wtChip" class="chip-b" hidden title="Work on a new git branch in a separate worktree"><svg viewBox="0 0 16 16"><circle cx="4.500" cy="3.500" r="1.500"/><circle cx="4.500" cy="12.500" r="1.500"/><circle cx="11.500" cy="6" r="1.500"/><path d="M4.500 5v6M11.500 7.500c0 2-2 2.500-7 3"/></svg><span>Worktree</span></button>
+          <div id="agentWrap"><button type="button" id="agentBtn" class="chip-b" title="Agent"><span id="agentIcon"></span><span id="agentLabel"></span><span class="caret">⌄</span></button>
+            <div id="agentMenu" hidden role="listbox"></div></div>
+          <select id="modeSel" title="Permission mode"></select>
+          <span class="spacer"></span>
+          <span id="modStatus" hidden></span><span id="ctxWrap"><button type="button" id="ctxBtn" hidden title="Context window"><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" id="ctxArc" cx="10" cy="10" r="7.5" transform="rotate(-90 10 10)"/></svg><span id="tok"></span></button><div id="ctxPop" hidden></div></span>
+          <div id="modelWrap"><button type="button" id="modelBtn" class="chip-b" title="Model"><span id="modelLabel"></span><span class="caret">⌄</span></button>
+            <div id="modelMenu" hidden><input id="modelSearch" placeholder="Search models" spellcheck="false" autocomplete="off"><div id="modelList" role="listbox"></div><div id="modelFoot" class="hint"></div></div></div>
+        </div>
+        <input type="file" id="file" accept="image/*" multiple hidden>
+      </form>
+    </div>
+    <aside id="modPane" hidden><div class="mp-tabs" id="mpTabs"></div><div class="mp-body" id="mpBody"></div></aside>
+      <aside id="rside" hidden>
+        <div id="rsTabs"><button class="rt on" data-t="overview" title="Overview"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.500 6h5M5.500 8.500h5M5.500 11h3"/></svg></button><button class="rt" data-t="terminal" title="Terminal"><svg viewBox="0 0 16 16"><path d="m3.500 5 3 3-3 3M8 11.500h4.500"/></svg></button><button class="rt" data-t="changes" title="Changes"><svg viewBox="0 0 16 16"><rect x="3" y="2.500" width="10" height="11" rx="1.500"/><path d="M8 5.500v5M5.500 8h5"/></svg></button><button class="rt" data-t="files" title="Files"><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg></button><span class="spacer"></span><button class="rt" id="rsMore" title="More"><svg viewBox="0 0 16 16"><path d="M8 3.500h.01M8 8h.01M8 12.500h.01"/></svg></button></div>
+        <div id="rsBody"></div></aside>
+      <aside id="diffPane"><div id="diffHead"><span id="diffTitle">Changes</span><span class="spacer"></span><button id="diffRefresh">↻</button></div><div id="diffFiles"></div><div id="diffBody"></div></aside>
+  </div>
+</main>
+<div id="ctx" hidden></div>
+<div id="toast" hidden></div>
+<div id="settings" hidden>
+  <div class="rail">
+    <div class="rail-top drag"></div>
+    <input id="setSearch" placeholder="Search" class="nodrag">
+    <div class="rg">Settings</div>
+    <button data-tab="general" class="on"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 2v1.500M8 12.500V14M2 8h1.500M12.500 8H14M3.800 3.800l1 1M11.200 11.200l1 1M12.200 3.800l-1 1M4.800 11.200l-1 1"/></svg>General</button>
+    <button data-tab="account"><svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.500"/><path d="M3 13.500c.8-2.400 2.600-3.500 5-3.500s4.200 1.100 5 3.500"/></svg>Account</button>
+    <button data-tab="providers"><svg viewBox="0 0 16 16"><path d="M8 2.500 13.500 5.500v5L8 13.500 2.500 10.500v-5zM2.500 5.500 8 8.500l5.500-3M8 8.500v5"/></svg>Providers</button>
+    <button data-tab="privacy"><svg viewBox="0 0 16 16"><rect x="3.500" y="7" width="9" height="6.500" rx="1.500"/><path d="M5.500 7V5.500a2.500 2.500 0 0 1 5 0V7"/></svg>Privacy</button>
+    <button data-tab="billing"><svg viewBox="0 0 16 16"><rect x="2" y="4" width="12" height="8.500" rx="1.500"/><path d="M2 7h12"/></svg>Billing</button>
+    <button data-tab="usage"><svg viewBox="0 0 16 16"><path d="M3 13V8M8 13V3.500M13 13V6"/></svg>Usage</button>
+    <button data-tab="capabilities"><svg viewBox="0 0 16 16"><rect x="2.500" y="5.500" width="11" height="7" rx="1.500"/><path d="M6 5.500V4h4v1.500"/></svg>Capabilities</button>
+    <button data-tab="memory"><svg viewBox="0 0 16 16"><path d="M8 2.500a4 4 0 0 0-4 4c0 1.500.8 2.400 1.500 3.200.4.500.5 1 .5 1.800h4c0-.8.1-1.300.5-1.800.7-.8 1.500-1.700 1.500-3.200a4 4 0 0 0-4-4zM6.500 13.500h3"/></svg>Memory</button>
+    <button data-tab="design"><svg viewBox="0 0 16 16"><path d="M8 2.500a5.500 5.500 0 1 0 0 11c1 0 1.500-.7 1.200-1.500-.3-.9.2-1.700 1.200-1.700H12A1.500 1.500 0 0 0 13.500 9 5.500 5.500 0 0 0 8 2.500z"/></svg>Design systems</button>
+    <button data-tab="code"><svg viewBox="0 0 16 16"><path d="M5.500 5 2.500 8l3 3M10.500 5l3 3-3 3M9 3.500 7 12.500"/></svg>Claude Code</button>
+    <button data-tab="browser"><svg viewBox="0 0 16 16"><path d="M3.500 2.500 12.500 7l-4 1.200L7 12.500z"/></svg>Browser tools</button>
+    <div class="rg">This computer</div>
+    <button data-tab="system"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="8" rx="1.500"/><path d="M6 13.500h4M8 11v2.500"/></svg>System</button>
+    <button data-tab="extensions"><svg viewBox="0 0 16 16"><path d="M6 2.500v3M10 2.500v3M4.500 5.500h7v2.500a3.500 3.500 0 0 1-7 0zM8 11.500V14"/></svg>Extensions</button>
+    <button data-tab="developer"><svg viewBox="0 0 16 16"><path d="M10.500 3a3 3 0 0 0-2.800 4.100L3 11.800 4.200 13l4.700-4.700A3 3 0 0 0 13 5.500L11.200 7.300 9.700 5.800z"/></svg>Developer</button>
+    <div class="rg">Customize</div>
+    <button data-tab="agents"><svg viewBox="0 0 16 16"><circle cx="8" cy="5.500" r="2.500"/><path d="M3 13.500c.6-2.600 2.600-4 5-4s4.400 1.400 5 4M12.500 2.500v2M11.500 3.500h2"/></svg>Agents</button>
+    <button data-tab="skills"><svg viewBox="0 0 16 16"><path d="M3.500 2.500h6l3 3v8h-9zM9.500 2.500v3h3"/></svg>Skills</button>
+    <button data-tab="mcp"><svg viewBox="0 0 16 16"><rect x="2.500" y="2.500" width="4.500" height="4.500" rx="1"/><rect x="9" y="2.500" width="4.500" height="4.500" rx="1"/><rect x="2.500" y="9" width="4.500" height="4.500" rx="1"/><path d="M11.200 9v4.500M9 11.200h4.500"/></svg>Connectors</button>
+    <button data-tab="mods"><svg viewBox="0 0 16 16"><rect x="2.500" y="2.500" width="11" height="4" rx="1"/><rect x="2.500" y="9.500" width="5" height="4" rx="1"/><path d="M10.500 9.500v4M8.500 11.500h4"/></svg>Mods</button>
+    <button data-tab="plugins"><svg viewBox="0 0 16 16"><path d="M6 3h4v2.500a1.500 1.500 0 1 1 0 3V11H6V9a1.500 1.500 0 1 0 0-3z"/></svg>Plugins</button>
+    <div class="rg">Platform</div>
+    <button data-tab="apikeys"><svg viewBox="0 0 16 16"><circle cx="5.500" cy="10.500" r="2.500"/><path d="M7.500 8.500 13 3M11 5l1.500 1.500"/></svg>API keys</button>
+  </div>
+  <div class="pane">
+    <button id="sCancel" class="ib close drag-no" title="Close (Esc)"><svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+
+    <section data-pane="general"><h2>General</h2>
+      <h3>Profile</h3>
+      <label>What should GrizzyCode call you? <input data-s="displayName" placeholder="Your name" maxlength="60" autocomplete="off"></label>
+      <label>Personal preferences <textarea data-s="preferences" rows="3" maxlength="2000" placeholder="Tone, formatting, background — added to every conversation"></textarea></label>
+      <h3>Appearance</h3>
+      <div class="row"><div><b>Color mode</b><p>Light, dark, or follow the system.</p></div>
+        <div class="seg" data-for="sTheme"><button type="button" data-v="system">System</button><button type="button" data-v="light">Light</button><button type="button" data-v="dark">Dark</button></div></div>
+      <select id="sTheme" hidden><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      <div class="row"><div><b>Font</b><p>Typeface for messages and the interface.</p></div>
+        <div class="seg" data-for="sFont"><button type="button" data-v="default">Default</button><button type="button" data-v="sans">Sans</button><button type="button" data-v="serif">Serif</button><button type="button" data-v="mono">Mono</button></div></div>
+      <select id="sFont" data-s="font" hidden><option value="default">Default</option><option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
+      <div class="row"><div><b>Interface zoom</b><p id="zoomNote">Scale the whole window.</p></div>
+        <div class="seg"><button type="button" id="zOut">−</button><button type="button" id="zReset">100%</button><button type="button" id="zIn">+</button></div></div>
+      <h3>Notifications</h3>
+      <div class="row"><div><b>Desktop notifications</b><p>Get a notification when a task finishes or needs your input while you’re in another app.</p></div><input type="checkbox" class="switch" data-s="notifications"></div>
+      <div class="row"><div><b>Notification sound</b><p>Play the system sound with notifications.</p></div><input type="checkbox" class="switch" data-s="notifySound"></div>
+      <div class="pg-actions"><button class="outline" id="notifTest" type="button">Send a test notification</button><span class="hint" id="notifMsg"></span></div>
+    </section>
+
+    <section data-pane="account" hidden><h2>Account</h2>
+      <div class="row"><div><b id="acctTitle">Not signed in</b><p id="acctSub">Sign in through your browser to start chatting.</p></div><button class="outline" id="acctOut" type="button" hidden>Sign out</button></div>
+      <div id="provRows"></div>
+      <h3>OpenRouter</h3>
+      <p class="hint">Paste an OpenRouter API key (create one at <a href="#" id="orKeys">openrouter.ai/keys</a>). Usage is billed to your OpenRouter credits and Claude models are included.</p>
+      <div class="pg-actions" style="margin-bottom:0"><input id="orKey" type="password" placeholder="sk-or-v1-…" spellcheck="false" autocomplete="off" style="flex:1"><button class="primary" id="orSave" type="button">Save &amp; test</button></div>
+      <div class="pg-actions"><button class="outline" id="orLogin" type="button">Or sign in with your browser</button><button class="outline" id="orCancel" type="button" hidden>Cancel</button><span class="hint" id="orMsg"></span></div>
+      <h3>Anthropic API key</h3>
+      <p class="hint">Anthropic has no third-party browser sign-in. Open the Console, create a key, copy it, and GrizzyCode will offer to use it.</p>
+      <div class="pg-actions"><button class="outline" id="anOpen" type="button">Open Anthropic Console</button><button class="primary" id="anUse" type="button" hidden>Use copied key</button><span class="hint" id="anMsg"></span></div>
+      <p class="hint">Custom endpoints and other providers are under <a href="#" id="toProvider">API keys</a>.</p>
+    </section>
+
+    <section data-pane="providers" hidden><h2>Providers</h2>
+      <p class="hint" style="margin-top:0">Turn on the providers you use. Each one that is on appears in the model picker. Keys are encrypted with the system keychain.</p>
+      <div class="pg-actions"><button class="primary" id="provAdd" type="button">Add provider</button><span class="hint" id="provMsg"></span></div>
+      <div id="provList"></div>
+    </section>
+
+    <section data-pane="privacy" hidden><h2>Privacy</h2>
+      <div class="note ok"><b>No telemetry.</b> GrizzyCode sends no analytics, crash reports or usage data to anyone. Conversations go only to the provider you chose, and everything else stays on this computer.</div>
+      <h3>History</h3>
+      <div class="row"><div><b>Delete old conversations automatically</b><p>Removes conversations that haven’t been used for this long. Pinned conversations are kept.</p></div>
+        <select data-s="retentionDays" data-t="int"><option value="0">Never</option><option value="7">After 7 days</option><option value="30">After 30 days</option><option value="90">After 90 days</option><option value="180">After 180 days</option><option value="365">After a year</option></select></div>
+      <h3>Your data</h3>
+      <p class="hint">Stored in <code id="dataPath"></code>. API keys are encrypted with the system keychain and never included in exports.</p>
+      <div class="pg-actions"><button class="outline" id="privExport" type="button">Export your data…</button><button class="outline" id="dataOpen" type="button">Show in Finder</button><span class="hint" id="privMsg"></span></div>
+      <h3>Delete your data</h3>
+      <div class="row"><div><b>Conversations</b><p>All chats, code sessions, projects and usage statistics.</p></div><button class="danger" id="delConvs" type="button">Delete…</button></div>
+      <div class="row"><div><b>Memory</b><p>Everything GrizzyCode remembers about you.</p></div><button class="danger" id="delMem" type="button">Delete…</button></div>
+      <div class="row"><div><b>Everything</b><p>All of the above plus settings, saved keys, skills, connectors and plugins. The app restarts.</p></div><button class="danger" id="delAll" type="button">Delete all…</button></div>
+    </section>
+
+    <section data-pane="billing" hidden><h2>Billing</h2>
+      <p class="hint" style="margin-top:0">GrizzyCode has no subscription or fees. You pay your model providers directly, using the keys you add.</p>
+      <h3>OpenRouter</h3><div id="billOr" class="bill"></div>
+      <h3>Anthropic</h3>
+      <div class="bill"><p class="hint" style="margin:0 0 8px">Anthropic doesn’t expose your balance to apps. API credits are separate from a Claude Pro or Max subscription.</p>
+        <div class="pg-actions" style="margin:0"><button class="outline" data-open="https://console.anthropic.com/settings/billing" type="button">Plans &amp; billing ↗</button><button class="outline" data-open="https://console.anthropic.com/settings/usage" type="button">Usage in Console ↗</button></div></div>
+      <h3>Estimated spend on this computer</h3><div id="billEst" class="bill"></div>
+    </section>
+
+    <section data-pane="usage" hidden><h2>Usage</h2>
+      <p class="hint" style="margin:0 0 14px">Token usage on this computer across Chat and Code, as reported by your providers.</p>
+      <div class="usage-top"><div class="seg" id="usageRange"><button type="button" data-v="7">7 days</button><button type="button" data-v="30" class="on">30 days</button><button type="button" data-v="90">90 days</button></div></div>
+      <div id="usageBody"></div><div class="pg-actions"><button class="outline" id="usageClear" type="button">Reset usage statistics</button></div></section>
+
+    <section data-pane="capabilities" hidden><h2>Capabilities</h2>
+      <p class="hint" style="margin-top:0">Choose what GrizzyCode is allowed to do. Disabled tools are not offered to the model at all.</p>
+      <div class="row"><div><b>Artifacts</b><p>Collect substantial code and pages from conversations in the Artifacts view.</p></div><input type="checkbox" class="switch" data-s="capArtifacts"></div>
+      <div class="row"><div><b>Memory</b><p>Remember details across conversations. Manage them under <a href="#" data-goto="memory">Memory</a>.</p></div><input type="checkbox" class="switch" data-s="memoryEnabled"></div>
+      <div class="row"><div><b>Skills</b><p>Let the model load installed skills when relevant.</p></div><input type="checkbox" class="switch" data-s="capSkills"></div>
+      <div class="row"><div><b>Agents</b><p>Let the model delegate tasks to other agents (Engineer, Reviewer, your own…) that work in parallel with their own context, and message them for follow-ups. Their tool calls follow this conversation's permission mode.</p></div><input type="checkbox" class="switch" data-s="capAgents"></div>
+      <h3>Token savers</h3>
+      <p class="hint" style="margin-top:0">Keep the context window (and the bill) smaller. Figures are estimates, about 4 characters per token.</p>
+      <div class="row"><div><b>Connector tool router</b><p>With six or more connector (MCP) tools, send a short catalog plus two tools (<code>mcp_tools</code>, <code>mcp_invoke</code>) instead of every tool's full schema on every request. The model loads a schema only when it needs it.</p></div><input type="checkbox" class="switch" data-s="saveRouter"></div>
+      <div class="row"><div><b>Compress large tool output</b><p>Long command, search, web and connector results are cut down to the start, the end and any error lines. The full text is saved on this Mac and the model can read it back with <code>retrieve_output</code>. File reads are never compressed.</p></div><input type="checkbox" class="switch" data-s="saveOutputs"></div>
+      <div class="row"><div><b>Compress outputs longer than</b><p>Shorter outputs are left alone.</p></div><select data-s="saveOutputChars" data-t="int"><option value="6000">6,000 characters</option><option value="12000">12,000 characters</option><option value="24000">24,000 characters</option><option value="50000">50,000 characters</option></select></div>
+      <div class="row"><div><b>Compact long conversations</b><p>When the context passes the limit below, older turns are replaced by a summary (one extra model call; the originals are kept in a file). Facts you pin always survive. Replacing earlier messages restarts the prompt cache once. Type <code>/compact</code> in a chat to do it now.</p></div><input type="checkbox" class="switch" data-s="saveCompact"></div>
+      <div class="row"><div><b>Compact when context is above</b></div><select data-s="compactAtPct" data-t="int"><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="75">75%</option><option value="85">85%</option></select></div>
+      <div class="row"><div><b>Keep the latest messages as they are</b></div><select data-s="compactKeep" data-t="int"><option value="4">4</option><option value="8">8</option><option value="12">12</option><option value="20">20</option></select></div>
+      <div class="row"><div><b>Summary model</b><p>Leave empty to use the conversation's model. A small, cheap model works well.</p></div><input data-s="compactModel" placeholder="(conversation's model)" autocomplete="off" spellcheck="false"></div>
+      <div id="savingsStats" class="hint"></div>
+      <div class="pg-actions"><button class="outline" id="savingsReset" type="button">Reset savings counters</button></div>
+      <h3>Code sessions</h3>
+      <div class="row"><div><b>Run shell commands</b><p>The <code>bash</code> tool in Code sessions (still asks first unless you change the permission mode).</p></div><input type="checkbox" class="switch" data-s="capShell"></div>
+      <div class="row"><div><b>Create and edit files</b><p>The <code>write_file</code> and <code>edit_file</code> tools.</p></div><input type="checkbox" class="switch" data-s="capEdit"></div>
+      <h3>Network</h3>
+      <div class="row"><div><b>Fetch web pages</b><p>Lets the model read public http(s) pages and APIs, in chat and code. Local and private network addresses are always blocked, and each fetch asks for approval unless you allow it.</p></div><input type="checkbox" class="switch" data-s="capWeb"></div>
+    </section>
+
+    <section data-pane="memory" hidden><h2>Memory</h2>
+      <div class="row"><div><b>Use memory</b><p>Include what GrizzyCode remembers in every conversation.</p></div><input type="checkbox" class="switch" data-s="memoryEnabled"></div>
+      <div class="row"><div><b>Save memories automatically</b><p>Let the model save lasting facts you share (a <code>save_memory</code> tool). Off means only memories you add here.</p></div><input type="checkbox" class="switch" data-s="memoryAuto"></div>
+      <h3>Saved memories <span class="hint" id="memCount"></span></h3>
+      <div class="pg-actions" style="margin-top:6px"><input id="memNew" placeholder="Add something to remember…" maxlength="600" style="flex:1" autocomplete="off"><button class="primary" id="memAdd" type="button">Add</button></div>
+      <div id="memList"></div>
+      <div class="pg-actions"><button class="danger" id="memClear" type="button">Clear all memory…</button></div>
+    </section>
+
+    <section data-pane="agents" hidden><h2>Agents</h2>
+      <p class="hint" style="margin-top:0">An agent is a persona with its own instructions, and optionally its own model and permission mode. Pick one from the composer; the selection applies to that conversation. Built-in agents can be edited and reset.</p>
+      <div class="pg-actions"><button class="primary" id="agNew" type="button">New agent</button></div>
+      <div id="agList"></div>
+    </section>
+
+    <section data-pane="design" hidden><h2>Design systems</h2>
+      <p class="hint" style="margin-top:0">Colors, fonts and guidelines GrizzyCode follows when it designs or builds interfaces. The default one is added to every conversation.</p>
+      <div class="pg-actions"><button class="primary" id="dsNew" type="button">New design system</button><button class="outline" id="dsImport" type="button">Import…</button><span class="hint" id="dsMsg"></span></div>
+      <div id="dsList"></div>
+    </section>
+
+    <section data-pane="code" hidden><h2>Claude Code</h2>
+      <h3>Sessions</h3>
+      <div class="row"><div><b>Default permission mode</b><p>Used for new code sessions.</p></div>
+        <div class="seg" data-for="sMode"><button type="button" data-v="default">Ask</button><button type="button" data-v="acceptEdits">Accept edits</button><button type="button" data-v="plan">Plan</button></div></div>
+      <select id="sMode" hidden><option value="default">Ask permissions</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select>
+      <div class="row"><div><b>Allow bypass permissions mode</b><p>When off, “Bypass permissions” is hidden and ignored.</p></div><input type="checkbox" class="switch" data-s="allowBypass"></div>
+      <div class="row"><div><b>Max steps per message</b><p>Stops a runaway loop after this many model turns.</p></div><input type="number" data-s="maxSteps" data-t="int" min="1" max="200" style="width:90px"></div>
+      <div class="row"><div><b>Auto-open files Claude writes</b><p>Open each file in its default app after it’s written.</p></div><input type="checkbox" class="switch" data-s="autoOpenFiles"></div>
+      <h3>Worktrees</h3>
+      <div class="row"><div><b>Branch prefix</b><p>New worktree branches are named <code>prefix + task</code>.</p></div><input data-s="branchPrefix" placeholder="grizzy/" style="width:160px" autocomplete="off"></div>
+      <div class="row"><div><b>Worktree folder</b><p id="wtDirNote">Where worktrees are created. Empty uses a hidden folder next to the repository.</p></div><span class="inline"><input data-s="worktreeDir" placeholder="Next to the repo" style="width:170px"><button class="outline" id="wtChoose" type="button">Choose…</button></span></div>
+      <h3>Terminal</h3>
+      <div class="row"><div><b>Shell</b><p>Program for the terminal pane. Empty uses your login shell.</p></div><input data-s="shellPath" placeholder="/bin/zsh" style="width:200px" autocomplete="off"></div>
+      <div class="row"><div><b>Font size</b><p>Terminal text size in points.</p></div><input type="number" data-s="termFontSize" data-t="int" min="9" max="24" style="width:90px"></div>
+      <h3>Folders</h3>
+      <p class="hint">Trusted folders skip the trust prompt. Pinned folders appear in the Code sidebar.</p>
+      <div class="pg-actions" style="margin-top:0"><button class="outline" id="folderAdd" type="button">Trust a folder…</button></div>
+      <b class="sub">Trusted</b><div id="trustedList"></div><b class="sub">Pinned</b><div id="pinnedList"></div>
+      <h3>Import</h3>
+      <p class="hint">Import CLI session transcripts from <code>~/.claude/projects</code> as code sessions.</p>
+      <p><button class="outline" id="cliImport">Import CLI sessions…</button> <span id="cliResult" class="hint"></span></p>
+    </section>
+
+    <section data-pane="browser" hidden><h2>Browser tools</h2>
+      <p class="hint" style="margin-top:0">Let Code sessions drive a real browser: open pages, click, fill forms and read snapshots. This uses the open-source Playwright connector with its own browser window, not your Chrome profile or logins.</p>
+      <div id="browserCard"></div>
+    </section>
+
+    <section data-pane="system" hidden><h2>System</h2>
+      <div class="row"><div><b>Launch at login</b><p>Open GrizzyCode when you sign in to your computer.</p></div><input type="checkbox" class="switch" data-s="launchAtLogin"></div>
+      <div class="row"><div><b>Keep running in the system tray</b><p>Closing the window leaves GrizzyCode running in the menu bar.</p></div><input type="checkbox" class="switch" data-s="runInTray" id="sTray"></div>
+      <div class="row"><div><b>Keep computer awake while working</b><p>Prevents sleep while a task is running.</p></div><input type="checkbox" class="switch" data-s="keepAwake"></div>
+      <div class="row"><div><b>Quick Entry shortcut</b><p>Global shortcut that opens the Quick Entry panel.</p></div><input id="sShortcut" placeholder="Alt+Space"></div>
+      <div class="row"><div><b>Hardware acceleration</b><p id="hwNote">Turn off if you see graphics glitches. Applies after a restart.</p></div><span class="inline"><input type="checkbox" class="switch" data-s="hardwareAccel"><button class="outline" id="hwRestart" type="button" hidden>Restart now</button></span></div>
+      <div class="row"><div><b>Notifications</b><p id="sysNotifNote">System notification permission for GrizzyCode.</p></div><button class="outline" id="sysNotifTest" type="button">Send test</button></div>
+    </section>
+
+    <section data-pane="extensions" hidden><h2>Extensions</h2>
+      <p class="hint" style="margin-top:0">One-click connectors for common tasks. Each runs a local program, so only install ones you trust.</p>
+      <div class="pg-actions"><button class="outline" id="extFile" type="button">Install from file (.mcpb, .dxt)…</button><button class="outline" id="extFolder" type="button">Open extensions folder</button><span class="hint" id="extMsg"></span></div>
+      <div id="extList"></div>
+    </section>
+
+    <section data-pane="developer" hidden><h2>Developer</h2>
+      <div class="row"><div><b>Developer mode</b><p>Shows developer tools below.</p></div><input type="checkbox" class="switch" data-s="devMode"></div>
+      <h3>Logs and config</h3>
+      <div class="pg-actions"><button class="outline" id="devLogs" type="button">Show logs in Finder</button><button class="outline" id="devSettingsFile" type="button">Reveal settings file</button><button class="outline" id="devMcpCfg" type="button">Open connector config</button></div>
+      <div class="pg-actions"><button class="outline" id="devReload" type="button">Reload connectors</button><button class="outline" id="devReport" type="button">Generate diagnostic report…</button><span class="hint" id="devMsg"></span></div>
+      <div id="devOnly" hidden><h3>Developer tools</h3><div class="pg-actions" style="margin-top:6px"><button class="outline" id="devTools" type="button">Open DevTools</button></div></div>
+      <h3>Maintenance</h3>
+      <div class="pg-actions"><button class="outline" id="devCache" type="button">Clear cache and restart…</button><button class="danger" id="devReset" type="button">Reset app data…</button></div>
+      <h3>About</h3><div id="aboutBody"></div>
+    </section>
+
+    <section data-pane="skills" hidden><h2>Skills</h2><p class="hint" style="margin-top:0">Reusable instructions the model loads when a task matches. Includes skills from plugins.</p><div id="skillList"></div><p><button class="outline" id="skillImport">Import .skill / folder…</button></p></section>
+
+    <section data-pane="mcp" hidden><h2>Connectors</h2>
+      <p class="hint">MCP servers give Code sessions extra tools. Run a local program or connect to a remote URL.</p>
+      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add connector</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
+      <div id="mcpList"></div>
+      <details id="mcpAdv"><summary>Edit as JSON</summary>
+        <textarea id="mcpCfg" rows="10" spellcheck="false"></textarea><div class="pg-actions"><button class="outline" id="mcpSave" type="button">Save JSON</button><span class="hint" id="mcpJsonMsg"></span></div></details>
+    </section>
+
+    <section data-pane="mods" hidden><h2>Mods</h2>
+      <p class="hint" style="margin-top:0">Mods add panels, status bars, commands and helpers around your chats. They use the same format as Claude Code mods, so mods installed there appear here too. Type <code>/mods</code> in a chat to open the switchboard.</p>
+      <div class="note"><b>Mods are programs.</b> A mod you turn on can read and write files, run commands and see your conversations, with your permissions. Turn on only mods you trust.</div>
+      <div class="pg-actions"><button class="primary" id="modNew" type="button">New mod…</button><button class="outline" id="modInstall" type="button">Install from folder or .zip…</button><button class="outline" id="modRefresh" type="button">Refresh</button><span class="hint" id="modMsg"></span></div>
+      <div id="modNewForm" hidden style="margin:8px 0">
+        <label>Name <input id="modNewName" placeholder="my-mod" autocomplete="off" spellcheck="false"></label>
+        <label>What it does <input id="modNewDesc" placeholder="One sentence" autocomplete="off"></label>
+        <div class="pg-actions"><button class="primary" id="modNewGo" type="button">Create</button><button class="outline" id="modNewCancel" type="button">Cancel</button></div>
+        <p class="hint" style="margin-top:0">New mods are saved in <code>~/.GrizzyCode/mods</code> — not in Claude Code or any marketplace. Use Publish on a mod to add it to a marketplace folder you choose.</p>
+      </div>
+      <div id="modList"></div>
+    </section>
+
+    <section data-pane="plugins" hidden><h2>Plugins</h2>
+      <p class="hint" style="margin-top:0">A plugin bundles skills, connectors and slash commands. Install one from a folder or a .plugin / .zip file.</p>
+      <div class="pg-actions"><button class="primary" id="plugAdd" type="button">Install plugin…</button><span class="hint" id="plugMsg"></span></div>
+      <div id="plugList"></div>
+    </section>
+
+    <section data-pane="apikeys" hidden><h2>API keys</h2>
+      <p class="hint" style="margin-top:0">Keys are encrypted with the system keychain. Add Anthropic or OpenRouter on <a href="#" data-goto="account">Account</a>; use this page for any OpenAI-compatible endpoint.</p>
+      <div class="pg-actions" style="margin-top:0"><button class="outline" data-open="https://console.anthropic.com/settings/keys" type="button">Anthropic keys ↗</button><button class="outline" data-open="https://openrouter.ai/keys" type="button">OpenRouter keys ↗</button><button class="outline" data-open="https://platform.openai.com/api-keys" type="button">OpenAI keys ↗</button></div>
+      <h3>Default endpoint</h3>
+      <label>Preset <select id="sPreset"><option value="">Choose a preset…</option><option value="anthropic">Anthropic</option><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option><option value="ollama">Ollama (local)</option></select></label>
+      <label>Provider <select id="sProvider"><option value="anthropic">Anthropic</option><option value="openai">OpenAI-compatible</option></select></label>
+      <label>API key <input id="sKey" type="password" placeholder="(unchanged)" autocomplete="off"></label>
+      <label>Base URL <input id="sBase" placeholder="default"></label>
+      <label>Default model <input id="sModel"></label>
+      <label>Models in picker (comma-separated) <input id="sModels"></label>
+      <label>Max output tokens <input id="sMaxTok" type="number" min="256" max="64000" step="256"></label>
+      <label>System prompt <textarea id="sSys" rows="3"></textarea></label>
+      <div class="pg-actions"><button class="outline" id="sTest" type="button">Test connection</button><span class="hint" id="sTestOut"></span></div>
+    </section>
+  </div>
+</div>
+<dialog id="mcpDlg"><div class="body" style="padding:20px 24px"><h2 id="mcpTitle">Add connector</h2>
+  <div id="mcpPresets" class="chips"></div>
+  <div class="fld"><label>Name<input id="mName" placeholder="filesystem" spellcheck="false" autocomplete="off"></label></div>
+  <div class="seg" id="mType" style="margin:10px 0"><button type="button" data-v="stdio" class="on">Local command</button><button type="button" data-v="http">Remote URL</button></div>
+  <div id="mStdio">
+    <div class="fld"><label>Command<input id="mCmd" placeholder="npx" spellcheck="false" autocomplete="off"></label></div>
+    <div class="fld"><label>Arguments <span class="hint">one per line</span><textarea id="mArgs" rows="3" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;/Users/me/Documents" spellcheck="false"></textarea></label></div>
+    <div class="fld"><label>Environment <span class="hint">KEY=value, one per line</span><textarea id="mEnv" rows="2" spellcheck="false"></textarea></label></div>
+    <div class="fld"><label>Working directory <span class="hint">optional</span><input id="mCwd" spellcheck="false"></label></div>
+  </div>
+  <div id="mHttp" hidden>
+    <div class="fld"><label>URL<input id="mUrl" placeholder="https://example.com/mcp" spellcheck="false" autocomplete="off"></label></div>
+    <div class="fld"><label>Headers <span class="hint">Name: value, one per line (e.g. Authorization: Bearer …)</span><textarea id="mHdrs" rows="3" spellcheck="false"></textarea></label></div>
+  </div>
+  <div id="mMsg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="mTest" class="outline" type="button">Test</button><button id="mCancel" class="outline" type="button">Cancel</button><button id="mSave" class="primary" type="button">Save</button></div></div></dialog>
+<dialog id="mcpImpDlg"><div class="body" style="padding:20px 24px"><h2>Import connectors</h2>
+  <p class="hint" style="margin:0 0 8px">Paste a config from a README or another app: <code>{"mcpServers": {…}}</code>, or one server with <code>command</code> / <code>url</code>.</p>
+  <textarea id="impText" rows="9" spellcheck="false" style="width:100%"></textarea>
+  <div class="fld" style="margin-top:8px"><label>Name <span class="hint">only needed for a single server</span><input id="impName" spellcheck="false"></label></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="impOver"> Replace connectors with the same name</label>
+  <div id="impMsg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="impCancel" class="outline" type="button">Cancel</button><button id="impGo" class="primary" type="button">Import</button></div></div></dialog>
+<dialog id="modAsk"><div class="body" style="padding:20px 24px"><h2 id="maTitle"></h2><div id="maChip" class="mbadge" hidden></div><p id="maQ" style="margin:8px 0 12px"></p><div id="maOpts" class="mopts"></div><div class="fld"><label>Other<input id="maOther" placeholder="Type your own answer" autocomplete="off"></label></div><div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="maCancel" class="outline" type="button">Dismiss</button><button id="maOk" class="primary" type="button">Answer</button></div></div></dialog>
+<dialog id="provDlg"><div class="body" style="padding:20px 24px"><h2>Add provider</h2>
+  <p class="hint" style="margin:0 0 10px">Connect any service that speaks the OpenAI API (most do), or an Anthropic-compatible endpoint.</p>
+  <div class="fld"><label>Name<input id="pdName" maxlength="40" placeholder="My provider" autocomplete="off"></label></div>
+  <div class="seg" id="pdType" style="margin:6px 0 10px"><button type="button" data-v="openai" class="on">OpenAI-compatible</button><button type="button" data-v="anthropic">Anthropic-compatible</button></div>
+  <div class="fld"><label>Base URL<input id="pdUrl" placeholder="https://api.example.com/v1" spellcheck="false" autocomplete="off"></label></div>
+  <div class="fld"><label>API key <span class="hint">optional for local servers</span><input id="pdKey" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off"></label></div>
+  <div id="pdMsg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="pdCancel" class="outline" type="button">Cancel</button><button id="pdSave" class="primary" type="button">Add provider</button></div></div></dialog>
+<dialog id="agDlg"><div class="body" style="padding:20px 24px"><h2 id="agTitle">New agent</h2>
+  <div class="fld"><label>Name<input id="agName" maxlength="40" autocomplete="off"></label></div>
+  <div class="fld"><label>Icon <span class="hint">an emoji</span><input id="agIcon" maxlength="4" style="width:80px" autocomplete="off"></label></div>
+  <div class="fld"><label>Description<input id="agDesc" maxlength="200" autocomplete="off"></label></div>
+  <div class="fld"><label>Instructions <span class="hint">added to the system prompt</span><textarea id="agInstr" rows="6" maxlength="12000" placeholder="e.g. Act as a security auditor. Look for injection and auth flaws…"></textarea></label></div>
+  <div class="fld"><label>Model <span class="hint">leave blank to use the current model</span><select id="agModel"></select></label></div>
+  <div class="fld"><label>Permission mode <span class="hint">applied when you pick this agent in a code session</span><select id="agMode"><option value="">Keep current</option><option value="default">Ask permissions</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select></label></div>
+  <div class="row" style="padding:6px 0"><div><b>Enabled</b><p>Disabled agents are hidden from the picker.</p></div><input type="checkbox" class="switch" id="agOn"></div>
+  <div id="agMsg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="agCancel" class="outline" type="button">Cancel</button><button id="agSave" class="primary" type="button">Save</button></div></div></dialog>
+<dialog id="dsDlg"><div class="body" style="padding:20px 24px"><h2 id="dsTitle">New design system</h2>
+  <div class="fld"><label>Name<input id="dsName" maxlength="60" autocomplete="off"></label></div>
+  <div class="fld"><label>Guidelines <span class="hint">how things should look and behave</span><textarea id="dsGuide" rows="5" maxlength="12000" placeholder="e.g. Rounded cards, generous spacing, calm tone, no gradients…"></textarea></label></div>
+  <b class="sub">Colors</b><div id="dsColors"></div><button class="outline" id="dsAddColor" type="button" style="margin:4px 0 10px">Add color</button>
+  <div class="dsgrid"><label>Display font<input id="dsFontDisplay" placeholder="Georgia"></label><label>Body font<input id="dsFontBody" placeholder="Inter"></label><label>Mono font<input id="dsFontMono" placeholder="Menlo"></label><label>Corner radius<input id="dsRadius" placeholder="12px"></label><label>Spacing scale<input id="dsSpacing" placeholder="4 / 8 / 12 / 16 / 24"></label></div>
+  <div id="dsMsgDlg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="dsCancel" class="outline" type="button">Cancel</button><button id="dsSave" class="primary" type="button">Save</button></div></div></dialog>
+<dialog id="sshDlg"><div class="body" style="padding:20px 24px"><h2>Connect over SSH</h2>
+<p style="color:var(--text-2);margin:0 0 12px">Runs file and shell tools on the remote host with your system <code>ssh</code> (key or agent auth; no password prompts). Hosts come from <code>~/.ssh/config</code>.</p>
+<label>Host<input id="sshHost" list="sshHosts" placeholder="user@host or config alias" spellcheck="false"><datalist id="sshHosts"></datalist></label>
+<label style="margin-top:10px;display:block">Remote folder<input id="sshDir" placeholder="/home/me/project" spellcheck="false"></label>
+<div id="sshMsg" style="margin-top:10px;font-size:12.5px;color:var(--text-2)"></div>
+<div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="sshLocal" class="outline">Use this computer</button><button id="sshCancel" class="outline">Cancel</button><button id="sshOk" class="outline">Connect</button></div></div></dialog>
+<dialog id="shortcuts"><div class="body" style="padding:20px 24px"><h2>Keyboard shortcuts</h2><div class="sc" id="scList"></div><div class="foot" style="padding:14px 0 0"><button id="scClose" class="outline">Close</button></div></div></dialog>
+<script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="app.js"></script>
+<script src="pages.js"></script>
+</body></html>

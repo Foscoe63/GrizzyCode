@@ -1,0 +1,50 @@
+{
+  "name": "grizzycode",
+  "productName": "GrizzyCode",
+  "version": "0.5.3",
+  "description": "Desktop AI assistant: chat, code agent, MCP tools, skills, quick entry.",
+  "main": "src/main/main.js",
+  "build": {
+    "appId": "com.grizzycode",
+    "files": [
+      "src/**/*",
+      "scripts/**/*",
+      "skills/**/*",
+      "*.js",
+      "*.html",
+      "*.css",
+      "*.json",
+      "!src/**/*.test.*",
+      "!scripts/**/*.test.*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/node-pty/**"
+    ],
+    "mac": {
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "icon": "build/icon.icns"
+    }
+  },
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^44.9.3",
+    "electron-builder": "^26.15.3"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "chart.js": "^4.5.0",
+    "gridjs": "^5.0.2",
+    "mermaid": "^11.17.2",
+    "node-pty": "^1.1.0",
+    "sucrase": "^3.35.1"
+  }
+}
