@@ -13,6 +13,7 @@ const useKeychain = () => app.isPackaged || process.env.GRIZZY_KEYCHAIN === '1';
 const vault = {
   one: () => (useKeychain() ? 'apiKeyEnc' : 'apiKeyEncDev'), many: () => (useKeychain() ? 'keysEnc' : 'keysEncDev'),
   ok: () => (useKeychain() ? safeStorage.isEncryptionAvailable() : true),
+  tag: () => (useKeychain() ? '' : '.dev'), // file-name suffix for other sealed files, so a dev run never mixes with the installed app's
   fileKey() {
     const f = path.join(root(), '.devkey');
     try { const k = Buffer.from(fs.readFileSync(f, 'utf8').trim(), 'hex'); if (k.length === 32) return k; } catch {}
@@ -51,7 +52,7 @@ const DEFAULTS = {
   maxTokens: 8192,
   account: null, // { method: 'openrouter' | 'anthropic-key', at }
   // General
-  displayName: '', preferences: '', font: 'default', notifications: true, notifySound: true,
+  displayName: '', profileName: '', profileEmail: '', profileRole: '', preferences: '', font: 'default', notifications: true, notifySound: true,
   // Privacy
   retentionDays: 0, // 0 = keep forever
   // Capabilities

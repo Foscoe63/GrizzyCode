@@ -24,6 +24,7 @@ const dataops = require('./dataops');
 const logger = require('./logger');
 const extras = require('./extras');
 const bgtasks = require('./bgtasks');
+const system = require('./system');
 
 const wins = new Set();
 let quick = null, quickReady = null, tray = null, aboutWin = null;
@@ -57,18 +58,6 @@ function track(ev) {
 const emit = (ev) => { try { track(ev); } catch {} for (const w of wins) if (!w.isDestroyed()) w.webContents.send('agent:event', ev); };
 const focused = () => BrowserWindow.getFocusedWindow() && wins.has(BrowserWindow.getFocusedWindow()) ? BrowserWindow.getFocusedWindow() : [...wins][0];
 const cmd = (ch, ...a) => { const w = focused(); if (!w) { createMain(); return; } w.show(); w.focus(); w.webContents.send('ui:command', ch, ...a); };
-
-// SwiftAddon integration groups (darwin-only stubs)
-let swiftAddonLoaded = false;
-function ensureSwiftAddon() {
-  if (swiftAddonLoaded) return;
-  if (process.platform !== 'darwin') return;
-  try {
-    // In production this would lazily load @ant/claude-swift JS bindings.
-    // GrizzyCode uses conditional darwin-only stubs that no-op on other platforms.
-    swiftAddonLoaded = true;
-  } catch {}
-}
 
 function createMain({ conv } = {}) {
   const w = new BrowserWindow({
@@ -387,6 +376,9 @@ function ipc() {
   h('mcp:remove', (name) => mcp.removeServer(name));
   h('mcp:toggle', (name, disabled) => mcp.setDisabled(name, disabled));
   h('mcp:toolToggle', (name, tool, on) => mcp.setToolEnabled(name, tool, on));
+  h('mcp:signIn', async (name) => { const r = await mcp.signIn(name, { open: (u) => shell.openExternal(u) }); const w = focused(); if (w && r.ok) { w.show(); w.focus(); } return r; });
+  h('mcp:signOut', (name) => mcp.signOut(name));
+  h('mcp:cancelSignIn', (name) => mcp.cancelSignIn(name));
   h('mcp:toolPolicy', (name, tools, policy) => mcp.setToolPolicy(name, tools, policy));
   h('mcp:restart', (name) => mcp.restartServer(name));
   h('mcp:test', (def) => mcp.testServer(def));
@@ -426,6 +418,9 @@ function ipc() {
   h('agents:list', () => agents.list());
   h('agents:save', (p) => agents.save(p));
   h('agents:remove', (id) => agents.remove(id));
+  h('agents:notes', (id) => agents.allNotes(id));
+  h('agents:forgetNote', (id, scope, noteId) => { agents.forgetNote(id, scope, noteId); return agents.allNotes(id); });
+  h('agents:clearNotes', (id, scope) => agents.clearNotes(id, scope));
   h('agents:schema', () => ({ gates: agents.GATE_INFO, guards: agents.GUARD_INFO }));
   h('ds:list', () => designsystems.list());
   h('ds:save', (p) => designsystems.save(p));
@@ -515,41 +510,25 @@ function ipc() {
     const n = createMain({ conv: convId }); n.setBounds({ x: d.x + half, y: d.y, width: d.width - half, height: d.height });
   });
 
-  // === Claude.app parity: Notifications ===
-  h('notifications:schedule', async (id, title, body, when) => { ensureSwiftAddon(); });
-  h('notifications:cancel', async (id) => { ensureSwiftAddon(); });
-  h('notifications:permission', async () => { ensureSwiftAddon(); return { granted: true }; });
-
-  // === Claude.app parity: QuickAccess ===
-  h('quickAccess:badge', async (badge) => { ensureSwiftAddon(); });
-  h('quickAccess:clearBadge', async () => { ensureSwiftAddon(); });
-  h('quickAccess:recentTasks', async (tasks) => { ensureSwiftAddon(); });
-
-  // === Claude.app parity: VM ===
-  h('vm:list', async () => { ensureSwiftAddon(); return { vmCount: 0, running: false }; });
-  h('vm:connect', async (id) => { ensureSwiftAddon(); });
-  h('vm:disconnect', async (id) => { ensureSwiftAddon(); });
-  h('vm:isRunning', async () => { ensureSwiftAddon(); return { running: false }; });
-  h('vm:isGuestConnected', async () => { ensureSwiftAddon(); return { connected: false }; });
-
-  // === Claude.app parity: WakeScheduler ===
-  h('wakeScheduler:schedule', async (id, at) => { ensureSwiftAddon(); });
-  h('wakeScheduler:cancel', async (id) => { ensureSwiftAddon(); });
-  h('wakeScheduler:nextWake', async () => { ensureSwiftAddon(); return { nextWake: undefined }; });
-
-  // === Claude.app parity: MemoryPressure ===
-  h('memoryPressure:level', async () => { ensureSwiftAddon(); return { level: 'none' }; });
-  // memoryPressure event pushed via generic onEvt dispatcher above
-
-  // === Claude.app parity: TrayUsage ===
-  h('trayUsage:getUsage', async () => { ensureSwiftAddon(); return { usageMb: 0, lastUpdate: 0 }; });
-  h('trayUsage:setStatus', async (status) => { ensureSwiftAddon(); });
-
-  // === Claude.app parity: Permissions ===
-  h('permissions:list', async () => { ensureSwiftAddon(); return { grants: [] }; });
-  h('permissions:get', async (tool) => { ensureSwiftAddon(); return { granted: false }; });
-  h('permissions:set', async (tool, granted) => { ensureSwiftAddon(); });
-  h('permissions:reset', async () => { ensureSwiftAddon(); });
+  // === OS integration: scheduled notifications, dock, memory pressure, tray status, permissions, event log ===
+  const sched = system.scheduler((title, body, id) => { if (!Notification.isSupported()) return; const n = new Notification({ title, body, silent: !store.getSettings().notifySound }); n.on('click', () => showMain()); n.show(); });
+  h('notifications:schedule', (id, title, body, when) => sched.schedule(id, title, body, when));
+  h('notifications:cancel', (id) => sched.cancel(id));
+  h('notifications:permission', () => ({ granted: Notification.isSupported() }));
+  h('quickAccess:badge', (badge) => { try { app.dock?.setBadge(String(badge ?? '').slice(0, 4)); return true; } catch { return false; } });
+  h('quickAccess:clearBadge', () => { try { app.dock?.setBadge(''); return true; } catch { return false; } });
+  h('quickAccess:recentTasks', (tasks) => { // the Dock menu lists the latest sessions; clicking one opens it
+    try { const items = (Array.isArray(tasks) ? tasks : []).slice(0, 8).filter((t) => t && t.id).map((t) => ({ label: String(t.title || 'Session').slice(0, 60), click: () => { showMain(); cmd('open', String(t.id)); } })); app.dock?.setMenu(Menu.buildFromTemplate(items)); return items.length; } catch { return 0; }
+  });
+  h('memoryPressure:level', () => ({ level: system.memoryLevel() }));
+  h('trayUsage:getUsage', () => { const m = app.getAppMetrics(); return { usageMb: Math.round(m.reduce((a, x) => a + (x.memory?.workingSetSize || 0), 0) / 1024), lastUpdate: Date.now() }; });
+  h('trayUsage:setStatus', (status) => { try { tray?.setTitle(String(status || '').slice(0, 24)); return !!tray; } catch { return false; } });
+  h('permissions:list', () => { const p = extras.permissions(systemPreferences); return { grants: p ? Object.entries(p).map(([tool, state]) => ({ tool, granted: state === 'granted', state })) : [] }; });
+  h('permissions:get', (tool) => { const p = extras.permissions(systemPreferences); const state = p?.[tool]; return { granted: state === 'granted', state: state || 'unknown' }; });
+  h('permissions:request', (tool) => { const u = extras.permissionUrl(tool); if (u) shell.openExternal(u); return { opened: !!u }; }); // macOS only lets the user grant these, in System Settings
+  h('events:log', (entry) => system.logEvent(entry));
+  h('search:messages', (query, convId) => system.searchMessages(store, query, convId));
+  h('search:files', (query, cwd) => ({ results: extras.searchFiles(cwd, query, 30) }));
 
   // === Claude.app parity: Artifacts ===
   h('artifacts:list', async () => features.listArtifacts());
@@ -575,29 +554,7 @@ function ipc() {
     if (quick && !quick.isDestroyed()) { quick.isVisible() ? quick.hide() : quick.show(); }
   });
 
-  // === Claude.app parity: ComputerUse ===
-  h('computerUse:start', async (capabilities) => { ensureSwiftAddon(); });
-  h('computerUse:stop', async () => { ensureSwiftAddon(); });
-  h('computerUse:screenshot', async () => { ensureSwiftAddon(); return { data: undefined }; });
-  h('computerUse:mouse', async (event) => { ensureSwiftAddon(); });
-  h('computerUse:keyboard', async (event) => { ensureSwiftAddon(); });
-
-  // === Claude.app parity: Design ===
-  h('design:create', async (spec) => { ensureSwiftAddon(); return { id: undefined }; });
-  h('design:update', async (id, spec) => { ensureSwiftAddon(); });
-  h('design:export', async (id) => { ensureSwiftAddon(); return { data: undefined }; });
-
-  // === Claude.app parity: Events ===
-  h('events:log', async (entry) => { ensureSwiftAddon(); });
-  h('events:flush', async () => { ensureSwiftAddon(); });
-
-  // === Claude.app parity: Search ===
-  h('search:conversations', async (query) => store.searchConversations(query));
-  h('search:messages', async (query, convId) => { ensureSwiftAddon(); return { results: [] }; });
-  h('search:files', async (query) => { ensureSwiftAddon(); return { results: [] }; });
-
-  // === Claude.app parity: Utility ===
-  h('utility:compute', async (spec) => { ensureSwiftAddon(); return { result: undefined, progress: 0 }; });
+  h('search:conversations', (query) => store.searchConversations(query));
 
   // === Claude.app parity: Appearance ===
   h('appearance:theme', async () => store.getSettings().theme || 'system');
@@ -613,13 +570,12 @@ function ipc() {
   onEvt('ui:command', (ch, ...a) => push('ui:command', ch, ...a));
   onEvt('permissions:update', (tool, state) => push('permissions:update', tool, state));
   onEvt('events:stream', (ev) => push('events:stream', ev));
-  onEvt('computerUse:event', (ev) => push('computerUse:event', ev));
   onEvt('buddy:message', (msg) => push('buddy:message', msg));
-  onEvt('utility:progress', (p) => push('utility:progress', p));
   onEvt('memoryPressure:event', (level) => push('memoryPressure:event', level));
+  { let last = system.memoryLevel(); setInterval(() => { const l = system.memoryLevel(); if (l !== last) { last = l; push('memoryPressure:event', l); } }, 30000).unref(); } // the same event Claude.app raises, from RAM use
   onEvt('appearance:change', (theme) => push('appearance:change', theme));
 
-  console.log('IPC handlers registered (parity with Claude.app)');
+  
 }
 
 app.setName('GrizzyCode');

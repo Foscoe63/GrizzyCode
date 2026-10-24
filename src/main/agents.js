@@ -13,10 +13,10 @@ const BUILTIN = [
   { id: 'grizzy', icon: '🐻‍❄️', name: 'Grizzy', description: 'The real Claude Code CLI (needs `claude` installed and logged in).', instructions: '', model: 'grizzy:claude-code', permissionMode: '' },
   // Beyond a persona, each of these is a runtime profile: its own tool set, step budget, completion gates (the run is not allowed to
   // finish until they pass) and a report contract. `gates` are names from GATES below; `steps` is the delegated step budget.
-  { id: 'engineer', icon: '🛠️', name: 'Engineer', description: 'Writes and refactors code in small, verified steps; will not finish an edit without running something to check it.', instructions: 'Act as a senior software engineer. Read the surrounding code before changing it, match its conventions, make the smallest correct change, and verify it (run tests or the build) before reporting done.', model: '', permissionMode: '', steps: 40, effort: 'medium', guards: ['readBeforeEdit'], gates: ['evidence', 'verify'], report: 'Finish with: the files you changed and why, the command you ran to verify and its result, and anything left undone.' },
-  { id: 'reviewer', icon: '🔍', name: 'Reviewer', description: 'Reviews code for bugs, security and clarity without changing it; must read the code and rank findings.', instructions: 'Act as a meticulous code reviewer. Look for correctness bugs, security issues, missing edge cases and unclear code. Report findings ranked by severity with file and line references. Do not modify files unless asked.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], steps: 20, effort: 'high', gates: ['evidence', 'findings'], report: 'Finish with findings ranked Critical / High / Medium / Low / Nit, each as `path:line — problem — suggested fix`. If you found nothing, say "No issues found" and list what you checked.' },
+  { id: 'engineer', icon: '🛠️', name: 'Engineer', description: 'Writes and refactors code in small, verified steps; will not finish an edit without running something to check it.', instructions: 'Act as a senior software engineer. Read the surrounding code before changing it, match its conventions, make the smallest correct change, and verify it (run tests or the build) before reporting done.', model: '', permissionMode: '', steps: 40, effort: 'medium', memory: true, guards: ['readBeforeEdit'], gates: ['evidence', 'verify'], report: 'Finish with: the files you changed and why, the command you ran to verify and its result, and anything left undone.' },
+  { id: 'reviewer', icon: '🔍', name: 'Reviewer', description: 'Reviews code for bugs, security and clarity without changing it; must read the code and rank findings.', instructions: 'Act as a meticulous code reviewer. Look for correctness bugs, security issues, missing edge cases and unclear code. Report findings ranked by severity with file and line references. Do not modify files unless asked.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], steps: 20, effort: 'high', memory: true, gates: ['evidence', 'findings'], report: 'Finish with findings ranked Critical / High / Medium / Low / Nit, each as `path:line — problem — suggested fix`. If you found nothing, say "No issues found" and list what you checked.' },
   { id: 'planner', icon: '🗺️', name: 'Planner', description: 'Investigates the code first, then proposes a concrete numbered plan with files and risks.', instructions: 'Act as a technical planner. Investigate the codebase, ask about anything ambiguous, and produce a concrete step-by-step plan with the files involved and risks. Do not implement until the plan is approved.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], steps: 20, effort: 'high', gates: ['evidence', 'plan'], report: 'Finish with a numbered plan (each step names the files it touches), then a "Risks" section and an "Open questions" section.' },
-  { id: 'researcher', icon: '📚', name: 'Researcher', description: 'Gathers evidence from files and the web (read-only), then reports findings with sources and what it could not verify.', instructions: 'Act as a careful researcher. Gather evidence before concluding, distinguish facts from inference, cite where each claim comes from, and say what you could not verify.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'web_fetch'], steps: 30, effort: 'medium', gates: ['evidence', 'sources'], report: 'Finish with: the answer first, then the evidence (each claim with its source URL or path:line), then an "Unverified" section for anything you could not confirm.' },
+  { id: 'researcher', icon: '📚', name: 'Researcher', description: 'Gathers evidence from files and the web (read-only), then reports findings with sources and what it could not verify.', instructions: 'Act as a careful researcher. Gather evidence before concluding, distinguish facts from inference, cite where each claim comes from, and say what you could not verify.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'web_fetch'], steps: 30, effort: 'medium', memory: true, gates: ['evidence', 'sources'], report: 'Finish with: the answer first, then the evidence (each claim with its source URL or path:line), then an "Unverified" section for anything you could not confirm.' },
   { id: 'writer', icon: '✍️', name: 'Writer', description: 'Drafts and edits prose in files (no shell or web); re-reads what it wrote before reporting.', instructions: 'Act as an editor and writer. Prefer plain, concise language, keep the author\'s voice, and explain notable edits briefly.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file'], steps: 15, guards: ['readBeforeEdit'], gates: ['readback'], report: 'Finish with the file(s) you wrote or edited and a short note on the notable edits.' },
 ];
 
@@ -93,7 +93,7 @@ const GUARDS = {
     return fs.existsSync(abs) && !run.read.has(abs) ? `Read ${call.input.path} with read_file before changing it, so the edit is based on what is really there.` : '';
   },
 };
-const guardState = (def) => ({ guards: (def && def.guards) || [], read: new Set() });
+const guardState = (def) => ({ guards: (def && def.guards) || [], read: new Set(), agentId: def && def.memory ? def.id : '' }); // agentId is only set when the agent keeps notes
 function guard(run, call, cwd) { for (const g of (run && run.guards) || []) { const m = GUARDS[g] && GUARDS[g](call, run, cwd); if (m) return m; } return ''; }
 // Remember what the agent has seen or written (called after a tool call succeeds).
 function noteCall(run, call, cwd) {
@@ -141,6 +141,7 @@ function clean(p) {
     permissionMode: MODES.includes(p.permissionMode) ? p.permissionMode : '',
     ...access.clean(p), // connectors, tools, paths
     ...(['low', 'medium', 'high'].includes(p.effort) ? { effort: p.effort } : p.effort === '' ? { effort: '' } : {}),
+    ...(typeof p.memory === 'boolean' ? { memory: p.memory } : {}),
     ...(Array.isArray(p.guards) ? { guards: p.guards.filter((g) => GUARDS[g]) } : {}),
     ...(p.steps ? { steps: Math.max(1, Math.min(100, Number(p.steps) || 25)) } : {}),
     ...(Array.isArray(p.gates) ? { gates: p.gates.filter((g) => GATES[g]) } : {}),
@@ -166,11 +167,38 @@ function remove(id) {
   if (store.getSettings().activeAgent === id) store.saveSettings({ activeAgent: '' });
   return list();
 }
-function promptBlock(id) { const a = get(id); return a && a.enabled ? blockFor(a) : ''; }
-// The persona text for a given agent definition (also used for delegated agents, whose saved copy may outlive the agent).
-function blockFor(a) {
-  if (!a || !String(a.instructions || '').trim()) return '';
-  const rep = String(a.report || '').trim();
-  return `\n\nYou are working as the agent “${a.name}”. Follow these agent instructions:\n${a.instructions.trim()}${rep ? `\n\nReport format: ${rep}` : ''}${(a.guards || []).map((g) => GUARD_INFO[g]).filter(Boolean).length ? '\n\nRules enforced on your tool calls: ' + a.guards.map((g) => GUARD_INFO[g]).filter(Boolean).join('; ') + '. A call that breaks one is refused.' : ''}${(a.gates || []).length ? '\n\nYou cannot finish until your report meets this format and your work is verified; GrizzyCode checks the report against what you actually did (cited files and lines must exist, checks must have run) and sends an incomplete one back to you.' : ''}`;
+// ---- Memory: notes an agent keeps across conversations, scoped to the folder it was working in (so one project's habits never leak into another) ----
+const memFile = (id) => path.join(store.root(), 'agent-memory', path.basename(String(id)) + '.json');
+const MAX_NOTES = 40;
+function memLoad(id) { try { const j = JSON.parse(fs.readFileSync(memFile(id), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; } }
+function memWrite(id, d) { fs.mkdirSync(path.dirname(memFile(id)), { recursive: true }); fs.writeFileSync(memFile(id), JSON.stringify(d, null, 2)); }
+const scopeOf = (cwd) => String(cwd || '');
+const notes = (id, cwd) => memLoad(id)[scopeOf(cwd)] || [];
+function addNote(id, cwd, text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 400); if (!text) return { error: 'Nothing to save.' };
+  const d = memLoad(id), k = scopeOf(cwd), list = d[k] || [];
+  if (list.some((n) => n.text.toLowerCase() === text.toLowerCase())) return { ok: true, duplicate: true, notes: list };
+  d[k] = [...list, { id: crypto.randomUUID().slice(0, 8), text, at: Date.now() }].slice(-MAX_NOTES); memWrite(id, d); return { ok: true, notes: d[k] };
 }
-module.exports = { list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs };
+function forgetNote(id, cwd, ref) { // by note id or by exact text
+  const d = memLoad(id), k = scopeOf(cwd), list = d[k] || [], keep = list.filter((n) => n.id !== ref && n.text !== ref);
+  if (keep.length === list.length) return { error: 'No such note.' };
+  if (keep.length) d[k] = keep; else delete d[k]; memWrite(id, d); return { ok: true, notes: keep };
+}
+// Every scope, for the settings screen: [{ scope, notes }]
+const allNotes = (id) => Object.entries(memLoad(id)).map(([scope, list]) => ({ scope, notes: list }));
+function clearNotes(id, scope) { const d = memLoad(id); if (scope == null) { try { fs.unlinkSync(memFile(id)); } catch {} } else { delete d[scope]; memWrite(id, d); } return allNotes(id); }
+const memoryBlock = (a, cwd) => {
+  if (!a || !a.memory) return '';
+  const list = notes(a.id, cwd);
+  return `\n\nYou keep notes across conversations (agent_note save / forget). Save only durable, reusable facts about this ${cwd ? 'project' : 'user'} that you had to discover (conventions, commands that work, pitfalls); never secrets or one-off details. Notes can be out of date, so check them against the code before relying on them.${list.length ? '\nYour notes for this ' + (cwd ? 'project' : 'user') + ':\n' + list.map((n) => `- [${n.id}] ${n.text}`).join('\n') : '\n(No notes yet.)'}`;
+};
+function promptBlock(id, cwd) { const a = get(id); return a && a.enabled ? blockFor(a, cwd) : ''; }
+// The persona text for a given agent definition (also used for delegated agents, whose saved copy may outlive the agent).
+function blockFor(a, cwd) {
+  if (!a) return '';
+  if (!String(a.instructions || '').trim()) return memoryBlock(a, cwd);
+  const rep = String(a.report || '').trim();
+  return `\n\nYou are working as the agent “${a.name}”. Follow these agent instructions:\n${a.instructions.trim()}${rep ? `\n\nReport format: ${rep}` : ''}${(a.guards || []).map((g) => GUARD_INFO[g]).filter(Boolean).length ? '\n\nRules enforced on your tool calls: ' + a.guards.map((g) => GUARD_INFO[g]).filter(Boolean).join('; ') + '. A call that breaks one is refused.' : ''}${memoryBlock(a, cwd)}${(a.gates || []).length ? '\n\nYou cannot finish until your report meets this format and your work is verified; GrizzyCode checks the report against what you actually did (cited files and lines must exist, checks must have run) and sends an incomplete one back to you.' : ''}`;
+}
+module.exports = { list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };

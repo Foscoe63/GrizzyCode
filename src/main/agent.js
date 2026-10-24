@@ -27,6 +27,7 @@ const STYLES = {
   explanatory: 'Explain as you work. When you make a design or implementation choice, add a brief note on why you chose it and what the alternatives were.',
   learning: 'Act as a collaborative teacher. Explain concepts as they come up, and for small, well-scoped pieces leave a clearly marked TODO(human) with guidance so the user writes that part themselves.',
 };
+const ROLE_TEXT = { software: 'software engineering', design: 'design', research: 'research', writing: 'writing and editing', data: 'data and analytics', product: 'product and business', education: 'teaching', student: 'study as a student', other: '' };
 function buildSystem(s, conv) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
@@ -34,10 +35,12 @@ function buildSystem(s, conv) {
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
+  else if (s.profileName?.trim()) sys += `\n\nThe user's name is ${s.profileName.trim()}.`;
+  if (ROLE_TEXT[s.profileRole]) sys += `\nThe user works in ${ROLE_TEXT[s.profileRole]}; pitch explanations and examples accordingly.`;
   const style = STYLES[s.outputStyle] || (s.outputStyle === 'custom' ? (s.customStyle || '').trim().slice(0, 4000) : '');
   if (style) sys += `\n\nResponse style: ${style}`;
   if (s.preferences?.trim()) sys += `\n\nThe user's personal preferences (follow them unless the task says otherwise):\n${s.preferences.trim().slice(0, 2000)}`;
-  sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId);
+  sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId, conv.cwd);
   const pr = store.getProject(conv.projectId);
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   const sk = s.capSkills === false ? [] : skills.list();
@@ -121,6 +124,11 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
   if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, mcp.toolDefs()), c.input);
   if (c.name === 'pin_fact') { const r = savings.pin(convId, c.input?.fact); return r.error ? 'ERROR: ' + r.error : (conv.pinned = r.pinned, 'Pinned. It will be kept through any compaction of this conversation.'); }
+  if (c.name === 'agent_note') { // the agent's own notes: answered here, no permission needed (they only touch GrizzyCode's saved data)
+    if (!run?.agentId) return 'ERROR: this agent does not keep notes.';
+    const i = c.input || {}, r = i.action === 'forget' ? agents.forgetNote(run.agentId, conv.cwd, String(i.id || i.text || '')) : i.action === 'save' ? agents.addNote(run.agentId, conv.cwd, i.text) : { error: 'action must be save or forget' };
+    return r.error ? 'ERROR: ' + r.error : i.action === 'forget' ? 'Forgotten.' : r.duplicate ? 'Already noted.' : `Saved. You now have ${r.notes.length} note${r.notes.length === 1 ? '' : 's'} for this project.`;
+  }
   const real = savings.unwrapInvoke(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
@@ -219,10 +227,10 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
       lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
       const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true }), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
-      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
+      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model), effort: sub.def.effort || root.effort }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
@@ -275,7 +283,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   active.set(convId, ac);
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
-  const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set() };
+  const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set(), agentId: '' };
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
@@ -284,7 +292,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const live = store.getConversation(convId); // pick up mode/allow changes made mid-run
       conv.permissionMode = live.permissionMode; conv.allow = live.allow; conv.model = live.model; conv.agentId = live.agentId;
       conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
-      { const ad = agents.get(conv.agentId); run.guards = ad && ad.enabled ? agents.guardState(ad).guards : []; }
+      { const ad = agents.get(conv.agentId), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; }
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(conv.agentId)?.model || s.model;
       if (s.saveCompact) { // fold old turns into a summary when the context is getting full
         const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
@@ -293,7 +301,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       }
       const lists = [agents.accessOf(agents.get(conv.agentId))];
       const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(conv.agentId)?.enabled && agents.get(conv.agentId).memory) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);

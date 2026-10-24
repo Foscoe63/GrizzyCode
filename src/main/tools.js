@@ -48,6 +48,8 @@ const delegateTool = { name: 'delegate_agent', kind: 'read', description: 'Hand 
 const messageTool = { name: 'message_agent', kind: 'read', description: 'Send a message to an agent started earlier (by its id) and get its reply. Use it to ask follow-ups, correct course, or pass one agent\'s findings to another. An agent that is busy cannot be messaged.', risky: false,
   input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Agent id returned by delegate_agent' }, message: { type: 'string' } }, required: ['id', 'message'] } };
 const AGENT_TOOLS = [delegateTool.name, messageTool.name];
+const noteTool = { name: 'agent_note', kind: 'read', description: 'Keep or drop one of your own notes, which are shown to you in every future conversation in this project. save: a short durable fact you had to discover (a convention, a command that works, a pitfall). forget: remove a note by its id when it is wrong or stale. Never store secrets.', risky: false,
+  input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['save', 'forget'] }, text: { type: 'string', description: 'The note (save)' }, id: { type: 'string', description: 'Note id (forget)' } }, required: ['action'] } };
 
 // caps: the capability settings (capShell, capEdit, capWeb, capSkills, capAgents, memoryEnabled && memoryAuto); omitted = defaults.
 // opts.depth: how deep the calling agent is (0 = the main agent); opts.sub: a delegated agent, which never presents a plan.
@@ -61,6 +63,7 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   if (on('capWeb', false) && permissionMode !== 'plan') out.push(webTool);
   if (on('memoryEnabled') && on('memoryAuto')) out.push(memoryTool);
   if (on('capSkills') && skills.list().length) out.push(skillTool);
+  if (opts.agentMemory) out.push(noteTool);
   return out.map(({ risky, kind, ...t }) => t);
 }
 // 'read' | 'edit' | 'exec'

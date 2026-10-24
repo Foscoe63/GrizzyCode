@@ -677,8 +677,13 @@ async function openSettings() {
 }
 const canUse = (s) => s.usable ?? (!!s.hasKey || /^https?:\/\/(localhost|127\.0\.0\.1)/.test(s.baseUrl || ''));
 const METHOD = { openrouter: 'OpenRouter (browser)', 'openrouter-key': 'OpenRouter API key', 'anthropic-key': 'Anthropic API key' };
+async function renderProfile() {
+  const s = settings, name = (s.profileName || s.displayName || '').trim(), initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  $('profAv').textContent = initials || '?'; $('profName').textContent = name || 'Your profile'; $('profMail').textContent = s.profileEmail || 'Stored on this computer only';
+  try { const u = await gc.usage(); $('profSince').textContent = u?.since || 'today'; } catch { $('profSince').textContent = '—'; }
+}
 function renderAccount() {
-  const s = settings, m = s.account?.method;
+  const s = settings, m = s.account?.method; renderProfile();
   $('acctTitle').textContent = s.hasKey ? (m ? `Signed in · ${METHOD[m] || m}` : 'API key saved') : canUse(s) ? 'Providers ready' : 'Not signed in';
   $('acctSub').textContent = s.hasKey ? `${s.provider === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible'}${s.baseUrl ? ' · ' + s.baseUrl : ''} · model ${s.model}` : canUse(s) ? s.baseUrl : 'Sign in through your browser to start chatting.';
   $('acctOut').hidden = !s.hasKey;
@@ -811,7 +816,7 @@ async function refreshMcp(list) {
   for (const s of list) {
     const d = document.createElement('div'); d.className = 'mcard';
     const summary = s.type === 'http' ? s.def.url : [s.def.command, ...(s.def.args || [])].join(' ');
-    d.innerHTML = `<div class="mhead"><span class="mdot ${dot[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.type === 'http' ? 'remote' : 'local'}</span><span class="spacer"></span><span class="hint">${s.status === 'running' ? s.tools.length + ' tool' + (s.tools.length === 1 ? '' : 's') : esc(s.status)}</span></div>
+    d.innerHTML = `<div class="mhead"><span class="mdot ${dot[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.type === 'http' ? 'remote' : 'local'}</span>${s.auth?.state === 'signed-in' ? '<span class="mbadge">signed in</span>' : s.auth?.state === 'required' ? '<span class="mbadge">sign-in needed</span>' : ''}<span class="spacer"></span><span class="hint">${s.status === 'running' ? s.tools.length + ' tool' + (s.tools.length === 1 ? '' : 's') : esc(s.status)}</span></div>
       <div class="msum" title="${esc(summary)}">${esc(summary)}</div>
       ${s.error ? `<div class="merr">${esc(s.error)}${s.stderr ? `<details><summary>Server output</summary><pre>${esc(s.stderr)}</pre></details>` : ''}</div>` : ''}
       ${s.tools.length ? `<details class="mtools"><summary>${toolSummary(s.tools)}</summary>${toolGroups(s.tools)}</details>` : ''}
@@ -823,6 +828,18 @@ async function refreshMcp(list) {
     const act = d.querySelector('.mact');
     const btn = (t, f, cls = 'outline') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = t; b.onclick = f; act.appendChild(b); return b; };
     btn('Edit', () => openMcpDialog(s.name, s.def));
+    if (s.type === 'http' && !s.disabled) {
+      if (s.auth?.state === 'signed-in') btn('Sign out', async () => { refreshMcp(await gc.mcp.signOut(s.name)); toast(`${s.name} signed out`); });
+      else {
+        const sb = btn('Sign in…', async () => {
+          if (sb.dataset.busy) return gc.mcp.cancelSignIn(s.name);
+          sb.dataset.busy = '1'; sb.textContent = 'Cancel sign-in'; toast('Finish signing in in your browser');
+          const r = await gc.mcp.signIn(s.name).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok) toast(`${s.name} signed in`); else if (r.error && r.error !== 'Cancelled') toast(r.error);
+          refreshMcp(r.servers);
+        }, s.auth?.state === 'required' ? 'primary' : 'outline');
+      }
+    }
     if (!s.disabled) btn(s.status === 'error' ? 'Reconnect' : 'Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Connecting…'; refreshMcp(await gc.mcp.restart(s.name)); });
     btn(s.disabled ? 'Connect' : 'Disconnect', async () => refreshMcp(await gc.mcp.toggle(s.name, !s.disabled)));
     btn('Remove', async () => { if (await gc.confirm(`Remove “${s.name}”?`, 'The server is stopped and its configuration deleted.', 'Remove')) refreshMcp(await gc.mcp.remove(s.name)); });
@@ -837,6 +854,7 @@ document.querySelectorAll('#mType button').forEach((b) => (b.onclick = () => mTy
 function fillMcp(name, def, note) {
   $('mName').value = name || ''; mType(def.url !== undefined ? 'http' : 'stdio');
   $('mCmd').value = def.command || ''; $('mArgs').value = (def.args || []).join('\n'); $('mEnv').value = Object.entries(def.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'); $('mCwd').value = def.cwd || '';
+  $('mOauthId').value = def.oauth?.clientId || ''; $('mOauthSecret').value = def.oauth?.clientSecret || '';
   $('mUrl').value = def.url || ''; $('mHdrs').value = Object.entries(def.headers || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
   $('mMsg').textContent = note || ''; $('mMsg').className = 'mmsg';
 }
@@ -850,7 +868,8 @@ function openMcpDialog(name, def) {
 function readMcp() {
   const name = $('mName').value.trim(); let def;
   if ($('mType').dataset.v === 'http') {
-    def = { url: $('mUrl').value.trim(), headers: Object.fromEntries(lines($('mHdrs').value).map((l) => { const i = l.indexOf(':'); return i < 0 ? [l, ''] : [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })) };
+    const cid = $('mOauthId').value.trim();
+    def = { url: $('mUrl').value.trim(), ...(cid ? { oauth: { clientId: cid, ...($('mOauthSecret').value ? { clientSecret: $('mOauthSecret').value } : {}) } } : {}), headers: Object.fromEntries(lines($('mHdrs').value).map((l) => { const i = l.indexOf(':'); return i < 0 ? [l, ''] : [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })) };
   } else {
     def = { command: $('mCmd').value.trim(), args: lines($('mArgs').value), env: Object.fromEntries(lines($('mEnv').value).map((l) => { const i = l.indexOf('='); return i < 0 ? [l, ''] : [l.slice(0, i).trim(), l.slice(i + 1)]; })), cwd: $('mCwd').value.trim() };
   }
@@ -942,7 +961,7 @@ async function commitField(el) {
 }
 function afterSetting(k) {
   if (k === 'font') applyFont(settings.font); else if (k === 'termFontSize') { for (const v of termViews.values()) { v.term.options.fontSize = settings.termFontSize; try { v.fit.fit(); } catch {} } }
-  else if (k === 'capArtifacts') applyCaps(); else if (k === 'allowBypass') { syncComposer(); } else if (k === 'devMode') $('devOnly').hidden = !settings.devMode; else if (k === 'promptSuggestions' && !settings.promptSuggestions) clearSuggest();
+  else if (['profileName', 'profileEmail', 'displayName'].includes(k)) renderProfile(); else if (k === 'capArtifacts') applyCaps(); else if (k === 'allowBypass') { syncComposer(); } else if (k === 'devMode') $('devOnly').hidden = !settings.devMode; else if (k === 'promptSuggestions' && !settings.promptSuggestions) clearSuggest();
   else if (k === 'hardwareAccel') $('hwRestart').hidden = false; else if (k === 'launchAtLogin') renderSystem(); else if (k === 'worktreeDir') updateWtNote();
 }
 document.querySelectorAll('#settings [data-s]').forEach((el) => el.addEventListener('change', () => commitField(el)));
@@ -1096,7 +1115,7 @@ async function renderAgents() {
   await loadAgents(); const box = $('agList'); box.innerHTML = '';
   for (const a of agents) {
     const r = document.createElement('div'); r.className = 'mcard'; const isActive = currentAgent()?.id === a.id;
-    const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.effort && `thinking ${esc(a.effort)}`, a.steps && `${a.steps} steps`, a.gates?.length && `${a.gates.length} check${a.gates.length === 1 ? '' : 's'}`, a.guards?.length && `${a.guards.length} rule${a.guards.length === 1 ? '' : 's'}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.effort && `thinking ${esc(a.effort)}`, a.memory && 'remembers', a.steps && `${a.steps} steps`, a.gates?.length && `${a.gates.length} check${a.gates.length === 1 ? '' : 's'}`, a.guards?.length && `${a.guards.length} rule${a.guards.length === 1 ? '' : 's'}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
     r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
     const act = r.querySelector('.mact'); const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.textContent = t; b.onclick = f; act.appendChild(b); };
     if (a.enabled && !isActive) btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
@@ -1123,6 +1142,19 @@ function fillAgentPick(mode, list, items, chosen) {
   $(mode).onchange = () => { $(list).hidden = $(mode).value !== 'selected'; };
 }
 const agPicked = (mode, list) => ($(mode).value === 'selected' ? [...$(list).querySelectorAll('input:checked')].map((i) => i.value) : null);
+async function renderAgentNotes(a) {
+  const box = $('agNotes'); box.innerHTML = ''; if (!a?.id) return;
+  const groups = (await gc.agents.notes(a.id).catch(() => [])) || []; if (!groups.length) return;
+  for (const g of groups) {
+    const h = document.createElement('div'); h.className = 'mgrp'; h.style.paddingLeft = '0';
+    h.innerHTML = `<b>Notes for ${g.scope ? esc(g.scope.split('/').slice(-2).join('/')) : 'no project'}</b> <span class="hint">${g.notes.length}</span><span class="spacer"></span>`;
+    const clr = document.createElement('button'); clr.type = 'button'; clr.className = 'outline'; clr.textContent = 'Clear'; clr.onclick = async () => { await gc.agents.clearNotes(a.id, g.scope); renderAgentNotes(a); }; h.appendChild(clr); box.appendChild(h);
+    for (const n of g.notes) {
+      const r = document.createElement('div'); r.className = 'mtool'; r.innerHTML = `<div>${esc(n.text)}</div>`;
+      const d = document.createElement('button'); d.type = 'button'; d.className = 'outline'; d.textContent = 'Delete'; d.onclick = async () => { await gc.agents.forgetNote(a.id, g.scope, n.id); renderAgentNotes(a); }; r.appendChild(d); box.appendChild(r);
+    }
+  }
+}
 async function openAgent(a) {
   agEditing = a || null; $('agTitle').textContent = a ? `Edit “${a.name}”` : 'New agent';
   $('agName').value = a?.name || ''; $('agIcon').value = a?.icon || ''; $('agDesc').value = a?.description || ''; $('agInstr').value = a?.instructions || '';
@@ -1130,6 +1162,7 @@ async function openAgent(a) {
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
   $('agPaths').value = (a?.paths || []).join('\n');
+  $('agMem').checked = !!a?.memory; renderAgentNotes(a);
   $('agEffort').value = a?.effort || ''; $('agSteps').value = a?.steps || ''; $('agReport').value = a?.report || '';
   agSchema ||= await gc.agents.schema().catch(() => ({ gates: {}, guards: {} }));
   const chk = (box, info, on) => { $(box).innerHTML = Object.entries(info).map(([k, label]) => `<label class="agchk"><input type="checkbox" value="${esc(k)}"${on?.includes(k) ? ' checked' : ''}> ${esc(label)}</label>`).join('') || '<span class="hint">None.</span>'; };
@@ -1138,7 +1171,7 @@ async function openAgent(a) {
 }
 $('agNew').onclick = () => openAgent(null); $('agCancel').onclick = () => $('agDlg').close();
 $('agSave').onclick = async () => {
-  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
+  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
   if (r.error) { $('agMsg').textContent = r.error; $('agMsg').className = 'mmsg bad'; return; }
   $('agDlg').close(); renderAgents();
 };

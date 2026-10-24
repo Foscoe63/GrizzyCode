@@ -87,7 +87,8 @@ Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx
 
 ## 🧰 Connectors, extensions, plugins and skills
 
-- **MCP servers:** Settings → Connectors → **Add connector** (local command or remote URL, with Test), or **Import JSON**.
+- **MCP servers:** Settings → Connectors → **Add custom connector** (local command or remote URL, with Test), or **Import JSON**. Each tool is *Always allow*, *Needs approval* or *Blocked*.
+- **Remote connectors sign in with OAuth:** if a server answers 401, choose **Sign in…** — GrizzyCode finds the server's authorization endpoints, registers itself (or uses a client ID you enter), signs you in through your browser with PKCE, keeps the tokens sealed and refreshes them. A header you type yourself always wins.
 - **Extensions:** Settings → Extensions has one-click connectors (Filesystem, Knowledge graph memory, Sequential thinking, Browser (Playwright), Fetch, Git, Time) and installs `.mcpb` / `.dxt` bundles.
 - **Plugins:** Settings → Plugins installs a folder or `.plugin` / `.zip` that bundles skills, connectors and slash commands.
 - **Skills:** Settings → Skills. GrizzyCode ships `docx`, `pdf`, `pptx`, `xlsx`, `frontend-design` and `mod-authoring`.
@@ -122,6 +123,8 @@ Engineer, Reviewer, Planner, Researcher and Writer (and any agent you make under
 - 🚧 **Rules on tool calls**, e.g. an existing file must be read before it is edited (refused before anything is written or asked).
 - ✅ **Completion checks** run against the tool calls GrizzyCode actually saw: an engineer cannot finish after an edit until a check has run and is not failing; a reviewer's `path:line` references must exist; a researcher may only cite URLs it fetched. A failing check sends the agent back to work (at most twice).
 - 🧾 A **run record** the harness appends to every delegated report (files changed, commands run and whether they passed), so the delegating agent need not trust the agent's own account.
+
+- 🧠 Optional **memory**: an agent with memory keeps short notes (`agent_note`) per project folder, sees them in the next conversation there, and you can review or delete them in the agent's settings.
 
 Grizzy (the Claude Code CLI) is separate and is not configured here.
 

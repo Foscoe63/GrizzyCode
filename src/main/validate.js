@@ -4,6 +4,7 @@ const path = require('path');
 
 // Switches must be real booleans: a stray string like "false" would otherwise read as on and quietly turn a safety setting (shell, web, bypass) on.
 const BOOL = new Set(['runInTray', 'sidebarHidden', 'notifications', 'notifySound', 'capArtifacts', 'capShell', 'capEdit', 'capWeb', 'capSkills', 'capAgents', 'memoryEnabled', 'memoryAuto', 'allowBypass', 'autoOpenFiles', 'launchAtLogin', 'keepAwake', 'keepAwakeBattery', 'hardwareAccel', 'devMode', 'dockBounce', 'promptSuggestions', 'autoResume', 'checkUpdates', 'saveRouter', 'saveOutputs', 'saveCompact']);
+const ROLES = ['', 'software', 'design', 'research', 'writing', 'data', 'product', 'education', 'student', 'other'];
 const ENUM = { theme: ['system', 'light', 'dark'], permissionMode: ['default', 'acceptEdits', 'plan', 'bypassPermissions'], provider: ['anthropic', 'openai'] };
 function cleanSettings(p) {
   const out = {}, bad = [];
@@ -26,6 +27,9 @@ function cleanSettings(p) {
     else if (k === 'customStyle') out[k] = String(v).slice(0, 4000); else if (k === 'fastModel') out[k] = String(v).trim().slice(0, 120);
     else if (k === 'newTaskPrompt') out[k] = String(v).slice(0, 2000);
     else if (k === 'font') { if (['default', 'sans', 'serif', 'mono'].includes(v)) out[k] = v; else bad.push(k); }
+    else if (k === 'profileName') out[k] = String(v).trim().slice(0, 80);
+    else if (k === 'profileEmail') { const e = String(v).trim(); if (e === '' || (e.length <= 120 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e))) out[k] = e; else bad.push(k); }
+    else if (k === 'profileRole') { if (ROLES.includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'displayName') out[k] = String(v).slice(0, 60); else if (k === 'preferences') out[k] = String(v).slice(0, 2000);
     else out[k] = v;
   }

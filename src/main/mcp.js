@@ -7,6 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const store = require('./store');
+const mcpauth = require('./mcpauth');
 
 const configPath = () => path.join(store.root(), 'mcp_config.json');
 const servers = new Map(); // name -> entry
@@ -83,14 +84,18 @@ function startStdio(entry, def) {
 }
 
 // Streamable HTTP: POST each JSON-RPC message; the reply is JSON or an SSE stream containing the response.
-async function httpSend(entry, msg, timeout) {
+async function httpSend(entry, msg, timeout, retried = false) {
   const def = entry.def;
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...(def.headers || {}) };
+  const own = Object.keys(def.headers || {}).some((k) => k.toLowerCase() === 'authorization'); // a header the user typed wins over OAuth
+  if (!own) { const b = await mcpauth.bearer(entry.name, def); if (b) headers.authorization = b; }
   if (entry.sessionId) headers['mcp-session-id'] = entry.sessionId;
   if (entry.initialized) headers['mcp-protocol-version'] = PROTOCOL;
   const res = await fetch(def.url, { method: 'POST', headers, body: JSON.stringify(msg), signal: AbortSignal.timeout(timeout) });
   const sid = res.headers.get('mcp-session-id'); if (sid) entry.sessionId = sid;
   if (msg.id == null) { if (!res.ok && res.status !== 202) throw new Error(`HTTP ${res.status}`); return null; }
+  if (res.status === 401 && !own && !retried && mcpauth.signedIn(entry.name, def) && await mcpauth.refresh(entry.name)) return httpSend(entry, msg, timeout, true); // the token went stale: refresh once and retry
+  if (res.status === 401 && !own) { const e = new Error('Sign-in required'); e.authRequired = true; throw e; }
   if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error(res.status === 401 || res.status === 403 ? `Not authorized (HTTP ${res.status}). Check the headers.` : `HTTP ${res.status} ${t.slice(0, 200)}`); }
   let reply;
   if ((res.headers.get('content-type') || '').includes('text/event-stream')) {
@@ -140,7 +145,7 @@ function startServer(name, def, { register = true } = {}) {
     const r = await rpc(entry, 'tools/list', {});
     entry.tools = r.tools || [];
     entry.status = 'running';
-  })().catch((e) => { if (entry.status !== 'error') { entry.status = 'error'; entry.error = e.message; } });
+  })().catch((e) => { if (e.authRequired) entry.authRequired = true; if (entry.status !== 'error') { entry.status = 'error'; entry.error = e.message; } });
   return entry;
 }
 function stopEntry(e) {
@@ -166,7 +171,7 @@ function list() {
   const cfg = readConfig().mcpServers || {};
   return Object.entries(cfg).map(([name, def]) => {
     const e = servers.get(name);
-    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def)) };
+    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def)), auth: def.url ? { state: mcpauth.signedIn(name, def) ? 'signed-in' : e?.authRequired ? 'required' : 'none', clientId: def.oauth?.clientId || '' } : null };
   });
 }
 // Save (add or edit, with optional rename) and (re)start just that server.
@@ -176,7 +181,8 @@ async function saveServer({ name, def, oldName }) {
   const cfg = readConfig(); cfg.mcpServers ||= {};
   if (name !== oldName && cfg.mcpServers[name]) return { error: `A connector named "${name}" already exists.` };
   const prevCfg = cfg.mcpServers[oldName || name];
-  if (oldName && oldName !== name) { delete cfg.mcpServers[oldName]; stopServer(oldName); }
+  if (oldName && oldName !== name) { delete cfg.mcpServers[oldName]; stopServer(oldName); mcpauth.rename(oldName, name); }
+  if (prevCfg?.url && prevCfg.url !== def.url) mcpauth.remove(name); // a token is only good for the address it was issued for
   const clean = { ...def }; for (const k of Object.keys(clean)) if (clean[k] == null || clean[k] === '' || (Array.isArray(clean[k]) && !clean[k].length) || (k === 'env' || k === 'headers') && !Object.keys(clean[k] || {}).length) delete clean[k];
   if (prevCfg?.disabled && def.disabled === undefined) clean.disabled = true;
   if (prevCfg?.disabledTools?.length && def.disabledTools === undefined) clean.disabledTools = prevCfg.disabledTools;
@@ -186,7 +192,14 @@ async function saveServer({ name, def, oldName }) {
   if (!clean.disabled) await startServer(name, clean).ready;
   return { ok: true, servers: list() };
 }
-async function removeServer(name) { const cfg = readConfig(); delete (cfg.mcpServers || {})[name]; writeConfig(cfg); stopServer(name); return list(); }
+async function removeServer(name) { const cfg = readConfig(); delete (cfg.mcpServers || {})[name]; writeConfig(cfg); stopServer(name); mcpauth.remove(name); return list(); }
+// OAuth sign-in / sign-out for a remote connector (`open` shows the authorization page in the browser).
+async function signIn(name, opts) {
+  const def = readConfig().mcpServers?.[name]; if (!def) return { ok: false, error: 'No such connector.', servers: list() };
+  const r = await mcpauth.signIn(name, def, opts); if (r.ok && !def.disabled) { stopServer(name); await startServer(name, def).ready; }
+  return { ...r, servers: list() };
+}
+async function signOut(name) { mcpauth.remove(name); const d = readConfig().mcpServers?.[name]; if (d && !d.disabled) { stopServer(name); await startServer(name, d).ready; } return list(); }
 async function setDisabled(name, disabled) {
   const cfg = readConfig(); const d = cfg.mcpServers?.[name]; if (!d) return list();
   if (disabled) d.disabled = true; else delete d.disabled;
@@ -225,7 +238,7 @@ async function testServer(def) {
   await warmShellPath();
   const e = startServer('test', def, { register: false });
   await e.ready;
-  const out = e.status === 'running' ? { ok: true, tools: e.tools.map((t) => toolInfo(t, def)) } : { ok: false, error: e.error || 'Could not start', stderr: e.stderr };
+  const out = e.status === 'running' ? { ok: true, tools: e.tools.map((t) => toolInfo(t, def)) } : { ok: false, error: e.authRequired ? 'This server needs you to sign in. Save the connector, then choose Sign in.' : e.error || 'Could not start', stderr: e.stderr, ...(e.authRequired ? { authRequired: true } : {}) };
   stopEntry(e); return out;
 }
 // Accepts a full config ({mcpServers}), a bare map of servers, or one server definition (needs `name`).
@@ -270,4 +283,4 @@ async function callTool(fullName, args) {
   return r.isError ? 'ERROR: ' + text : text;
 }
 
-module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, setDisabled, setToolEnabled, setToolPolicy, policyOf, isReadOnly, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };
+module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, signIn, signOut, cancelSignIn: mcpauth.cancel, setDisabled, setToolEnabled, setToolPolicy, policyOf, isReadOnly, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };

@@ -155,6 +155,13 @@
     </section>
 
     <section data-pane="account" hidden><h2>Account</h2>
+      <div class="prof"><div class="avatar" id="profAv">?</div><div><b id="profName">Your profile</b><div class="hint" id="profMail">Stored on this computer only</div></div></div>
+      <label>Full name <input data-s="profileName" maxlength="80" placeholder="Your name" autocomplete="off"></label>
+      <label>Email <span class="hint">optional, shown here and in exports; never sent anywhere</span><input data-s="profileEmail" type="email" maxlength="120" placeholder="you@example.com" autocomplete="off"></label>
+      <label>What best describes your work? <select data-s="profileRole"><option value="">Prefer not to say</option><option value="software">Software engineering</option><option value="design">Design</option><option value="research">Research</option><option value="writing">Writing and editing</option><option value="data">Data and analytics</option><option value="product">Product and business</option><option value="education">Teaching</option><option value="student">Student</option><option value="other">Something else</option></select></label>
+      <label>What should GrizzyCode call you? <input data-s="displayName" placeholder="Your name" maxlength="60" autocomplete="off"></label>
+      <div class="srow"><span>Plan</span><span>Bring your own keys, no subscription</span></div><div class="srow"><span>Using GrizzyCode since</span><span id="profSince">—</span></div>
+      <h3>Sign-in</h3>
       <div class="row"><div><b id="acctTitle">Not signed in</b><p id="acctSub">Sign in through your browser to start chatting.</p></div><button class="outline" id="acctOut" type="button" hidden>Sign out</button></div>
       <div id="provRows"></div>
       <h3>OpenRouter</h3>
@@ -381,7 +388,9 @@
   </div>
   <div id="mHttp" hidden>
     <div class="fld"><label>URL<input id="mUrl" placeholder="https://example.com/mcp" spellcheck="false" autocomplete="off"></label></div>
-    <div class="fld"><label>Headers <span class="hint">Name: value, one per line (e.g. Authorization: Bearer …)</span><textarea id="mHdrs" rows="3" spellcheck="false"></textarea></label></div>
+    <div class="fld"><label>Headers <span class="hint">Name: value, one per line (e.g. Authorization: Bearer …). Leave empty to sign in with OAuth after saving.</span><textarea id="mHdrs" rows="3" spellcheck="false"></textarea></label></div>
+    <div class="fld"><label>OAuth client ID <span class="hint">optional — only for servers that don’t let apps register themselves (redirect URI <code>http://127.0.0.1</code>)</span><input id="mOauthId" spellcheck="false" autocomplete="off"></label></div>
+    <div class="fld"><label>OAuth client secret <span class="hint">optional, only for confidential apps</span><input id="mOauthSecret" type="password" spellcheck="false" autocomplete="off"></label></div>
   </div>
   <div id="mMsg" class="mmsg"></div>
   <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="mTest" class="outline" type="button">Test</button><button id="mCancel" class="outline" type="button">Cancel</button><button id="mSave" class="primary" type="button">Save</button></div></div></dialog>
@@ -415,6 +424,8 @@
   <div class="fld"><label>Rules on tool calls <span class="hint">a call that breaks one is refused</span></label><div id="agGuardList" class="agpick" style="flex-direction:column"></div></div>
   <div class="fld"><label>Completion checks <span class="hint">the run cannot finish until each passes; GrizzyCode checks them against the tool calls it saw</span></label><div id="agGateList" class="agpick" style="flex-direction:column"></div></div>
   <div class="fld"><label>Report format <span class="hint">what the final message must contain</span><textarea id="agReport" rows="3" maxlength="1000" placeholder="e.g. Finish with the files you changed, how you verified, and what is left."></textarea></label></div>
+  <div class="row" style="padding:6px 0"><div><b>Remember across conversations</b><p>The agent keeps short notes (conventions, commands that work, pitfalls) for each project and sees them next time. It saves them itself with <code>agent_note</code>; you can review and delete them here.</p></div><input type="checkbox" class="switch" id="agMem"></div>
+  <div id="agNotes"></div>
   <div class="fld"><label>Folders <span class="hint">one per line; file tools stay inside them, and the shell is turned off. Leave empty for no limit</span><textarea id="agPaths" rows="3" placeholder="e.g. ~/Projects/site&#10;docs" autocomplete="off" spellcheck="false"></textarea></label></div>
   <div class="row" style="padding:6px 0"><div><b>Enabled</b><p>Disabled agents are hidden from the picker.</p></div><input type="checkbox" class="switch" id="agOn"></div>
   <div id="agMsg" class="mmsg"></div>

@@ -268,6 +268,53 @@ app.whenReady().then(() => srv.listen(0, async () => {
   assert(r.servers.find((x) => x.name === 'local2').disabled === true, 'connector: editing keeps the disabled flag');
   list = await mcp.setDisabled('local2', false); assert(list.find((x) => x.name === 'local2').status === 'running', 'connector: enable starts it');
   list = await mcp.restartServer('local2'); assert(list.find((x) => x.name === 'local2').status === 'running', 'connector: restart');
+  // OAuth for remote connectors: discovery, dynamic registration, PKCE, tokens used, refreshed and cleared
+  {
+    const mcpauth = require('../src/main/mcpauth'); const nodeCrypto = require('crypto');
+    const issued = new Map(), valid = new Set(), refreshes = new Set(); let tokenN = 0, regs = 0, seenAuthz = null, firstTokenExpiry = 30;
+    const osrv = http.createServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => {
+      const u = new URL(req.url, base()); const json = (x, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(x)); };
+      if (u.pathname === '/.well-known/oauth-protected-resource') return json({ resource: base() + '/mcp', authorization_servers: [base()] });
+      if (u.pathname === '/.well-known/oauth-authorization-server') return json({ issuer: base(), authorization_endpoint: base() + '/authorize', token_endpoint: base() + '/token', registration_endpoint: base() + '/register' });
+      if (u.pathname === '/register') { regs++; return json({ client_id: 'cid-1', redirect_uris: JSON.parse(b).redirect_uris }, 201); }
+      if (u.pathname === '/authorize') { seenAuthz = Object.fromEntries(u.searchParams); const code = 'code' + issued.size; issued.set(code, { challenge: seenAuthz.code_challenge, redirect: seenAuthz.redirect_uri }); res.statusCode = 302; res.setHeader('location', `${seenAuthz.redirect_uri}?code=${code}&state=${seenAuthz.state}`); return res.end(); }
+      if (u.pathname === '/token') {
+        const p = new URLSearchParams(b); const mint = (exp) => { const at = 'at' + ++tokenN, rt = 'rt' + tokenN; valid.add(at); refreshes.add(rt); return { access_token: at, refresh_token: rt, expires_in: exp }; };
+        if (p.get('grant_type') === 'authorization_code') { const i = issued.get(p.get('code')); const ok = i && i.redirect === p.get('redirect_uri') && nodeCrypto.createHash('sha256').update(p.get('code_verifier') || '').digest('base64url') === i.challenge && p.get('client_id') === 'cid-1'; return ok ? json(mint(firstTokenExpiry)) : json({ error: 'invalid_grant' }, 400); }
+        if (p.get('grant_type') === 'refresh_token') { if (!refreshes.has(p.get('refresh_token'))) return json({ error: 'invalid_grant' }, 400); refreshes.delete(p.get('refresh_token')); return json(mint(3600)); }
+        return json({ error: 'unsupported_grant_type' }, 400);
+      }
+      if (u.pathname === '/mcp') {
+        if (!valid.has((req.headers.authorization || '').replace('Bearer ', ''))) { res.statusCode = 401; res.setHeader('www-authenticate', `Bearer resource_metadata="${base()}/.well-known/oauth-protected-resource"`); return res.end('no'); }
+        const m = b ? JSON.parse(b) : {}; if (m.id == null) { res.statusCode = 202; return res.end(); }
+        const result = m.method === 'initialize' ? { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'o', version: '1' } } : m.method === 'tools/list' ? { tools: [{ name: 'whoami', description: 'x', inputSchema: { type: 'object' } }] } : { content: [{ type: 'text', text: 'you are sam' }] };
+        return json({ jsonrpc: '2.0', id: m.id, result });
+      }
+      res.statusCode = 404; res.end();
+    }); });
+    const base = () => `http://127.0.0.1:${osrv.address().port}`; await new Promise((r2) => osrv.listen(0, r2));
+    const def = { url: base() + '/mcp' }; let badStatus = 0;
+    const browser = async (url) => { const au = new URL(url); badStatus = (await fetch(`${au.searchParams.get('redirect_uri')}?code=zzz&state=wrong`)).status; const r2 = await fetch(url, { redirect: 'manual' }); fetch(r2.headers.get('location')).catch(() => {}); };
+    let r = await mcp.saveServer({ name: 'oa', def });
+    const st = () => mcp.list().find((x) => x.name === 'oa');
+    assert(st().status === 'error' && st().auth.state === 'required' && /Sign-in required/.test(st().error), 'oauth connector: a 401 marks the connector as needing sign-in');
+    const si = await mcp.signIn('oa', { open: browser });
+    assert(si.ok && st().status === 'running' && st().auth.state === 'signed-in' && st().tools[0].name === 'whoami' && regs === 1, 'oauth connector: sign-in registers the app, signs in through the browser and starts the connector');
+    assert(badStatus === 400 && seenAuthz.code_challenge_method === 'S256' && seenAuthz.resource === def.url && seenAuthz.response_type === 'code' && /^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(seenAuthz.redirect_uri), 'oauth connector: PKCE S256, the resource, a loopback redirect, and a callback with the wrong state is refused');
+    assert(!JSON.stringify(require('fs').readFileSync(path.join(store.root(), 'mcp_oauth' + store.vault.tag() + '.json'), 'utf8')).includes('at1'), 'oauth connector: tokens are stored sealed, not in plain text');
+    assert((await mcp.callTool('mcp__oa__whoami', {})) === 'you are sam' && tokenN >= 2, 'oauth connector: a token about to expire is refreshed before it is used');
+    valid.clear(); assert((await mcp.callTool('mcp__oa__whoami', {})) === 'you are sam', 'oauth connector: a rejected token is refreshed once and the call retried');
+    refreshes.clear(); valid.clear(); const lost = await mcp.callTool('mcp__oa__whoami', {}).catch((e) => e.message);
+    assert(/Sign-in required|not running|exited|HTTP/i.test(lost) && !mcpauth.signedIn('oa', def), 'oauth connector: a revoked grant signs the connector out instead of looping');
+    firstTokenExpiry = 3600; await mcp.signIn('oa', { open: browser }); assert(st().auth.state === 'signed-in', 'oauth connector: signing in again works');
+    let list2 = await mcp.signOut('oa'); assert(list2.find((x) => x.name === 'oa').auth.state !== 'signed-in' && !mcpauth.signedIn('oa', def), 'oauth connector: sign-out removes the tokens');
+    const pending = mcp.signIn('oa', { open: async () => {}, timeoutMs: 5000 }); await new Promise((r2) => setTimeout(r2, 300)); mcp.cancelSignIn('oa'); assert((await pending).error === 'Cancelled', 'oauth connector: a sign-in can be cancelled');
+    const nr = await mcp.signIn('oa', { open: browser }); mcp.saveServer({ name: 'oa2', def, oldName: 'oa' }).then?.(() => {});
+    await mcp.saveServer({ name: 'oa2', def, oldName: 'oa' }); assert(nr.ok && mcpauth.signedIn('oa2', def) && !mcpauth.signedIn('oa', def), 'oauth connector: renaming a connector keeps its sign-in');
+    await mcp.saveServer({ name: 'oa2', def: { url: def.url + '?x=1' }, oldName: 'oa2' }); assert(!mcpauth.signedIn('oa2', { url: def.url + '?x=1' }), 'oauth connector: changing the address drops the sign-in (a token is only good for the address it was issued for)');
+    assert((await mcpauth.signIn('x', { url: 'http://example.com/mcp' }, { open: async () => {} })).error.includes('https') && (await mcpauth.signIn('x', { command: 'a' }, {})).error.includes('remote'), 'oauth connector: plain-http remote servers and local connectors are refused');
+    await mcp.removeServer('oa2'); osrv.close();
+  }
   // per-tool policy: Always allow / Needs approval / Blocked, grouped by annotations, honoured by the permission engine
   {
     const ann = path.join(os.tmpdir(), 'ann-mcp.js');
@@ -304,7 +351,7 @@ app.whenReady().then(() => srv.listen(0, async () => {
   });
   await new Promise((r2) => hsrv.listen(0, r2));
   const hurl = `http://127.0.0.1:${hsrv.address().port}/mcp`;
-  const noAuth = await mcp.testServer({ url: hurl }); assert(!noAuth.ok && /Not authorized/.test(noAuth.error), 'connector: remote 401 explained');
+  const noAuth = await mcp.testServer({ url: hurl }); assert(!noAuth.ok && /choose Sign in/.test(noAuth.error) && noAuth.authRequired, 'connector: a remote 401 with no headers points to OAuth sign-in');
   r = await mcp.saveServer({ name: 'remote', def: { url: hurl, headers: { Authorization: 'Bearer s3cret' } } });
   assert(r.servers.find((x) => x.name === 'remote').status === 'running' && r.servers.find((x) => x.name === 'remote').type === 'http', 'connector: remote server connects (JSON + SSE replies)');
   assert((await mcp.callTool('mcp__remote__echo', { a: 1 })) === 'echo:{"a":1}' && httpSeen.some(([mth, sid]) => mth === 'tools/call' && sid === 'sess-1'), 'connector: remote tool call carries the session id');
@@ -546,6 +593,34 @@ app.whenReady().then(() => srv.listen(0, async () => {
       const failedRun = [{ name: 'read_file', input: { path: 'a' } }, { name: 'edit_file', input: { path: 'a' } }, { name: 'bash', input: { command: 'npm test' }, out: 'boom\n[exit 1]' }];
       assert(/last check failed/.test(g('engineer', sc(failedRun, 'All done'))) && g('engineer', sc(failedRun, 'The test still fails: boom')) === '' && g('engineer', sc([failedRun[0], failedRun[1], { name: 'bash', input: { command: 'npm test' }, out: 'ok' }], 'Done')) === '', 'real agents: an engineer whose last check failed must fix it or say plainly that it still fails');
 
+      // memory: notes persist per agent and per project, reach the prompt, and are written by the agent through agent_note
+      {
+        const memDir = tmp(); let sysM = '', toolsM = [], sysOther = '';
+        const na = agents.save({ name: 'Remembers', instructions: 'Be helpful.', memory: true }).agents.find((x) => x.name === 'Remembers');
+        const setAgent = (cv, id) => store.saveConversation(Object.assign(store.getConversation(cv.id), { agentId: id }));
+        c = store.newConversation({ mode: 'code', cwd: memDir, permissionMode: 'bypassPermissions' }); setAgent(c, na.id);
+        script = [(b) => { toolsM = toolsOf(b); return toolTurn('agent_note', { action: 'save', text: 'Tests run with npm run check' }); }, () => toolTurn('agent_note', { action: 'save', text: 'tests run with NPM run check' }), () => textTurn('noted')];
+        await agent.send(c.id, 'learn', () => {}); const saved = agents.notes(na.id, memDir);
+        assert(toolsM.includes('agent_note') && saved.length === 1 && /Already noted/.test(resultsOf(store.getConversation(c.id))[1]) && agents.notes(na.id, '/elsewhere').length === 0, 'agent memory: the agent saves a note with agent_note (duplicates ignored) and it is scoped to the project folder');
+        c = store.newConversation({ mode: 'code', cwd: memDir, permissionMode: 'default' }); setAgent(c, na.id);
+        script = [(b) => { sysM = b.system.map((x) => x.text).join('\n'); return textTurn('ok'); }]; await agent.send(c.id, 'next day', () => {});
+        const other = tmp(); c = store.newConversation({ mode: 'code', cwd: other, permissionMode: 'default' }); setAgent(c, na.id);
+        script = [(b) => { sysOther = b.system.map((x) => x.text).join('\n'); return textTurn('ok'); }]; await agent.send(c.id, 'other project', () => {});
+        assert(/Tests run with npm run check/.test(sysM) && !/Tests run with npm run check/.test(sysOther) && /No notes yet/.test(sysOther), 'agent memory: notes come back in the next conversation in the same project and not in another one');
+        let noMemTools = []; c = store.newConversation({ mode: 'code', cwd: memDir, permissionMode: 'default' }); setAgent(c, 'writer');
+        script = [(b) => { noMemTools = toolsOf(b); return textTurn('ok'); }]; await agent.send(c.id, 'hi', () => {});
+        assert(!noMemTools.includes('agent_note') && agents.forgetNote(na.id, memDir, saved[0].id).ok && agents.notes(na.id, memDir).length === 0 && agents.forgetNote(na.id, memDir, 'x').error, 'agent memory: agents without memory get no note tool; notes can be forgotten');
+        agents.addNote(na.id, memDir, 'one'); agents.addNote(na.id, other, 'two'); assert(agents.allNotes(na.id).length === 2 && agents.clearNotes(na.id, memDir).length === 1 && agents.clearNotes(na.id).length === 0, 'agent memory: notes can be listed per project and cleared');
+        agents.remove(na.id);
+      }
+
+  // account profile: validated, stored, and used in the prompt
+  {
+    const pv = cleanSettings({ profileName: '  Sam Jones ', profileEmail: 'sam@example.com', profileRole: 'design' }), bad = cleanSettings({ profileEmail: 'not an email', profileRole: 'astronaut' });
+    assert(pv.out.profileName === 'Sam Jones' && pv.out.profileEmail === 'sam@example.com' && pv.out.profileRole === 'design' && bad.bad.length === 2 && cleanSettings({ profileEmail: '' }).out.profileEmail === '', 'profile: name, email and role are validated (a bad email or role is rejected, an empty email clears it)');
+    store.saveSettings({ ...pv.out, displayName: '' }); let sysP = ''; c = store.newConversation({ mode: 'chat' }); script = [(b) => { sysP = b.system.map((x) => x.text).join('\n'); return textTurn('ok'); }]; await agent.send(c.id, 'hi', () => {});
+    assert(/name is Sam Jones/.test(sysP) && /works in design/.test(sysP), 'profile: the full name and line of work reach the system prompt'); store.saveSettings({ profileName: '', profileEmail: '', profileRole: '' });
+  }
       // main-conversation runs honour the picked agent: step budget and reasoning effort
       const budget = agents.save({ name: 'Budgeted', instructions: 'Be quick.', steps: 2, effort: 'high' }).agents.find((x) => x.name === 'Budgeted');
       store.saveSettings({ maxSteps: 40 }); let turns = 0, thinking = null;
@@ -610,6 +685,17 @@ app.whenReady().then(() => srv.listen(0, async () => {
   const nBefore = store.listConversations(true).length; assert(dataops.deleteData('conversations').conversations === nBefore && store.listConversations(true).length === 0 && store.getUsage().requests === 0, 'privacy: delete conversations clears chats and usage');
   store.saveSettings({ apiKey: '', keys: { openrouter: '' }, defaultDesignSystem: '' });
 
+  // OS integration helpers (formerly stubs): memory pressure, scheduled notifications, message search, event log
+  {
+    const sys = require('../src/main/system');
+    assert(sys.memoryLevel(50, 100) === 'none' && sys.memoryLevel(8, 100) === 'warn' && sys.memoryLevel(2, 100) === 'critical', 'system: memory pressure follows free RAM');
+    const shown = []; const sc = sys.scheduler((t, b, id) => shown.push([t, b, id]));
+    sc.schedule('a', 'T1', 'B1', Date.now() + 30); sc.schedule('b', 'T2', 'B2', Date.now() + 30); sc.schedule('b', 'T2x', 'B2x', Date.now() + 40); assert(sc.cancel('a') && !sc.cancel('zzz') && sc.pending() === 1 && sc.schedule('', 'x', 'y', 1).ok === false, 'system: notifications can be scheduled, replaced and cancelled');
+    await new Promise((r2) => setTimeout(r2, 120)); assert(shown.length === 1 && shown[0][0] === 'T2x' && sc.pending() === 0, 'system: a scheduled notification fires once at its time');
+    const mc = store.newConversation({ mode: 'chat' }); mc.title = 'Fruit'; mc.messages = [{ role: 'user', content: 'I like Mangoes a lot' }, { role: 'assistant', content: [{ type: 'text', text: 'Mangoes are great' }] }]; store.saveConversation(mc);
+    const sm = sys.searchMessages(store, 'mangoes').results; assert(sm.length === 2 && sm[0].convId === mc.id && /Mangoes/.test(sm[0].snippet) && sys.searchMessages(store, 'mangoes', 'nope').results.length === 0 && sys.searchMessages(store, '').results.length === 0, 'system: message search finds text inside conversations, optionally within one');
+    assert(sys.logEvent({ k: 'sk-ant-abcdefghijk' }) === true && !logger.tail('events.log').includes('abcdefghijk'), 'system: events are logged locally with secrets scrubbed');
+  }
   // keychain: an unpackaged run never touches the macOS keychain (it would prompt every time) and ignores what the installed app sealed
   {
     const { safeStorage: ss } = require('electron'); const touched = []; const orig = { e: ss.encryptString, d: ss.decryptString, a: ss.isEncryptionAvailable };
