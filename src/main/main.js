@@ -451,7 +451,8 @@ function ipc() {
   h('dev:devtools', () => { const w = focused(); w?.webContents.openDevTools({ mode: 'detach' }); });
   h('dev:openLogs', () => { fs.mkdirSync(logger.dir(), { recursive: true }); return shell.openPath(logger.dir()); });
   h('dev:openSettingsFile', () => shell.showItemInFolder(path.join(store.root(), 'settings.json')));
-  h('dev:openMcpConfig', () => shell.openPath(mcp.configPath()));
+  h('dev:openMcpConfig', () => { const p = mcp.configPath(); if (!fs.existsSync(p)) mcp.writeConfig(mcp.readConfig()); return shell.openPath(p); });
+  h('dev:reloadMcp', async () => { await mcp.startAll(); return mcp.status(); });
   h('dev:report', async () => {
     const r = await dialog.showSaveDialog(focused(), { defaultPath: `grizzycode-diagnostics-${new Date().toISOString().slice(0, 10)}.json` });
     if (r.canceled) return null; fs.writeFileSync(r.filePath, JSON.stringify(dataops.diagnostics(app), null, 2)); return { path: r.filePath };

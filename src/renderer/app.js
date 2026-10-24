@@ -941,6 +941,16 @@ $('hwRestart').onclick = () => gc.system.relaunch();
 // Privacy
 $('privExport').onclick = async () => { const r = await gc.privacy.export(); $('privMsg').textContent = r ? 'Saved to ' + r.path : ''; };
 $('dataOpen').onclick = () => gc.data.open();
+// Developer
+const devMsg = (t) => { $('devMsg').textContent = t; };
+$('devLogs').onclick = () => gc.dev.openLogs();
+$('devSettingsFile').onclick = () => gc.dev.openSettingsFile();
+$('devMcpCfg').onclick = () => gc.dev.openMcpConfig();
+$('devTools').onclick = () => gc.dev.devtools();
+$('devReload').onclick = async () => { devMsg('Reloading…'); try { await gc.dev.reloadMcp(); devMsg('Connectors reloaded ✓'); refreshMcp(); } catch (e) { devMsg('Reload failed: ' + (e?.message || e)); } };
+$('devReport').onclick = async () => { const r = await gc.dev.report(); devMsg(r ? 'Saved to ' + r.path : ''); };
+$('devCache').onclick = () => gc.dev.clearCache();
+$('devReset').onclick = () => gc.privacy.delete('everything');
 $('delConvs').onclick = () => gc.privacy.delete('conversations');
 $('delMem').onclick = async () => { await gc.privacy.delete('memory'); renderMemory(); };
 $('delAll').onclick = () => gc.privacy.delete('everything');

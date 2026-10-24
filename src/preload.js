@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('gc', {
   privacy: { export: inv('privacy:export'), delete: inv('privacy:delete') },
   billing: { openrouter: inv('billing:openrouter') },
   system: { status: inv('system:status'), testNotification: inv('system:testNotification'), relaunch: inv('system:relaunch') },
-  dev: { devtools: inv('dev:devtools'), openLogs: inv('dev:openLogs'), openSettingsFile: inv('dev:openSettingsFile'), openMcpConfig: inv('dev:openMcpConfig'), report: inv('dev:report'), clearCache: inv('dev:clearCache') },
+  dev: { devtools: inv('dev:devtools'), openLogs: inv('dev:openLogs'), openSettingsFile: inv('dev:openSettingsFile'), openMcpConfig: inv('dev:openMcpConfig'), reloadMcp: inv('dev:reloadMcp'),report: inv('dev:report'), clearCache: inv('dev:clearCache') },
   zoom: inv('zoom:set'), testApi: inv('api:test'),
   conv: { list: inv('conv:list'), get: inv('conv:get'), create: inv('conv:new'), update: inv('conv:update'), close: inv('conv:close'), reopen: inv('conv:reopen'), remove: inv('conv:delete'), export: inv('conv:export') },
   agent: { send: inv('agent:send'), stop: inv('agent:stop'), approve: inv('agent:approve'), running: inv('agent:running'), onEvent: on('agent:event') },
