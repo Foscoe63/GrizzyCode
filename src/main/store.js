@@ -4,6 +4,32 @@ const path = require('path');
 const crypto = require('crypto');
 
 const root = () => path.join(app.getPath('userData'), 'data');
+
+// Secrets at rest. The installed app seals them with the macOS keychain (safeStorage). Any other run (npm start, the test scripts) is a
+// differently-signed binary, so touching the keychain item makes macOS stop with a "wants to use confidential information" prompt every
+// time. Those runs use a random key kept in a 0600 file next to the data instead, in their own fields so they never overwrite (or try to
+// read) what the installed app sealed. GRIZZY_KEYCHAIN=1 opts a dev run back in to the real keychain.
+const useKeychain = () => app.isPackaged || process.env.GRIZZY_KEYCHAIN === '1';
+const vault = {
+  one: () => (useKeychain() ? 'apiKeyEnc' : 'apiKeyEncDev'), many: () => (useKeychain() ? 'keysEnc' : 'keysEncDev'),
+  ok: () => (useKeychain() ? safeStorage.isEncryptionAvailable() : true),
+  fileKey() {
+    const f = path.join(root(), '.devkey');
+    try { const k = Buffer.from(fs.readFileSync(f, 'utf8').trim(), 'hex'); if (k.length === 32) return k; } catch {}
+    const k = crypto.randomBytes(32); fs.mkdirSync(root(), { recursive: true }); fs.writeFileSync(f, k.toString('hex'), { mode: 0o600 }); return k;
+  },
+  seal(v) {
+    if (useKeychain()) return safeStorage.encryptString(v).toString('base64');
+    const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', vault.fileKey(), iv), ct = Buffer.concat([c.update(v, 'utf8'), c.final()]);
+    return Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64');
+  },
+  open(b64) { // throws on a value that was sealed elsewhere or tampered with
+    const b = Buffer.from(b64, 'base64');
+    if (useKeychain()) return safeStorage.decryptString(b);
+    const d = crypto.createDecipheriv('aes-256-gcm', vault.fileKey(), b.subarray(0, 12)); d.setAuthTag(b.subarray(12, 28));
+    return Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8');
+  },
+};
 const convDir = () => path.join(root(), 'conversations');
 const settingsFile = () => path.join(root(), 'settings.json');
 
@@ -63,7 +89,7 @@ const defaultProviderId = (s) => (s.provider === 'anthropic' && !s.baseUrl ? 'an
 const keyKind = (k) => (/^sk-or-/.test(k || '') ? 'openrouter' : /^sk-ant-/.test(k || '') ? 'anthropic' : null);
 const OR_BASE = 'https://openrouter.ai/api/v1';
 function plainKey(o) {
-  if (o.apiKeyEnc && safeStorage.isEncryptionAvailable()) { try { return safeStorage.decryptString(Buffer.from(o.apiKeyEnc, 'base64')); } catch {} }
+  if (o[vault.one()] && vault.ok()) { try { return vault.open(o[vault.one()]); } catch {} }
   return o.apiKey || '';
 }
 // Keep the default endpoint and the default key consistent. Mutates `next` (the settings about to be written).
@@ -80,9 +106,9 @@ function reconcile(next, patch = {}) {
       const ids = (next.models || []).filter((m) => m.includes('/') && !/:batch$/.test(m)); const cm = String(next.model || '').replace(/:batch$/, '');
       next.model = cm.includes('/') ? cm : ids[0] || next.model;
     }
-  } else if (safeStorage.isEncryptionAvailable()) {
-    next.keysEnc = { ...(next.keysEnc || {}) }; if (!next.keysEnc[kind]) next.keysEnc[kind] = safeStorage.encryptString(key).toString('base64');
-    delete next.apiKeyEnc; delete next.apiKey; if (next.account && next.account.method !== 'manual') next.account = null;
+  } else if (vault.ok()) {
+    const ks = vault.many(); next[ks] = { ...(next[ks] || {}) }; if (!next[ks][kind]) next[ks][kind] = vault.seal(key);
+    delete next[vault.one()]; delete next.apiKey; if (next.account && next.account.method !== 'manual') next.account = null;
   }
   return true;
 }
@@ -98,13 +124,13 @@ function getSettings({ reveal = false } = {}) {
   let s = {};
   try { s = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')); } catch {}
   const out = { ...DEFAULTS, ...s };
-  if (out.apiKeyEnc && safeStorage.isEncryptionAvailable()) {
-    try { out.apiKey = safeStorage.decryptString(Buffer.from(out.apiKeyEnc, 'base64')); } catch {}
+  if (out[vault.one()] && vault.ok()) {
+    try { out.apiKey = vault.open(out[vault.one()]); } catch {}
   }
-  delete out.apiKeyEnc;
+  delete out.apiKeyEnc; delete out.apiKeyEncDev; delete out.keysEncDev;
   // Named provider keys (anthropic / openrouter), plus the default key when it belongs to one of them.
   const keys = { ...(s.keys || {}) };
-  for (const [id, enc] of Object.entries(s.keysEnc || {})) if (safeStorage.isEncryptionAvailable()) { try { keys[id] = safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch {} }
+  for (const [id, enc] of Object.entries(s[vault.many()] || {})) if (vault.ok()) { try { keys[id] = vault.open(enc); } catch {} }
   const d = defaultProviderId(out); if (out.apiKey && d !== 'custom' && !keys[d] && (!keyKind(out.apiKey) || keyKind(out.apiKey) === d || !['anthropic', 'openrouter'].includes(d))) keys[d] = out.apiKey;
   const hintOf = (k) => (k.length > 12 ? k.slice(0, 7) + '…' + k.slice(-4) : '…' + k.slice(-2)); // enough to tell keys apart, never enough to use one
   out.keyHints = Object.fromEntries(Object.entries(keys).filter(([, v]) => v).map(([k, v]) => [k, hintOf(v)]));
@@ -122,17 +148,17 @@ function saveSettings(patch) {
   const next = { ...cur, ...patch };
   if ('apiKey' in patch) {
     if (patch.apiKey) {
-      if (safeStorage.isEncryptionAvailable()) {
-        next.apiKeyEnc = safeStorage.encryptString(patch.apiKey).toString('base64');
+      if (vault.ok()) {
+        next[vault.one()] = vault.seal(patch.apiKey);
         delete next.apiKey;
       }
-    } else if (patch.apiKey === '') { delete next.apiKeyEnc; delete next.apiKey; }
+    } else if (patch.apiKey === '') { delete next[vault.one()]; delete next.apiKey; }
   }
   if (patch.keys) {
-    delete next.keys; next.keysEnc = { ...(cur.keysEnc || {}) }; const plain = { ...(cur.keys || {}) };
+    const ks = vault.many(); delete next.keys; next[ks] = { ...(cur[ks] || {}) }; const plain = { ...(cur.keys || {}) };
     for (const [id, v] of Object.entries(patch.keys)) {
-      delete next.keysEnc[id]; delete plain[id];
-      if (v) { if (safeStorage.isEncryptionAvailable()) next.keysEnc[id] = safeStorage.encryptString(v).toString('base64'); else plain[id] = v; }
+      delete next[ks][id]; delete plain[id];
+      if (v) { if (vault.ok()) next[ks][id] = vault.seal(v); else plain[id] = v; }
     }
     if (Object.keys(plain).length) next.keys = plain;
   }
@@ -225,4 +251,4 @@ function deleteProject(id) {
   for (const m of listConversations(true)) if (m.projectId === id) { const c = getConversation(m.id); c.projectId = null; saveConversation(c); }
 }
 
-module.exports = { heal, keyKind, defaultProviderId, isOpenRouterUrl, listProjects, getProject, saveProject, deleteProject, getUsage, clearUsage, addUsage, lastClosed, root, getSettings, saveSettings, listConversations, getConversation, newConversation, saveConversation, deleteConversation, searchConversations };
+module.exports = { vault, heal, keyKind, defaultProviderId, isOpenRouterUrl, listProjects, getProject, saveProject, deleteProject, getUsage, clearUsage, addUsage, lastClosed, root, getSettings, saveSettings, listConversations, getConversation, newConversation, saveConversation, deleteConversation, searchConversations };

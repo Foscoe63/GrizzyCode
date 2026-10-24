@@ -610,10 +610,21 @@ app.whenReady().then(() => srv.listen(0, async () => {
   const nBefore = store.listConversations(true).length; assert(dataops.deleteData('conversations').conversations === nBefore && store.listConversations(true).length === 0 && store.getUsage().requests === 0, 'privacy: delete conversations clears chats and usage');
   store.saveSettings({ apiKey: '', keys: { openrouter: '' }, defaultDesignSystem: '' });
 
+  // keychain: an unpackaged run never touches the macOS keychain (it would prompt every time) and ignores what the installed app sealed
+  {
+    const { safeStorage: ss } = require('electron'); const touched = []; const orig = { e: ss.encryptString, d: ss.decryptString, a: ss.isEncryptionAvailable };
+    ss.encryptString = (...x) => { touched.push('enc'); return orig.e.apply(ss, x); }; ss.decryptString = (...x) => { touched.push('dec'); return orig.d.apply(ss, x); }; ss.isEncryptionAvailable = (...x) => { touched.push('avail'); return orig.a.apply(ss, x); };
+    fs.writeFileSync(path.join(store.root(), 'settings.json'), JSON.stringify({ apiKeyEnc: 'c2VhbGVkLWJ5LXRoZS1pbnN0YWxsZWQtYXBw', keysEnc: { openrouter: 'AAAA' } }));
+    const before = store.getSettings({ reveal: true }); store.saveSettings({ keys: { openrouter: 'sk-or-roundtrip-123456' }, apiKey: 'sk-ant-roundtrip-123456789' });
+    const after = store.getSettings({ reveal: true }); const raw = JSON.parse(fs.readFileSync(path.join(store.root(), 'settings.json'), 'utf8'));
+    ss.encryptString = orig.e; ss.decryptString = orig.d; ss.isEncryptionAvailable = orig.a;
+    assert(!touched.length && !before.apiKey && after.apiKey === 'sk-ant-roundtrip-123456789' && after.keys.openrouter === 'sk-or-roundtrip-123456' && raw.apiKeyEnc === 'c2VhbGVkLWJ5LXRoZS1pbnN0YWxsZWQtYXBw' && raw.keysEnc.openrouter === 'AAAA' && !JSON.stringify(raw).includes('roundtrip'), 'keychain: unpackaged runs keep keys in a file-keyed vault, never call safeStorage, and leave the installed app\'s sealed keys untouched');
+    store.saveSettings({ keys: { openrouter: '' }, apiKey: '' });
+  }
   // key ↔ endpoint consistency (a key from one provider must never be sent to another)
   const { safeStorage } = require('electron');
   const rawSettings = (o) => fs.writeFileSync(path.join(store.root(), 'settings.json'), JSON.stringify(o));
-  rawSettings({ provider: 'anthropic', baseUrl: '', apiKeyEnc: safeStorage.encryptString('sk-or-v1-legacykey12345').toString('base64'), model: 'anthropic/claude-sonnet-5.5:batch', models: ['anthropic/claude-sonnet-5.5:batch', 'anthropic/claude-sonnet-5.5'], account: { method: 'openrouter-key', at: 1 } });
+  rawSettings({ provider: 'anthropic', baseUrl: '', [store.vault.one()]: store.vault.seal('sk-or-v1-legacykey12345'), model: 'anthropic/claude-sonnet-5.5:batch', models: ['anthropic/claude-sonnet-5.5:batch', 'anthropic/claude-sonnet-5.5'], account: { method: 'openrouter-key', at: 1 } });
   assert(store.getSettings().providerKeys.anthropic === false, 'consistency: an OpenRouter key is never reported as an Anthropic key');
   assert(store.heal() === true, 'consistency: startup repair detects the legacy mismatched settings');
   let hs = store.getSettings({ reveal: true });
