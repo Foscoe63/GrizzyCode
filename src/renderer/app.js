@@ -56,7 +56,7 @@ function toolBox(name, input, output, id) {
   d.append(s, pre); if (modInfo.messageHooks) modMaskTool(d, s, pre, name, input, output); return d;
 }
 function userBubble(content) {
-  const b = bubble('user');
+  const b = bubble('user'); attachRewind(b.parentElement);
   if (typeof content === 'string') { b.textContent = content; if (modInfo.messageHooks) modMaskUser(b, content); return; }
   for (const blk of content) {
     if (blk.type === 'image') { const i = document.createElement('img'); i.className = 'att'; i.src = `data:${blk.source.media_type};base64,${blk.source.data}`; b.appendChild(i); }
@@ -139,7 +139,7 @@ async function refreshList() {
       ['Rename…', async () => { const t = prompt('Rename', it.title); if (t) { await gc.conv.update(it.id, { title: t }); refreshList(); if (cur?.id === it.id) $('title').textContent = t; } }],
       [it.pinned ? 'Unpin' : 'Pin', async () => { await gc.conv.update(it.id, { pinned: !it.pinned }); refreshList(); }],
       ...(it.mode === 'code' && it.cwd ? [[settings.pinnedFolders.includes(it.cwd) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(it.cwd)], ['New session in this folder', () => newCode(it.cwd)]] : []),
-      ['Open in new window', () => gc.newWindow(it.id)], null,
+      ['Open in new window', () => gc.newWindow(it.id)], ['Open side by side', () => gc.splitWindow(it.id)], null,
       ['Close session', () => closeSession(it.id)],
       ['Delete…', async () => { if (await gc.confirm('Delete this conversation?', 'This cannot be undone.', 'Delete')) { const r = await gc.conv.remove(it.id); if (cur?.id === it.id) goHome(); refreshList(); if (r && !r.removed) gc.confirm('Worktree kept', `The session’s worktree was left on disk (${r.reason}). Remove it manually with git worktree remove.`, 'OK'); } }],
     ]); };
@@ -212,7 +212,7 @@ async function newCode(folder) {
   if (settings.newTaskPrompt) { $('input').value = settings.newTaskPrompt; $('input').dispatchEvent(new Event('input')); }
 }
 async function closeSession(id) {
-  if (busy.has(id)) gc.agent.stop(id);
+  if (busy.has(id)) stopRun(id);
   await gc.conv.close(id);
   if (cur?.id === id) { const i = order.indexOf(id); await refreshList(); const next = order[i] || order[i - 1]; next ? open(next) : clearView(); } else refreshList();
 }
@@ -231,7 +231,7 @@ function syncComposer() {
   ms.value = cur?.permissionMode || settings.permissionMode || 'default'; if (!ms.value) ms.value = 'default';
   ms.className = { default: 'mode-ask', acceptEdits: 'mode-accept', plan: 'mode-plan', bypassPermissions: 'mode-bypass' }[ms.value];
   syncModelLabel(); renderAgentPicker();
-  renderCtx();
+  renderCtx(); syncPower();
   const run = cur && busy.has(cur.id);
   $('sendBtn').textContent = run ? '■' : '↑'; $('sendBtn').classList.toggle('stop', !!run);
   $('input').placeholder = viewMode === 'code' ? 'Describe a task or ask a question  (/ for commands)' : 'How can I help you today?';
@@ -441,6 +441,7 @@ async function send() {
   let text = $('input').value.trim();
   if (!text && !atts.length) return;
   if (!canUse(settings)) { toast('Sign in first to start chatting'); await openSettings(); showTab('account'); return; }
+  if (powerSlash(text)) return;
   const tok = text.split(/\s+/)[0]; const mc = modInfo.commands.find((c) => '/' + c.name === tok);
   if (mc) { $('input').value = ''; $('slash').hidden = true; autosize(); return runModCommand(mc, text.slice(tok.length).trim()); }
   const pinM = text.match(/^\/(pin|unpin)\s+(.+)$/s);
@@ -459,15 +460,16 @@ async function send() {
     if (!cur) return;
     if (viewMode === 'code' && ($('modeSel').value !== 'default')) cur = await gc.conv.update(cur.id, { permissionMode: $('modeSel').value });
   }
-  if (busy.has(cur.id)) return;
   const images = atts.filter((a) => !a.ref), refs = atts.filter((a) => a.ref); atts = []; renderAtts();
   const shown = text; if (refs.length) text = (text ? text + '\n\n' : '') + refsText(refs);
+  if (busy.has(cur.id)) { enqueue(cur.id, { text, shown, images, refs }); $('input').value = ''; autosize(); return; }
+  unpause(cur.id);
   $('input').value = ''; autosize(); document.body.classList.remove('home');
   userBubble(images.length ? [...images.map((a) => ({ type: 'image', source: { media_type: a.mediaType, data: a.data } })), { type: 'text', text: shown + (refs.length ? '\n' + refs.map((r) => (r.kind === 'dir' ? '📁 ' : '📄 ') + r.name).join('  ') : '') }] : shown + (refs.length ? '\n' + refs.map((r) => (r.kind === 'dir' ? '📁 ' : '📄 ') + r.name).join('  ') : ''));
   busy.add(cur.id); typing(true); syncComposer(); $('msgs').scrollTop = 1e9;
   gc.agent.send(cur.id, text, images);
 }
-$('composer').addEventListener('submit', (e) => { e.preventDefault(); if (cur && busy.has(cur.id)) gc.agent.stop(cur.id); else send(); });
+$('composer').addEventListener('submit', (e) => { e.preventDefault(); if (cur && busy.has(cur.id)) stopRun(cur.id); else send(); });
 $('input').addEventListener('keydown', (e) => {
   const box = $('slash');
   if (!box.hidden && box._m) {
@@ -476,14 +478,16 @@ $('input').addEventListener('keydown', (e) => {
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); return runSlash(box._m[slashSel]); }
     if (e.key === 'Escape') { box.hidden = true; return; }
   }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!(cur && busy.has(cur.id))) send(); }
-  if (e.key === 'Escape' && cur && busy.has(cur.id)) gc.agent.stop(cur.id);
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  if (e.key === 'Escape' && cur && busy.has(cur.id)) stopRun(cur.id);
 });
 const autosize = () => { const i = $('input'); i.style.height = 'auto'; i.style.height = Math.min(i.scrollHeight, 220) + 'px'; };
 $('input').addEventListener('input', () => { autosize(); slashSel = 0; showSlash(); });
 
 // ---------- agent events ----------
 gc.agent.onEvent((ev) => {
+  if (ev.type === 'bgtask') return onBgTask(ev);
+  if (ev.type === 'backlog') return onBacklog(ev);
   if (ev.type === 'start') { busy.add(ev.convId); if (cur?.id === ev.convId) liveChars = 0; refreshList(); if (cur?.id === ev.convId) { $('title').textContent = ev.title; } return; }
   if (ev.type === 'done' || ev.type === 'error') {
     busy.delete(ev.convId);
@@ -493,7 +497,7 @@ gc.agent.onEvent((ev) => {
       live = null; syncComposer(); syncBranch(); if (document.body.classList.contains('diff')) refreshDiff();
       if (ev.type === 'done') showSuggest(ev.convId);
     }
-    refreshList(); return;
+    refreshList(); if (ev.type === 'done') flushQueue(ev.convId); else { paused.add(ev.convId); renderQueue(); } return;
   }
   if (cur?.id !== ev.convId) return;
   if (ev.type === 'tool_call' && (ev.name === 'write_file' || ev.name === 'edit_file') && ev.input?.path) { liveOutputs.unshift(ev.input.path); rsRefresh(); }
@@ -624,6 +628,7 @@ gc.onCommand(async (c, arg) => {
   if (c === 'new') { setView(arg === 'code' ? 'code' : 'chat', false); $('search').value = ''; goHome(); $('input').focus(); }
   else if (c === 'newWindow') { const f = await gc.pickFolder(); if (!f) return; const x = await gc.conv.create({ mode: 'code', cwd: f }); if (!settings.trustedFolders.includes(f)) settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, f] }); gc.newWindow(x.id); }
   else if (c === 'settings') openSettings();
+  else if (c === 'palette') openPalette();
   else if (c === 'find') { $('findbar').hidden = false; $('findInput').focus(); $('findInput').select(); }
   else if (c === 'rside') toggleRs();
   else if (c === 'findNext') { if (!$('findbar').hidden) doFind(arg !== false); else { $('findbar').hidden = false; $('findInput').focus(); } }

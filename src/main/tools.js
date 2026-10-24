@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const skills = require('./skills');
 const memory = require('./memory');
 const extras = require('./extras');
+const bg = require('./bgtasks');
 
 const MAX_OUT = 30000;
 const clip = (s) => (s.length > MAX_OUT ? s.slice(0, MAX_OUT) + `\n…[truncated ${s.length - MAX_OUT} chars]` : s);
@@ -20,8 +21,14 @@ const defs = [
     input_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } },
   { name: 'edit_file', kind: 'edit', description: 'Replace one exact occurrence of old_string with new_string in a file.', risky: true,
     input_schema: { type: 'object', properties: { path: { type: 'string' }, old_string: { type: 'string' }, new_string: { type: 'string' } }, required: ['path', 'old_string', 'new_string'] } },
-  { name: 'bash', kind: 'exec', description: 'Run a shell command in the working directory (zsh). 120s timeout.', risky: true,
-    input_schema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } },
+  { name: 'bash', kind: 'exec', description: 'Run a shell command in the working directory (zsh). 120s timeout. Set background:true for long-running commands (dev servers, watchers, slow test runs): it returns a task id at once and the command keeps running; read it with task_output and end it with task_stop.', risky: true,
+    input_schema: { type: 'object', properties: { command: { type: 'string' }, background: { type: 'boolean', description: 'Run without waiting; returns a task id' } }, required: ['command'] } },
+  { name: 'task_output', kind: 'read', description: 'Read the latest output and status of a background task started with bash background:true. Without an id, lists this session\'s background tasks.', risky: false,
+    input_schema: { type: 'object', properties: { id: { type: 'string' }, tail: { type: 'integer', description: 'How many trailing characters to return (default 8000)' } } } },
+  { name: 'task_stop', kind: 'read', description: 'Stop a background task started with bash background:true.', risky: false,
+    input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+  { name: 'add_followup', kind: 'read', description: 'Put a task on the user\'s follow-up list instead of doing it now. Use it for work you noticed that is out of scope for the current request (a bug elsewhere, a refactor, a missing test). One short title and a self-contained description; the user can start it as its own session later.', risky: false,
+    input_schema: { type: 'object', properties: { title: { type: 'string' }, detail: { type: 'string' } }, required: ['title'] } },
 ];
 const planTool = { name: 'exit_plan_mode', description: 'In plan mode: present your finished implementation plan (markdown) for the user to approve. Call this when the plan is ready instead of making changes.', risky: false,
   input_schema: { type: 'object', properties: { plan: { type: 'string' } }, required: ['plan'] } };
@@ -98,8 +105,9 @@ async function runRemote(name, input, host, cwd, signal) {
   }
 }
 
-function run(name, input, cwd, signal, ssh) {
-  if (ssh?.host && name !== 'use_skill' && name !== 'save_memory' && name !== 'web_fetch') return runRemote(name, input, ssh.host, cwd, signal);
+function run(name, input, cwd, signal, ssh, ctx = {}) {
+  if (ssh?.host && name === 'bash' && input.background) return Promise.resolve('ERROR: background tasks are not supported in SSH sessions.');
+  if (ssh?.host && !['use_skill', 'save_memory', 'web_fetch', 'task_output', 'task_stop', 'add_followup'].includes(name)) return runRemote(name, input, ssh.host, cwd, signal);
   const abs = (p) => path.resolve(cwd || process.env.HOME, p || '.');
   switch (name) {
     case 'read_file': {
@@ -123,7 +131,18 @@ function run(name, input, cwd, signal, ssh) {
     }
     case 'grep':
       return sh(`(command -v rg >/dev/null && rg -n --max-count 200 -e "$GC_PAT" "$GC_DIR") || grep -rnE "$GC_PAT" "$GC_DIR" | head -200`, cwd, signal, { GC_PAT: input.pattern, GC_DIR: abs(input.path) });
-    case 'bash': return sh(input.command, cwd, signal);
+    case 'bash': {
+      if (!input.background) return sh(input.command, cwd, signal);
+      const v = bg.start(ctx.convId || '', input.command, cwd);
+      return `Started background task ${v.id}. It keeps running; use task_output with id "${v.id}" to read its output and task_stop to end it.`;
+    }
+    case 'task_output': {
+      if (!input.id) { const l = bg.list(ctx.convId); return l.length ? l.map((v) => `${v.id}  ${v.status}${v.code != null ? ' (exit ' + v.code + ')' : ''}  ${v.command.slice(0, 100)}`).join('\n') : 'No background tasks.'; }
+      const r = bg.output(input.id, input.tail); if (!r) return `ERROR: no background task ${input.id}.`;
+      return `[${r.id} ${r.status}${r.code != null ? ', exit ' + r.code : ''}] ${r.command}\n${r.output || '(no output yet)'}`;
+    }
+    case 'task_stop': { const r = bg.stop(input.id); return r ? `Stopping ${r.id} (${r.status}).` : `ERROR: no background task ${input.id}.`; }
+    case 'add_followup': { const r = ctx.addFollowup ? ctx.addFollowup(String(input.title || '').slice(0, 120), String(input.detail || '').slice(0, 4000)) : null; return r ? `Added to the follow-up list: ${r.title}` : 'ERROR: could not add a follow-up here.'; }
     case 'use_skill': return skills.read(input.id);
     case 'save_memory': { const r = memory.add(input.text, 'model'); return r.error || (r.duplicate ? 'Already remembered.' : 'Saved to memory.'); }
     case 'web_fetch': return webFetch(input.url, signal);
@@ -133,9 +152,7 @@ function run(name, input, cwd, signal, ssh) {
 
 function sh(command, cwd, signal, env = {}) {
   return new Promise((resolve) => {
-    let sb = null; try { sb = extras.sandboxArgs(require('./store').getSettings().sandboxShell, cwd, command); } catch {}
-    const p = sb ? spawn(extras.SB_BIN, sb, { cwd: cwd || process.env.HOME, env: { ...process.env, ...env } })
-      : spawn('/bin/zsh', ['-lc', command], { cwd: cwd || process.env.HOME, env: { ...process.env, ...env } });
+    const p = extras.spawnShell(command, cwd, env);
     let out = '';
     const add = (d) => { out += d; };
     p.stdout.on('data', add); p.stderr.on('data', add);

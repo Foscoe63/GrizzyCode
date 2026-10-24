@@ -57,9 +57,11 @@
       </div>
       <div id="term"><div id="termHost"></div></div>
       <div id="modBand" hidden></div>
+      <div id="queue" hidden></div>
       <div id="suggest" hidden></div>
       <form id="composer" style="position:relative">
         <div id="slash" hidden></div>
+        <div id="mention" hidden></div>
         <div class="card">
           <div id="atts"></div>
           <textarea id="input" rows="1" placeholder="Describe a task or ask a question"></textarea>
@@ -76,6 +78,10 @@
           <div id="agentWrap"><button type="button" id="agentBtn" class="chip-b" title="Agent"><span id="agentIcon"></span><span id="agentLabel"></span><span class="caret">⌄</span></button>
             <div id="agentMenu" hidden role="listbox"></div></div>
           <select id="modeSel" title="Permission mode"></select>
+          <button type="button" id="effortChip" class="chip-b" title="Reasoning effort" hidden></button>
+          <button type="button" id="fastChip" class="chip-b" title="Fast mode: use the fast model from Settings" hidden>⚡ Fast</button>
+          <button type="button" id="tasksChip" class="chip-b" title="Background tasks" hidden></button>
+          <button type="button" id="followChip" class="chip-b" title="Follow-up tasks Claude noted" hidden></button>
           <span class="spacer"></span>
           <span id="modStatus" hidden></span><span id="ctxWrap"><button type="button" id="ctxBtn" hidden title="Context window"><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" id="ctxArc" cx="10" cy="10" r="7.5" transform="rotate(-90 10 10)"/></svg><span id="tok"></span></button><div id="ctxPop" hidden></div></span>
           <div id="modelWrap"><button type="button" id="modelBtn" class="chip-b" title="Model"><span id="modelLabel"></span><span class="caret">⌄</span></button>
@@ -92,6 +98,10 @@
   </div>
 </main>
 <div id="ctx" hidden></div>
+<div id="palette" hidden><div class="pal-box"><input id="palInput" placeholder="Type a command, session or setting…" spellcheck="false" autocomplete="off"><div id="palList" role="listbox"></div></div></div>
+<div id="tasksPanel" class="fpanel" hidden></div>
+<div id="followPanel" class="fpanel" hidden></div>
+<div id="sidePanel" class="fpanel" hidden><div class="fp-head"><b>Side question</b><span class="hint">Not added to the session</span><span class="grow"></span><button type="button" class="fp-x" id="sideClose" title="Close">✕</button></div><div id="sideLog"></div><form id="sideForm"><input id="sideInput" placeholder="Ask something about this session…" autocomplete="off"></form></div>
 <div id="toast" hidden></div>
 <div id="settings" hidden>
   <div class="rail">
@@ -252,6 +262,10 @@
       <h3>Housekeeping</h3>
       <div class="row"><div><b>Auto-archive idle sessions</b><p>Archive sessions untouched for this many days (0 = never). Pinned sessions are kept.</p></div><input type="number" data-s="archiveDays" data-t="int" min="0" max="3650" style="width:90px"></div>
       <div class="row"><div><b>Remove finished worktrees</b><p>Delete the worktree of an archived session this many hours after it was closed, if it has no uncommitted changes (0 = never).</p></div><input type="number" data-s="worktreeReapHours" data-t="int" min="0" max="8760" style="width:90px"></div>
+      <div class="row"><div><b>Response style</b><p>Changes how Claude writes its answers in every conversation.</p></div>
+        <select data-s="outputStyle"><option value="default">Default</option><option value="concise">Concise</option><option value="explanatory">Explanatory</option><option value="learning">Learning</option><option value="custom">Custom</option></select></div>
+      <div class="row"><div><b>Custom style</b><p>Used when Response style is Custom.</p></div><textarea data-s="customStyle" rows="2" style="width:260px" placeholder="e.g. Answer like a senior reviewer: terse, with risks first."></textarea></div>
+      <div class="row"><div><b>Fast model</b><p>Model used when Fast mode is on for a session (the ⚡ button or <code>/fast</code>). Use the same name as in the model picker.</p></div><input data-s="fastModel" placeholder="e.g. claude-haiku-5-5" style="width:200px" autocomplete="off"></div>
       <h3>Worktrees</h3>
       <div class="row"><div><b>Branch prefix</b><p>New worktree branches are named <code>prefix + task</code>.</p></div><input data-s="branchPrefix" placeholder="grizzy/" style="width:160px" autocomplete="off"></div>
       <div class="row"><div><b>Worktree folder</b><p id="wtDirNote">Where worktrees are created. Empty uses a hidden folder next to the repository.</p></div><span class="inline"><input data-s="worktreeDir" placeholder="Next to the repo" style="width:170px"><button class="outline" id="wtChoose" type="button">Choose…</button></span></div>
@@ -418,4 +432,5 @@
 <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="app.js"></script>
 <script src="pages.js"></script>
+<script src="power.js"></script>
 </body></html>

@@ -43,10 +43,10 @@ const textTurn = (t) => [
   { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
   { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } },
   { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 7 } }];
-let script = []; let seenTools = []; let router = null;
+let script = []; let seenTools = []; let router = null; const bodies = [];
 const srv = http.createServer((req, res) => {
   let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => {
-    const body = JSON.parse(b); seenTools.push((body.tools || []).map((t) => t.name));
+    const body = JSON.parse(b); bodies.push(body); seenTools.push((body.tools || []).map((t) => t.name));
     const next = router ? router(body) : script.shift();
     sse(res, typeof next === 'function' ? next(body) : next || textTurn('done'));
   });
@@ -831,6 +831,13 @@ export const register: Register = (on, options) => {
     } finally { modHost.nativeFolders = realNF; }
   }
   {
+    // A channel registered twice makes ipcMain.handle throw during startup and the window never opens.
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'main.js'), 'utf8') + fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'mods', 'glue.js'), 'utf8');
+    const seen = new Map(); for (const m of src.matchAll(/\bh\('([^']+)'/g)) seen.set(m[1], (seen.get(m[1]) || 0) + 1);
+    const dup = [...seen].filter(([, n]) => n > 1).map(([k]) => k);
+    assert(!dup.length, 'startup: no IPC channel is registered twice' + (dup.length ? ' — ' + dup.join(', ') : ''));
+  }
+  {
     // ---- gap-fill: settings validation, retry, update compare, archive, sandbox, storage ----
     const extras = require('../src/main/extras');
     const cv2 = cleanSettings({ notifyDone: 'badge', notifyApproval: 'loud', sandboxShell: 'strict', archiveDays: 99999, worktreeReapHours: -4 });
@@ -870,6 +877,93 @@ export const register: Register = (on, options) => {
         assert(fs.existsSync(path.join(dir, 'inside.txt')) && !fs.existsSync(outside) && /not permitted/.test(String(r)), 'sandbox: writes inside the project work and writes outside it are refused');
         fs.rmSync(outside, { force: true });
       }
+    }
+    {
+      // ---- rewind: messages and files go back together ----
+      const cp = require('../src/main/checkpoints'), wr = tmp(); fs.writeFileSync(path.join(wr, 'x.txt'), 'v0');
+      const rc = store.newConversation({ mode: 'code', cwd: wr, permissionMode: 'bypassPermissions' });
+      script = [toolTurn('write_file', { path: 'x.txt', content: 'v1' }), toolTurn('write_file', { path: 'new.txt', content: 'n' }), textTurn('one done')];
+      await agent.send(rc.id, 'one', () => {});
+      const idx2 = store.getConversation(rc.id).messages.length;
+      script = [toolTurn('write_file', { path: 'x.txt', content: 'v2' }), textTurn('two done')];
+      await agent.send(rc.id, 'two', () => {});
+      assert(fs.readFileSync(path.join(wr, 'x.txt'), 'utf8') === 'v2', 'rewind: setup wrote v2');
+      const pv = agent.rewindPreview(rc.id, idx2);
+      assert(pv && pv.files.length === 1 && pv.files[0].endsWith('x.txt') && pv.removedMessages === store.getConversation(rc.id).messages.length - idx2, 'rewind: preview lists the files a rewind would touch');
+      let rr = agent.rewind(rc.id, idx2, { files: true });
+      assert(rr.ok && rr.text === 'two' && fs.readFileSync(path.join(wr, 'x.txt'), 'utf8') === 'v1' && fs.existsSync(path.join(wr, 'new.txt')) && store.getConversation(rc.id).messages.length === idx2, 'rewind: second message undone (file back to v1, earlier work kept, text returned)');
+      rr = agent.rewind(rc.id, 0, { files: true });
+      assert(rr.ok && fs.readFileSync(path.join(wr, 'x.txt'), 'utf8') === 'v0' && !fs.existsSync(path.join(wr, 'new.txt')) && store.getConversation(rc.id).messages.length === 0, 'rewind: back to the start restores the original file and removes files Claude created');
+      assert(agent.rewind(rc.id, 5).error, 'rewind: an index that is not a user message is refused');
+      script = [toolTurn('write_file', { path: 'y.txt', content: 'k' }), textTurn('ok')]; await agent.send(rc.id, 'again', () => {});
+      rr = agent.rewind(rc.id, 0, { files: false });
+      assert(rr.ok && fs.existsSync(path.join(wr, 'y.txt')) && cp.turns(rc.id).length === 0, 'rewind: conversation-only keeps files and discards the checkpoints');
+    }
+    {
+      // ---- background tasks ----
+      const bg = require('../src/main/bgtasks'), wb = tmp(); const evsBg = []; bg.setNotifier((e) => evsBg.push(e));
+      const out = await tools.run('bash', { command: 'echo started; sleep 30', background: true }, wb, undefined, undefined, { convId: 'cbg' });
+      const id = /task (bg\d+)/.exec(out)?.[1];
+      await new Promise((r) => setTimeout(r, 700));
+      const o1 = await tools.run('task_output', { id }, wb, undefined, undefined, { convId: 'cbg' });
+      assert(id && /running/.test(o1) && /started/.test(o1), 'background: a long command returns at once and its output can be read while it runs');
+      assert(/bg\d+\s+running/.test(await tools.run('task_output', {}, wb, undefined, undefined, { convId: 'cbg' })) && bg.list('other').length === 0, 'background: tasks are listed per conversation');
+      await tools.run('task_stop', { id }, wb, undefined, undefined, { convId: 'cbg' });
+      for (let i = 0; i < 30 && bg.get(id).status === 'running'; i++) await new Promise((r) => setTimeout(r, 100));
+      assert(bg.get(id).status === 'stopped' && evsBg.some((e) => e.task.id === id && e.task.status === 'stopped'), 'background: task_stop ends the process and tells the UI');
+      const o2 = await tools.run('bash', { command: 'exit 3', background: true }, wb, undefined, undefined, { convId: 'cbg' });
+      const id2 = /task (bg\d+)/.exec(o2)[1]; for (let i = 0; i < 30 && bg.get(id2).status === 'running'; i++) await new Promise((r) => setTimeout(r, 100));
+      assert(bg.get(id2).status === 'failed' && bg.get(id2).code === 3, 'background: a non-zero exit is reported as failed');
+      assert(/not supported/.test(await tools.run('bash', { command: 'true', background: true }, wb, undefined, { host: 'h' })), 'background: refused in SSH sessions');
+      bg.stopAll(); bg.setNotifier(null);
+    }
+    {
+      // ---- follow-ups, effort, thinking blocks, fast mode, response style ----
+      const wf = tmp(); let fc = store.newConversation({ mode: 'code', cwd: wf, permissionMode: 'bypassPermissions' });
+      script = [toolTurn('add_followup', { title: 'Fix flaky test', detail: 'tests/a.test.js fails 1 in 10' }), textTurn('noted')];
+      const fe = []; await agent.send(fc.id, 'go', (e) => fe.push(e));
+      fc = store.getConversation(fc.id);
+      assert(fc.backlog?.length === 1 && fc.backlog[0].title === 'Fix flaky test' && !fc.backlog[0].done && fe.some((e) => e.type === 'backlog'), 'follow-ups: add_followup saves to the session and survives the end of the turn');
+      fc.effort = 'high'; store.saveConversation(fc);
+      const think = (t) => [{ type: 'message_start', message: { usage: { input_tokens: 5 } } }, { type: 'content_block_start', index: 0, content_block: { type: 'thinking' } }, { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: t } }, { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig123' } }, { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }, { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'answer' } }, { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 3 } }];
+      const prevModel = store.getSettings().model; store.saveSettings({ model: 'claude-sonnet-5-5' });
+      script = [think('pondering')]; await agent.send(fc.id, 'think', () => {});
+      const b1 = bodies.at(-1);
+      assert(b1.thinking?.type === 'enabled' && b1.thinking.budget_tokens === 24000 && b1.max_tokens > 24000, 'effort: high turns on extended thinking with a budget and enough output tokens');
+      const kept = store.getConversation(fc.id).messages.at(-1).content.find((b) => b.type === 'thinking');
+      assert(kept?.thinking === 'pondering' && kept.signature === 'sig123', 'effort: thinking blocks are kept with their signature');
+      script = [textTurn('next')]; await agent.send(fc.id, 'again', () => {});
+      assert(JSON.stringify(bodies.at(-1).messages).includes('sig123'), 'effort: thinking blocks are sent back on the next request');
+      fc = store.getConversation(fc.id); fc.effort = 'off'; store.saveConversation(fc);
+      script = [textTurn('plain')]; await agent.send(fc.id, 'plain', () => {});
+      assert(!bodies.at(-1).thinking, 'effort: off sends no thinking parameter');
+      store.saveSettings({ model: 'claude-3-5-haiku-latest' }); fc = store.getConversation(fc.id); fc.effort = 'high'; store.saveConversation(fc);
+      script = [textTurn('old')]; await agent.send(fc.id, 'old model', () => {});
+      assert(!bodies.at(-1).thinking, 'effort: models without extended thinking are left alone');
+      store.saveSettings({ model: 'claude-sonnet-5-5', fastModel: 'claude-haiku-5-5', outputStyle: 'concise' }); fc = store.getConversation(fc.id); fc.effort = 'off'; fc.fast = true; store.saveConversation(fc);
+      script = [textTurn('fast')]; await agent.send(fc.id, 'fast', () => {});
+      assert(bodies.at(-1).model === 'claude-haiku-5-5', 'fast mode: uses the fast model from Settings');
+      assert(JSON.stringify(bodies.at(-1).system).includes('Response style: Be concise'), 'response style: the chosen style is added to the system prompt');
+      store.saveSettings({ model: prevModel, fastModel: '', outputStyle: 'default' });
+    }
+    {
+      // ---- side question: answers from the session without changing it ----
+      const wsd = tmp(); const sc = store.newConversation({ mode: 'code', cwd: wsd, permissionMode: 'bypassPermissions' });
+      script = [textTurn('The answer is 42.')]; await agent.send(sc.id, 'what is the answer', () => {});
+      const before = JSON.stringify(store.getConversation(sc.id).messages);
+      script = [textTurn('It means 42.')];
+      const ans = await agent.side(sc.id, 'what did you mean?', [{ role: 'user', text: 'earlier q' }, { role: 'assistant', text: 'earlier a' }]);
+      const sb = bodies.at(-1);
+      assert(ans === 'It means 42.' && JSON.stringify(sb.system).includes('The answer is 42.') && !(sb.tools || []).length && sb.messages.length === 3, 'side question: sees the transcript, has no tools, keeps earlier side turns');
+      assert(JSON.stringify(store.getConversation(sc.id).messages) === before, 'side question: nothing is added to the session');
+    }
+    {
+      // ---- @-mention file search ----
+      const wm = tmp(); for (const f of ['src/app.js', 'src/lib/util.js', 'node_modules/pkg/app.js', 'README.md', '.hidden/x.js', 'docs/app-guide.md']) { fs.mkdirSync(path.dirname(path.join(wm, f)), { recursive: true }); fs.writeFileSync(path.join(wm, f), ''); }
+      const hits = extras.searchFiles(wm, 'app').map((x) => x.rel);
+      assert(hits[0] === 'src/app.js' && hits.includes('docs/app-guide.md') && !hits.some((h) => h.includes('node_modules')), 'mentions: best match first, ignores node_modules');
+      assert(extras.searchFiles(wm, 'utl')[0]?.rel === 'src/lib/util.js', 'mentions: fuzzy subsequence match');
+      assert(extras.searchFiles(wm, '').every((x) => !x.rel.startsWith('.hidden')) && extras.searchFiles(wm, '')[0].rel.split('/').length === 1, 'mentions: empty query lists top-level entries, skips dot folders');
     }
     {
       const u = extras.usage(os.tmpdir());

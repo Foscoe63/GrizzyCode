@@ -12,11 +12,20 @@ const agents = require('./agents');
 const mods = require('./mods/host');
 const acp = require('./acp');
 const savings = require('./savings');
+const checkpoints = require('./checkpoints');
+const path = require('path');
+const os = require('os');
 const { randomUUID } = require('crypto');
 
 const active = new Map();      // convId -> AbortController
 const approvals = new Map();   // approvalId -> resolve(decision)
+const turnIdx = new Map();     // convId -> index of the user message that started the running turn (the checkpoint key)
 
+const STYLES = {
+  concise: 'Be concise. Answer directly, skip preamble and recaps, and prefer short sentences and short code.',
+  explanatory: 'Explain as you work. When you make a design or implementation choice, add a brief note on why you chose it and what the alternatives were.',
+  learning: 'Act as a collaborative teacher. Explain concepts as they come up, and for small, well-scoped pieces leave a clearly marked TODO(human) with guidance so the user writes that part themselves.',
+};
 function buildSystem(s, conv) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
@@ -24,6 +33,8 @@ function buildSystem(s, conv) {
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
+  const style = STYLES[s.outputStyle] || (s.outputStyle === 'custom' ? (s.customStyle || '').trim().slice(0, 4000) : '');
+  if (style) sys += `\n\nResponse style: ${style}`;
   if (s.preferences?.trim()) sys += `\n\nThe user's personal preferences (follow them unless the task says otherwise):\n${s.preferences.trim().slice(0, 2000)}`;
   sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId);
   const pr = store.getProject(conv.projectId);
@@ -91,6 +102,7 @@ async function compactNow(convId) {
   const s = store.getSettings({ reveal: true }); const conv = store.getConversation(convId);
   const model = conv.model || agents.get(conv.agentId)?.model || s.model;
   const r = await savings.compact(conv, s, summarizer(s, model, convId, conv.mode, AbortSignal.timeout(180000)), { force: true });
+  if (r.compacted) checkpoints.drop(convId); // message positions changed, so old checkpoints no longer line up
   if (r.compacted) store.saveConversation(conv);
   return r.compacted ? { ok: true, ...r } : { error: `Nothing to compact: ${r.skipped}.` };
 }
@@ -112,7 +124,9 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     if (d === 'session') { const l = store.getConversation(convId); l.allow = [...new Set([...(l.allow || []), c.name])]; store.saveConversation(l); conv.allow = l.allow; }
     else if (d !== 'once') throw new Error('User denied this tool call.');
   }
-  const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh)));
+  if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
+  const ctx = { convId, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
+  const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh, ctx)));
   if (s.autoOpenFiles && !conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && !/^ERROR/.test(String(out))) { try { require('electron').shell.openPath(require('path').resolve(conv.cwd || '.', c.input.path)); } catch {} }
   return out;
 }
@@ -245,6 +259,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
     : userText;
   conv.messages.push({ role: 'user', content });
   if (conv.messages.length === 1) conv.title = opts.title || title(userText || 'Image');
+  turnIdx.set(convId, conv.messages.length - 1);
   store.saveConversation(conv);
 
   const ac = new AbortController();
@@ -259,12 +274,12 @@ async function send(convId, userText, emit, images = [], opts = {}) {
     for (let turn = 0; turn < maxSteps; turn++) {
       const live = store.getConversation(convId); // pick up mode/allow changes made mid-run
       conv.permissionMode = live.permissionMode; conv.allow = live.allow; conv.model = live.model; conv.agentId = live.agentId;
-      conv.pinned = live.pinned;
-      const mstr0 = conv.model || agents.get(conv.agentId)?.model || s.model;
+      conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
+      const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(conv.agentId)?.model || s.model;
       if (s.saveCompact) { // fold old turns into a summary when the context is getting full
         const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
         const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
-        if (r.compacted) { conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
+        if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
       }
       const lists = [agents.accessOf(agents.get(conv.agentId))];
       const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
@@ -275,7 +290,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
-        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
+        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
         catch (e) { llmErr = e; return null; }
       });
       if (llmErr) throw llmErr;
@@ -342,4 +357,35 @@ const answer = (id, decision) => { if (acp.answer(id, decision)) return; approva
 const stop = (convId) => { acp.stop(convId); active.get(convId)?.abort(); for (const [id, r] of approvals) { r('deny'); approvals.delete(id); } };
 const isRunning = (convId) => active.has(convId) || acp.isRunning(convId);
 
-module.exports = { send, stop, answer, isRunning, decide, compactNow, suggest, __test: { streamRetry, clampMode, forgetAgents: () => registries.clear() } };
+// ---- Rewind: drop a user message and everything after it, and (optionally) put back the files Claude changed since ----
+const isHuman = (m) => m?.role === 'user' && (typeof m.content === 'string' || (Array.isArray(m.content) && m.content.some((b) => b.type !== 'tool_result')));
+const humanText = (m) => (typeof m.content === 'string' ? m.content : m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n'));
+function rewindPreview(convId, idx) {
+  try { const conv = store.getConversation(convId); const m = conv.messages[idx]; if (!isHuman(m)) return null; return { removedMessages: conv.messages.length - idx, files: conv.ssh ? [] : checkpoints.preview(convId, idx), ssh: !!conv.ssh }; } catch { return null; }
+}
+function rewind(convId, idx, { files = true } = {}) {
+  if (isRunning(convId)) return { error: 'Stop the running task first.' };
+  const s = store.getSettings(); const conv = store.getConversation(convId);
+  if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return { error: 'Rewind is not available for sessions run by the Claude Code CLI.' };
+  const m = conv.messages[idx]; if (!isHuman(m)) return { error: 'That message can’t be rewound to.' };
+  const restored = files && !conv.ssh ? checkpoints.restore(convId, idx) : (checkpoints.discard(convId, idx), null);
+  conv.messages = conv.messages.slice(0, idx); conv.ctx = null; conv.agents = []; registries.delete(convId);
+  if (idx === 0) conv.title = 'New conversation';
+  store.saveConversation(conv);
+  return { ok: true, text: humanText(m), files: restored };
+}
+
+// ---- Side chat: a quick question about the session that never touches it (no tools, nothing saved to the conversation) ----
+async function side(convId, question, prior = []) {
+  const s = store.getSettings({ reveal: true }); const conv = store.getConversation(convId);
+  const flat = (m) => (typeof m.content === 'string' ? m.content : (m.content || []).filter((b) => b.type === 'text' || b.type === 'tool_use').map((b) => (b.type === 'text' ? b.text : `[tool ${b.name}: ${JSON.stringify(b.input).slice(0, 200)}]`)).join(' '));
+  const tail = conv.messages.filter((m) => flat(m).trim()).slice(-24).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${flat(m).slice(0, 1500)}`).join('\n\n');
+  const system = 'You are answering a quick side question about an ongoing session. You cannot use tools or change anything, and your answer is not added to the session. Answer briefly and directly, using the transcript for context.' + (tail ? `\n\n<session-transcript>\n${tail}\n</session-transcript>` : '');
+  const msgs = [...prior.slice(-8).map((p) => ({ role: p.role === 'assistant' ? 'assistant' : 'user', content: String(p.text).slice(0, 4000) })), { role: 'user', content: String(question).slice(0, 4000) }];
+  const model = (s.compactModel && String(s.compactModel).trim()) || conv.model || s.model;
+  const res = await llm.stream({ ...s, ...models.route(s, model), maxTokens: 1500 }, { system, messages: msgs, tools: [] }, () => {}, AbortSignal.timeout(90000));
+  store.addUsage(res.usage, { model: models.canon(s, model), mode: conv.mode, conv: convId, price: models.priceOf(s, model) });
+  return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('') || '(no answer)';
+}
+
+module.exports = { rewind, rewindPreview, side, send, stop, answer, isRunning, decide, compactNow, suggest, __test: { streamRetry, clampMode, forgetAgents: () => registries.clear() } };

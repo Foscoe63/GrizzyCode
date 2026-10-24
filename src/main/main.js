@@ -23,6 +23,7 @@ const extensions = require('./extensions');
 const dataops = require('./dataops');
 const logger = require('./logger');
 const extras = require('./extras');
+const bgtasks = require('./bgtasks');
 
 const wins = new Set();
 let quick = null, quickReady = null, tray = null, aboutWin = null;
@@ -207,6 +208,7 @@ function buildMenu() {
       { label: 'Reopen Closed Session', accelerator: 'CmdOrCtrl+Shift+T', click: () => cmd('reopen') },
       { label: 'Close Session', accelerator: 'CmdOrCtrl+W', click: () => cmd('closeSession') },
       { type: 'separator' },
+      { label: 'Command Palette…', accelerator: 'CmdOrCtrl+Shift+P', click: () => cmd('palette') },
       { label: 'Open Quick Entry', click: toggleQuick },
       { label: 'Import CLI Sessions…', click: () => cmd('importCli') },
       { label: 'Export Conversation…', click: () => cmd('export') } ] },
@@ -309,10 +311,10 @@ function ipc() {
   h('conv:list', (q) => store.searchConversations(q));
   h('conv:get', (id) => store.getConversation(id));
   h('conv:new', (o) => store.newConversation(o));
-  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'title', 'pinned', 'projectId', 'agentId']) if (k in patch) c[k] = patch[k]; store.saveConversation(c); return c; });
+  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'title', 'pinned', 'projectId', 'agentId', 'effort', 'fast']) if (k in patch) c[k] = patch[k]; store.saveConversation(c); return c; });
   h('conv:close', (id) => { const c = store.getConversation(id); c.archived = true; c.closedAt = Date.now(); store.saveConversation(c); });
   h('conv:reopen', () => { const m = store.lastClosed(); if (!m) return null; const c = store.getConversation(m.id); c.archived = false; c.closedAt = 0; store.saveConversation(c); return c; });
-  h('conv:delete', async (id) => { const c = store.getConversation(id); term.kill(id); require('./acp').kill(id); const r = c?.worktree ? await git.worktreeRemove(c.worktree) : null; store.deleteConversation(id); return r; });
+  h('conv:delete', async (id) => { const c = store.getConversation(id); term.kill(id); require('./acp').kill(id); bgtasks.stopAll(id); require('./checkpoints').drop(id); const r = c?.worktree ? await git.worktreeRemove(c.worktree) : null; store.deleteConversation(id); return r; });
   h('conv:export', async (id) => {
     const c = store.getConversation(id);
     const md = `# ${c.title}\n\n` + c.messages.map((m) => `**${m.role}**\n\n` + (typeof m.content === 'string' ? m.content
@@ -479,11 +481,31 @@ function ipc() {
   h('storage:usage', () => extras.usage(logger.dir()));
   h('storage:cleanWorktrees', async () => extras.reapWorktrees(0));
   h('app:checkUpdate', () => extras.checkUpdate(app.getVersion()));
-  h('app:openUrl', (u) => (/^https:\/\/github\.com\/Foscoe63\/GrizzyCode(\/|$)/.test(String(u)) ? shell.openExternal(u) : null));
   h('app:feedback', () => shell.openExternal(extras.feedbackUrl({ version: app.getVersion(), electron: process.versions.electron, platform: process.platform + ' ' + process.arch })));
   h('perm:status', () => extras.permissions(systemPreferences));
   h('perm:open', (key) => { const u = extras.permissionUrl(key); return u ? shell.openExternal(u) : null; });
   h('agent:suggest', (convId) => agent.suggest(convId));
+  // --- Rewind, side chat, follow-ups, background tasks, @-mention search, split view ---
+  h('conv:rewindPreview', (id, idx) => agent.rewindPreview(id, idx));
+  h('conv:rewind', (id, idx, opts) => agent.rewind(id, idx, opts));
+  h('agent:side', async (id, q, prior) => { try { return { text: await agent.side(id, q, prior || []) }; } catch (e) { return { error: e.message }; } });
+  h('backlog:list', (id) => { try { return store.getConversation(id).backlog || []; } catch { return []; } });
+  h('backlog:update', (id, itemId, patch) => {
+    const c = store.getConversation(id); c.backlog = (c.backlog || []).flatMap((b) => (b.id !== itemId ? [b] : patch?.remove ? [] : [{ ...b, ...(typeof patch?.done === 'boolean' ? { done: patch.done } : {}) }]));
+    store.saveConversation(c); return c.backlog;
+  });
+  h('tasks:list', (id) => bgtasks.list(id));
+  h('tasks:output', (id, tail) => bgtasks.output(id, tail));
+  h('tasks:stop', (id) => bgtasks.stop(id));
+  h('tasks:clear', (id) => { bgtasks.clearFinished(id); return bgtasks.list(id); });
+  h('files:search', (cwd, q) => extras.searchFiles(cwd, q));
+  h('window:split', (convId) => {
+    const w = focused(); if (!w) return;
+    const d = screen.getDisplayMatching(w.getBounds()).workArea, half = Math.floor(d.width / 2);
+    if (w.isFullScreen()) w.setFullScreen(false); if (w.isMaximized()) w.unmaximize();
+    w.setBounds({ x: d.x, y: d.y, width: half, height: d.height });
+    const n = createMain({ conv: convId }); n.setBounds({ x: d.x + half, y: d.y, width: d.width - half, height: d.height });
+  });
 
   // === Claude.app parity: Telemetry ===
   h('telemetry:consent', async () => { ensureSwiftAddon(); return { consent: store.getSettings().telemetryConsent ?? true }; });
@@ -646,6 +668,7 @@ app.whenReady().then(() => {
   mcp.startAll().catch(() => {});
   const purge = () => { try { dataops.purgeOld(store.getSettings().retentionDays); } catch {} }; purge(); setInterval(purge, 6 * 3600 * 1000);
   housekeeping(); setInterval(housekeeping, 6 * 3600 * 1000);
+  bgtasks.setNotifier((ev) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send('agent:event', ev); });
   app.on('browser-window-focus', () => { try { app.dock?.setBadge(''); } catch {} });
   setTimeout(async () => {
     const st = store.getSettings(); if (!st.checkUpdates) return;
@@ -658,5 +681,5 @@ app.whenReady().then(() => {
   }, 15000);
   app.on('activate', () => { if (!wins.size) createMain(); else showMain(); });
 });
-app.on('will-quit', () => { features.stop(); term.killAll(); modsGlue.host.stopAll(); globalShortcut.unregisterAll(); mcp.stopAll(); });
+app.on('will-quit', () => { bgtasks.stopAll(); features.stop(); term.killAll(); modsGlue.host.stopAll(); globalShortcut.unregisterAll(); mcp.stopAll(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' || !store.getSettings().runInTray) app.quit(); });

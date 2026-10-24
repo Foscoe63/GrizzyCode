@@ -343,3 +343,35 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 #suggest button{border:1px solid var(--line);background:transparent;color:inherit;border-radius:14px;padding:4px 11px;font:inherit;font-size:12.5px;cursor:pointer;opacity:.85}
 #suggest button:hover{opacity:1;background:var(--line)}
 #permList .srow,#stList .srow{align-items:center}
+
+/* queue, mentions, palette, floating panels, rewind */
+#queue{display:flex;flex-direction:column;gap:4px;margin:0 auto 6px;max-width:760px;width:100%;padding:0 4px}
+#queue .q{display:flex;align-items:center;gap:8px;border:1px dashed var(--line-strong);border-radius:10px;padding:5px 10px;font-size:12.5px;color:var(--text-2)}
+#queue .q span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+#queue button,.fpanel button.mini{border:0;background:transparent;color:var(--text-3);cursor:pointer;font:inherit;padding:2px 6px;border-radius:6px}
+#queue button:hover,.fpanel button.mini:hover{background:var(--hover);color:inherit}
+#queue .qh{font-size:12px;color:var(--text-3);display:flex;gap:8px;align-items:center}
+#mention{position:absolute;bottom:100%;left:20px;margin-bottom:4px;background:var(--bg-raised);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:300px;max-width:560px;overflow:hidden;z-index:6}
+#mention div{padding:6px 12px;cursor:pointer;display:flex;gap:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#mention div.on,#mention div:hover{background:var(--hover)}
+#palette{position:fixed;inset:0;z-index:50;display:flex;justify-content:center;align-items:flex-start;padding-top:14vh;background:rgba(0,0,0,.25)}
+#palette[hidden]{display:none}
+.pal-box{width:min(600px,92vw);background:var(--bg-raised);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+#palInput{width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;color:inherit;font:inherit;font-size:15px;padding:14px 16px;outline:none}
+#palList{max-height:min(52vh,420px);overflow:auto;padding:4px}
+#palList div{display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-radius:8px;cursor:pointer}
+#palList div.on{background:var(--hover)}#palList small{margin-left:auto;color:var(--text-3);font-size:11.5px;white-space:nowrap}
+#palList .ph{cursor:default;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);padding:8px 12px 2px}
+.fpanel{position:fixed;right:24px;bottom:150px;width:400px;max-height:55vh;overflow:auto;background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);z-index:20;padding:10px 12px;font-size:13px}
+.fpanel[hidden]{display:none}
+.fp-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}.fp-head .grow{flex:1}.fp-x{border:0;background:transparent;color:var(--text-3);cursor:pointer}
+.fp-row{border-top:1px solid var(--line);padding:7px 0}.fp-row:first-of-type{border-top:0}
+.fp-row .t{display:flex;gap:8px;align-items:center}.fp-row .t b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.fp-row pre{margin:6px 0 0;max-height:180px;overflow:auto;background:var(--bg);border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;word-break:break-word}
+.fp-row .d{color:var(--text-2);margin-top:3px}.st-running{color:var(--git-add)}.st-failed{color:#c0392b}.fp-empty{color:var(--text-3);padding:6px 0}
+#sideLog{display:flex;flex-direction:column;gap:8px;max-height:36vh;overflow:auto;margin-bottom:8px}
+#sideLog .sq{align-self:flex-end;background:var(--user);border-radius:10px;padding:5px 10px;max-width:88%;white-space:pre-wrap}
+#sideLog .sa{white-space:pre-wrap;line-height:1.45}
+#sideInput{width:100%;border:1px solid var(--line);border-radius:8px;background:transparent;color:inherit;font:inherit;padding:7px 10px;outline:none}
+.msg.user{position:relative}
+.msg.user .rw{align-self:center;margin-right:6px;opacity:0;border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;border-radius:6px;padding:2px 6px}
+.msg.user:hover .rw{opacity:1}.msg.user .rw:hover{background:var(--hover);color:inherit}

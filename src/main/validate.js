@@ -16,6 +16,8 @@ function cleanSettings(p) {
     else if (k === 'notifyApproval' || k === 'notifyDone') { if (['banner', 'badge', 'off'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'sandboxShell') { if (['off', 'files', 'strict'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'archiveDays') num(k, 0, 3650); else if (k === 'worktreeReapHours') num(k, 0, 8760);
+    else if (k === 'outputStyle') { if (['default', 'concise', 'explanatory', 'learning', 'custom'].includes(v)) out[k] = v; else bad.push(k); }
+    else if (k === 'customStyle') out[k] = String(v).slice(0, 4000); else if (k === 'fastModel') out[k] = String(v).trim().slice(0, 120);
     else if (k === 'newTaskPrompt') out[k] = String(v).slice(0, 2000);
     else if (k === 'font') { if (['default', 'sans', 'serif', 'mono'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'displayName') out[k] = String(v).slice(0, 60); else if (k === 'preferences') out[k] = String(v).slice(0, 2000);

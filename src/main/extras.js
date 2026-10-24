@@ -105,4 +105,47 @@ function sandboxArgs(mode, cwd, command) {
   return ['-D', `CWD=${real(cwd || home)}`, '-D', `NPM=${path.join(home, '.npm')}`, '-D', `CACHE=${path.join(home, '.cache')}`, '-D', `TMP=${real(os.tmpdir())}`, '-p', rules.join('\n'), '/bin/zsh', '-lc', command];
 }
 
-module.exports = { usage, autoArchive, reapWorktrees, checkUpdate, cmpVer, feedbackUrl, permissions, permissionUrl, sandboxArgs, SB_BIN, dirSize };
+// The one place a shell command is launched (bash tool and background tasks): honours Settings → Claude Code → Shell sandbox.
+function spawnShell(command, cwd, env = {}, opts = {}) {
+  const { spawn } = require('child_process');
+  let sb = null; try { sb = sandboxArgs(store.getSettings().sandboxShell, cwd, command); } catch {}
+  const o = { cwd: cwd || process.env.HOME, env: { ...process.env, ...env }, ...opts };
+  return sb ? spawn(SB_BIN, sb, o) : spawn('/bin/zsh', ['-lc', command], o);
+}
+
+// ---- @-mention file search: a cached, ignore-aware listing of the session folder ----
+const SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', 'out', 'target', '.venv', 'venv', '__pycache__', '.cache', 'coverage', '.DS_Store', '.idea', '.gradle', 'Pods', 'DerivedData']);
+const listCache = new Map();
+function listFiles(cwd, { maxEntries = 6000, maxDepth = 8 } = {}) {
+  const hit = listCache.get(cwd); if (hit && Date.now() - hit.at < 30000) return hit.list;
+  const list = []; const queue = [[cwd, 0]];
+  while (queue.length && list.length < maxEntries) {
+    const [d, depth] = queue.shift();
+    let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (SKIP.has(e.name) || (e.name.startsWith('.') && e.name !== '.github')) continue;
+      const rel = path.relative(cwd, path.join(d, e.name));
+      list.push({ rel, dir: e.isDirectory() });
+      if (e.isDirectory() && depth < maxDepth && !e.isSymbolicLink()) queue.push([path.join(d, e.name), depth + 1]);
+      if (list.length >= maxEntries) break;
+    }
+  }
+  listCache.set(cwd, { at: Date.now(), list }); return list;
+}
+function searchFiles(cwd, query, limit = 8) {
+  if (!cwd || !fs.existsSync(cwd)) return [];
+  const q = String(query || '').toLowerCase(); const files = listFiles(cwd);
+  const subseq = (s) => { let i = 0; for (const ch of s) if (ch === q[i] && ++i === q.length) return true; return !q; };
+  const scored = [];
+  for (const f of files) {
+    const rel = f.rel.toLowerCase(), base = path.basename(rel);
+    let sc = -1;
+    if (!q) sc = 100 - f.rel.split('/').length * 10;
+    else if (base === q) sc = 1000; else if (base.startsWith(q)) sc = 800 - base.length; else if (base.includes(q)) sc = 600 - base.length;
+    else if (rel.includes(q)) sc = 400 - rel.length; else if (subseq(rel)) sc = 100 - rel.length;
+    if (sc >= 0) scored.push([sc + (f.dir ? -5 : 0), f]);
+  }
+  return scored.sort((a, b) => b[0] - a[0]).slice(0, limit).map(([, f]) => ({ rel: f.rel, path: path.join(cwd, f.rel), dir: f.dir }));
+}
+
+module.exports = { searchFiles, spawnShell, usage, autoArchive, reapWorktrees, checkUpdate, cmpVer, feedbackUrl, permissions, permissionUrl, sandboxArgs, SB_BIN, dirSize };

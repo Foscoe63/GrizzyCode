@@ -35,10 +35,19 @@ function withCache(system, messages) {
   return { system: system ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : null, messages: out };
 }
 
+// Reasoning effort per conversation ('off' | 'low' | 'medium' | 'high'). Anthropic: extended thinking with a token budget;
+// OpenAI-style: reasoning_effort for models that accept it. Unsupported models simply run without it.
+const BUDGET = { low: 2048, medium: 8192, high: 24000 };
+const anthropicThinks = (m) => /claude|fable|opus|sonnet|haiku/i.test(m || '') && !/claude-(3|2|instant)|haiku-3|3-5-/i.test(m || '');
+const openaiReasons = (m) => /(^|\/)(o\d|gpt-5)/i.test(m || '');
+const thinkingFor = (s) => (BUDGET[s.effort] && anthropicThinks(s.model) ? { type: 'enabled', budget_tokens: BUDGET[s.effort] } : null);
+
 async function streamAnthropic(s, { system, messages, tools }, onText, signal) {
   const base = (s.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
   const c = withCache(system, messages);
-  const body = { model: s.model, max_tokens: s.maxTokens, ...(c.system ? { system: c.system } : {}), messages: c.messages, stream: true };
+  const th = thinkingFor(s);
+  const body = { model: s.model, max_tokens: th ? Math.max(s.maxTokens || 0, th.budget_tokens + 2048) : s.maxTokens, ...(c.system ? { system: c.system } : {}), messages: c.messages, stream: true };
+  if (th) body.thinking = th;
   if (tools?.length) body.tools = tools;
   const res = await fetch(base + '/v1/messages', {
     method: 'POST', signal,
@@ -51,11 +60,16 @@ async function streamAnthropic(s, { system, messages, tools }, onText, signal) {
     if (ev.type === 'message_start') { const u = ev.message?.usage || {}; usage.in = u.input_tokens || 0; usage.cr = u.cache_read_input_tokens || 0; usage.cw = u.cache_creation_input_tokens || 0; }
     else if (ev.type === 'content_block_start') {
       const b = ev.content_block;
-      blocks[ev.index] = b.type === 'tool_use' ? { type: 'tool_use', id: b.id, name: b.name, input: {}, _json: '' } : { type: 'text', text: '' };
+      blocks[ev.index] = b.type === 'tool_use' ? { type: 'tool_use', id: b.id, name: b.name, input: {}, _json: '' }
+        : b.type === 'thinking' ? { type: 'thinking', thinking: '', signature: '' }
+        : b.type === 'redacted_thinking' ? { type: 'redacted_thinking', data: b.data }
+        : { type: 'text', text: '' };
     } else if (ev.type === 'content_block_delta') {
       const b = blocks[ev.index];
       if (ev.delta.type === 'text_delta') { b.text += ev.delta.text; onText(ev.delta.text); }
       else if (ev.delta.type === 'input_json_delta') b._json += ev.delta.partial_json;
+      else if (ev.delta.type === 'thinking_delta' && b.type === 'thinking') b.thinking += ev.delta.thinking || '';
+      else if (ev.delta.type === 'signature_delta' && b.type === 'thinking') b.signature += ev.delta.signature || '';
     } else if (ev.type === 'message_delta') { stop = ev.delta.stop_reason; usage.out = ev.usage?.output_tokens ?? usage.out; }
     else if (ev.type === 'error') throw new Error(ev.error?.message || 'stream error');
   }
@@ -90,6 +104,7 @@ function toOpenAI(system, messages) {
 async function streamOpenAI(s, { system, messages, tools }, onText, signal) {
   const base = (s.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
   const body = { model: s.model, messages: toOpenAI(system, messages), stream: true, stream_options: { include_usage: true }, max_tokens: s.maxTokens };
+  if (BUDGET[s.effort] && openaiReasons(s.model)) body.reasoning_effort = s.effort;
   if (tools?.length) body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const res = await fetch(base + '/chat/completions', {
     method: 'POST', signal,
@@ -125,4 +140,4 @@ function stream(settings, req, onText, signal) {
   return (settings.provider === 'openai' ? streamOpenAI : streamAnthropic)(settings, req, onText, signal);
 }
 
-module.exports = { stream, toOpenAI, withCache };
+module.exports = { stream, toOpenAI, withCache, thinkingFor };

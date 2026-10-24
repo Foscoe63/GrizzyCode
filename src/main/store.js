@@ -44,7 +44,7 @@ const DEFAULTS = {
   devMode: false, rsOpen: false,
   // Notifications per event ('banner' | 'badge' | 'off'), Dock, power, housekeeping, sandbox, updates
   notifyApproval: 'banner', notifyDone: 'banner', dockBounce: false, keepAwakeBattery: true,
-  lastUpdateNotified: '', promptSuggestions: false, archiveDays: 0, worktreeReapHours: 0, newTaskPrompt: '', sandboxShell: 'off', autoResume: true, checkUpdates: false,
+  fastModel: '', outputStyle: 'default', customStyle: '', lastUpdateNotified: '', promptSuggestions: false, archiveDays: 0, worktreeReapHours: 0, newTaskPrompt: '', sandboxShell: 'off', autoResume: true, checkUpdates: false,
   // Token savers: MCP tool router, tool-output compression, history compaction (off by default: it costs a summary call)
   saveRouter: true, saveOutputs: true, saveOutputChars: 12000, saveCompact: false, compactAtPct: 60, compactKeep: 8, compactModel: '',
   // Mods: { name: true } for each mod the user turned on
