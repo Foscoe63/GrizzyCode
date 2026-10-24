@@ -1296,7 +1296,7 @@ function mkRender() {
   const m = mk, box = $('mkList'), q = m.q.toLowerCase();
   const shown = m.cfg.search ? m.items : m.items.filter((x) => (!m.cat || x.category === m.cat) && (!q || `${x.name} ${x.description} ${x.author || ''}`.toLowerCase().includes(q)));
   box.innerHTML = '';
-  for (const it of shown.slice(0, m.cfg.search ? 500 : 80)) {
+  for (const it of shown) {
     const d = document.createElement('div'); d.className = 'mcard';
     const badge = it.category || (m.kind === 'connectors' ? (it.kind === 'remote' ? 'remote' : it.kind) : '');
     d.innerHTML = `<div class="mhead"><b>${esc(it.name)}</b>${badge ? `<span class="mbadge">${esc(badge)}</span>` : ''}<span class="spacer"></span><span class="hint">${esc(it.author || '')}</span></div><div class="msum" style="white-space:normal">${esc((it.description || 'No description.').slice(0, 280))}</div><div class="mfields"></div><div class="mact"></div>`;
