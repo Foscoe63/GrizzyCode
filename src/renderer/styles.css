@@ -332,3 +332,9 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 
 .subs{margin:4px 0 6px 14px;padding-left:10px;border-left:2px solid var(--border,rgba(128,128,128,.35))}
 .subs details.tool{margin:3px 0}
+
+.mtool{display:flex;align-items:center;gap:10px;padding:4px 0}
+.mtool .switch{flex:none}
+.agpick{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px}
+.agpick[hidden]{display:none}
+.agchk{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text)}

@@ -7,6 +7,7 @@ const skills = require('./skills');
 const models = require('./models');
 const memory = require('./memory');
 const designsystems = require('./designsystems');
+const access = require('./access');
 const agents = require('./agents');
 const mods = require('./mods/host');
 const acp = require('./acp');
@@ -66,12 +67,14 @@ async function compactNow(convId) {
 }
 
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
-async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '') {
+// `lists` are the access limits that apply (the conversation's agent; a delegated agent adds its own on top).
+async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))]) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
-  if (c.name === 'mcp_tools') return savings.describeTools(mcp.toolDefs(), c.input);
+  if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, mcp.toolDefs()), c.input);
   if (c.name === 'pin_fact') { const r = savings.pin(convId, c.input?.fact); return r.error ? 'ERROR: ' + r.error : (conv.pinned = r.pinned, 'Pinned. It will be kept through any compaction of this conversation.'); }
   const real = savings.unwrapInvoke(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
   if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
@@ -156,14 +159,15 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   const sc = Object.create(root);               // reads mode/cwd/allow live from the conversation; the agent's own overrides sit on top
   sc.agentId = '';                              // the persona is added from the agent's own definition below
   const model = (sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
-  let last = '', finished = false;
+  let last = '', finished = false, lists = [];
   try {
     for (let step = 0; step < Math.min(SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40)); step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
-      const mcpDefs = sc.mode === 'code' ? mcp.toolDefs() : [], route = savings.routeMcp(mcpDefs, s, root);
-      const baseDefs = [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true }), ...mods.toolDefs(), ...savings.defs(s)];
+      lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
+      const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
-      const system = buildSystem(s, sc) + route.system + agents.blockFor(sub.def) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
+      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model) }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
@@ -181,7 +185,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       const results = [];
       for (const c of calls) {
         let out;
-        try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name); }
+        try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name, lists); }
         catch (e) { out = 'ERROR: ' + e.message; }
         out = savings.compressOutput(root, c.name, out, s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000), ...where });
@@ -223,12 +227,13 @@ async function send(convId, userText, emit, images = [], opts = {}) {
         const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
         if (r.compacted) { conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
       }
-      const mcpDefs = conv.mode === 'code' ? mcp.toolDefs() : [], route = savings.routeMcp(mcpDefs, s, conv);
-      const baseDefs = [...tools.publicDefs(conv.mode, conv.permissionMode, s), ...mods.toolDefs(), ...savings.defs(s)];
+      const lists = [agents.accessOf(agents.get(conv.agentId))];
+      const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
-      const system = buildSystem(s, conv) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
         try { res = await llm.stream({ ...s, ...models.route(s, mstr0) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }

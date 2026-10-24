@@ -1,6 +1,6 @@
 // MCP client: local stdio servers (JSON-RPC 2.0, newline-delimited) and remote Streamable-HTTP servers.
 // Config is compatible with the common { "mcpServers": { name: { command, args, env, cwd } | { url, headers } } } shape;
-// GrizzyCode adds an optional `disabled: true` per server.
+// GrizzyCode adds an optional `disabled: true` per server and `disabledTools: [toolName]` to hide individual tools.
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -157,12 +157,13 @@ function stopAll() { for (const e of servers.values()) stopEntry(e); servers.cle
 function stopServer(name) { const e = servers.get(name); if (e) { stopEntry(e); servers.delete(name); } }
 
 // ---- management used by the Connectors settings tab ----
-const toolInfo = (t) => ({ name: t.name, description: (t.description || '').slice(0, 200) });
+const toolInfo = (t, off = []) => ({ name: t.name, description: (t.description || '').slice(0, 200), enabled: !off.includes(t.name) });
+const offTools = (e) => e.def?.disabledTools || [];
 function list() {
   const cfg = readConfig().mcpServers || {};
   return Object.entries(cfg).map(([name, def]) => {
     const e = servers.get(name);
-    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map(toolInfo) };
+    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def.disabledTools || [])) };
   });
 }
 // Save (add or edit, with optional rename) and (re)start just that server.
@@ -175,6 +176,7 @@ async function saveServer({ name, def, oldName }) {
   if (oldName && oldName !== name) { delete cfg.mcpServers[oldName]; stopServer(oldName); }
   const clean = { ...def }; for (const k of Object.keys(clean)) if (clean[k] == null || clean[k] === '' || (Array.isArray(clean[k]) && !clean[k].length) || (k === 'env' || k === 'headers') && !Object.keys(clean[k] || {}).length) delete clean[k];
   if (prevCfg?.disabled && def.disabled === undefined) clean.disabled = true;
+  if (prevCfg?.disabledTools?.length && def.disabledTools === undefined) clean.disabledTools = prevCfg.disabledTools;
   cfg.mcpServers[name] = clean; writeConfig(cfg);
   stopServer(name);
   if (!clean.disabled) await startServer(name, clean).ready;
@@ -188,6 +190,15 @@ async function setDisabled(name, disabled) {
   if (!disabled) await startServer(name, d).ready;
   return list();
 }
+// Hide or show one tool of a server without restarting it.
+function setToolEnabled(name, tool, enabled) {
+  const cfg = readConfig(); const d = cfg.mcpServers?.[name]; if (!d) return list();
+  const off = new Set(d.disabledTools || []); enabled ? off.delete(tool) : off.add(tool);
+  if (off.size) d.disabledTools = [...off]; else delete d.disabledTools;
+  writeConfig(cfg);
+  const e = servers.get(name); if (e) e.def = d;
+  return list();
+}
 async function restartServer(name) {
   const d = readConfig().mcpServers?.[name]; if (!d) return list();
   stopServer(name); if (!d.disabled) await startServer(name, d).ready; return list();
@@ -198,7 +209,7 @@ async function testServer(def) {
   await warmShellPath();
   const e = startServer('test', def, { register: false });
   await e.ready;
-  const out = e.status === 'running' ? { ok: true, tools: e.tools.map(toolInfo) } : { ok: false, error: e.error || 'Could not start', stderr: e.stderr };
+  const out = e.status === 'running' ? { ok: true, tools: e.tools.map((t) => toolInfo(t)) } : { ok: false, error: e.error || 'Could not start', stderr: e.stderr };
   stopEntry(e); return out;
 }
 // Accepts a full config ({mcpServers}), a bare map of servers, or one server definition (needs `name`).
@@ -227,6 +238,7 @@ function status() { return [...servers.values()].map((e) => ({ name: e.name, sta
 function toolDefs() {
   const out = [];
   for (const e of servers.values()) if (e.status === 'running') for (const t of e.tools) {
+    if (offTools(e).includes(t.name)) continue;
     out.push({ name: `mcp__${e.name}__${t.name}`, description: `[${e.name}] ${t.description || ''}`.slice(0, 1000), input_schema: t.inputSchema || { type: 'object', properties: {} } });
   }
   return out;
@@ -236,9 +248,10 @@ async function callTool(fullName, args) {
   const [, server, ...rest] = fullName.split('__');
   const e = servers.get(server);
   if (!e || e.status !== 'running') throw new Error(`MCP server ${server} not running`);
+  if (offTools(e).includes(rest.join('__'))) throw new Error(`Tool ${rest.join('__')} is disabled in settings`);
   const r = await rpc(e, 'tools/call', { name: rest.join('__'), arguments: args }, 120000);
   const text = (r.content || []).map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
   return r.isError ? 'ERROR: ' + text : text;
 }
 
-module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, setDisabled, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };
+module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, setDisabled, setToolEnabled, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };

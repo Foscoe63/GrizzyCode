@@ -362,6 +362,7 @@ function ipc() {
   h('mcp:save', (p) => mcp.saveServer(p));
   h('mcp:remove', (name) => mcp.removeServer(name));
   h('mcp:toggle', (name, disabled) => mcp.setDisabled(name, disabled));
+  h('mcp:toolToggle', (name, tool, on) => mcp.setToolEnabled(name, tool, on));
   h('mcp:restart', (name) => mcp.restartServer(name));
   h('mcp:test', (def) => mcp.testServer(def));
   h('mcp:import', (text, o) => mcp.importJson(text, o));

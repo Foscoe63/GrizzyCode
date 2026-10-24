@@ -38,7 +38,7 @@ contextBridge.exposeInMainWorld('gc', {
   git: { status: inv('git:status'), diff: inv('git:diff'), isRepo: inv('git:isRepo'), worktreeAdd: inv('git:worktreeAdd'), worktreeList: inv('git:worktreeList') },
   ssh: { hosts: inv('ssh:hosts'), test: inv('ssh:test') },
   term: { open: inv('term:open'), input: inv('term:input'), resize: inv('term:resize'), run: inv('term:run'), kill: inv('term:kill'), onEvent: on('term:event') },
-  mcp: { status: inv('mcp:status'), config: inv('mcp:config'), save: inv('mcp:saveConfig'), list: inv('mcp:list'), saveServer: inv('mcp:save'), remove: inv('mcp:remove'), toggle: inv('mcp:toggle'), restart: inv('mcp:restart'), test: inv('mcp:test'), importJson: inv('mcp:import') },
+  mcp: { status: inv('mcp:status'), config: inv('mcp:config'), save: inv('mcp:saveConfig'), list: inv('mcp:list'), saveServer: inv('mcp:save'), remove: inv('mcp:remove'), toggle: inv('mcp:toggle'), toolToggle: inv('mcp:toolToggle'), restart: inv('mcp:restart'), test: inv('mcp:test'), importJson: inv('mcp:import') },
   skills: { list: inv('skills:list'), import: inv('skills:import'), remove: inv('skills:remove') },
   importCli: inv('cli:import'),
   find: inv('find'), findStop: inv('find:stop'),
