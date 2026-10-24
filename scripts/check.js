@@ -418,11 +418,13 @@ app.whenReady().then(() => srv.listen(0, async () => {
     const textOf = (m) => (typeof m.content === 'string' ? m.content : m.content.filter((x) => x.type === 'text').map((x) => x.text).join(''));
     // delegate: the agent runs with its own persona, a read-only toolset when its mode is plan, and its report comes back
     let subSys = '', subTools = [], parentTools = [], subPrompts = [];
+    fs.writeFileSync(path.join(wa, 'a.txt'), 'hello');
     c = store.newConversation({ mode: 'code', cwd: wa, permissionMode: 'default' });
     script = [
       (b) => { parentTools = toolsOf(b); return toolTurn('delegate_agent', { agent: 'reviewer', task: 'review the thing' }); },
       (b) => { subSys = b.system.map((x) => x.text).join('\n'); subTools = toolsOf(b); subPrompts.push(textOf(b.messages[0])); return toolTurn('write_file', { path: 'x.txt', content: 'no' }); },
-      () => textTurn('review report: looks fine'),
+      () => toolTurn('read_file', { path: 'a.txt' }),
+      () => textTurn('No issues found. review report: looks fine'),
       (b) => { const r = b.messages.at(-1).content[0].content; return textTurn('parent got: ' + r); }];
     evs = []; await agent.send(c.id, 'delegate it', (e) => evs.push(e));
     c = store.getConversation(c.id); const [r1] = resultsOf(c); const aid = (/agent_[0-9a-f]{6}/.exec(r1 || '') || [])[0];
@@ -477,6 +479,38 @@ app.whenReady().then(() => srv.listen(0, async () => {
     c = store.newConversation({ mode: 'code', cwd: wa, permissionMode: 'plan' }); let planSubTools = [];
     script = [toolTurn('delegate_agent', { agent: 'engineer', task: 'edit things' }), (b) => { planSubTools = toolsOf(b); return textTurn('read only'); }, textTurn('end')];
     await agent.send(c.id, 'go', () => {}); assert(planSubTools.length && !planSubTools.includes('write_file') && !planSubTools.includes('bash'), 'agents: in a plan-mode conversation every delegated agent is read-only, whatever its own mode');
+    // real agents: each built-in has its own tools and step budget, and cannot finish until its completion gates pass
+    {
+      const by = (id) => agents.get(id);
+      const toolSet = (id) => new Set(require('../src/main/access').keep([agents.accessOf(by(id))], tools.publicDefs('code', 'bypassPermissions', { capWeb: true })).map((d) => d.name));
+      assert(!toolSet('researcher').has('bash') && !toolSet('researcher').has('write_file') && toolSet('researcher').has('web_fetch') && toolSet('writer').has('edit_file') && !toolSet('writer').has('bash') && toolSet('engineer').has('bash'), 'real agents: researcher is read-only with the web, writer edits without a shell, engineer has everything');
+      assert(by('engineer').steps === 40 && by('reviewer').gates.includes('findings') && by('grizzy').gates === undefined && by('grizzy').steps === undefined && by('general').gates === undefined, 'real agents: profiles are set on the built-ins; Grizzy and the default assistant are untouched');
+      assert(/Report format:/.test(agents.promptBlock('reviewer')) && /cannot finish/.test(agents.promptBlock('engineer')), 'real agents: the report contract and the gate warning reach the system prompt');
+      const st = (calls, text = '', can = ['bash', 'read_file']) => ({ ...agents.gateState(can), calls: calls.map((n) => ({ name: n })), text });
+      const g = (id, s2) => agents.gate(by(id), s2);
+      assert(/not looked/.test(g('reviewer', st([]))) && /not verified|have not verified/.test(g('engineer', st(['read_file', 'edit_file']))) && g('engineer', st(['read_file', 'edit_file', 'bash'])) === '' && g('engineer', st(['read_file'])) === '' && g('engineer', st(['read_file', 'edit_file'], '', ['read_file'])) === '', 'real agents: engineer must run something after its last edit (unless it has no shell)');
+      assert(/rank findings/.test(g('reviewer', st(['read_file'], 'looks ok'))) && g('reviewer', st(['read_file'], 'High: a.js:12 — bug')) === '' && g('reviewer', st(['read_file'], 'No issues found.')) === '', 'real agents: reviewer must rank findings with path:line or say none');
+      assert(/numbered list/.test(g('planner', st(['read_file'], 'just do it'))) && g('planner', st(['read_file'], '1. a\n2. b\n3. c\nRisks: x')) === '', 'real agents: planner must produce a numbered plan with risks');
+      assert(/cited no URLs/.test(g('researcher', st(['web_fetch'], 'It is so'))) && /Unverified/.test(g('researcher', st(['web_fetch'], 'See https://x.dev'))) && g('researcher', st(['web_fetch'], 'See https://x.dev\nUnverified: nothing')) === '', 'real agents: researcher must cite sources and list what is unverified');
+      assert(/Re-read/.test(g('writer', st(['write_file'], 'done'))) && g('writer', st(['write_file', 'read_file'], 'done')) === '', 'real agents: writer re-reads what it wrote');
+      const s3 = st([], 'x'); s3.followUp = true; assert(g('reviewer', s3) === '', 'real agents: report-format gates do not apply to a follow-up message');
+      const s4 = st(['read_file'], 'nope'); assert(g('reviewer', s4) && g('reviewer', s4) && g('reviewer', s4) === '', 'real agents: an agent is sent back at most twice, then allowed to finish');
+
+      // end to end: a delegated engineer that edits and tries to stop is sent back to verify, then reports
+      fs.writeFileSync(path.join(wa, 'e.txt'), 'old');
+      let sawNudge = false, engTools = [], engSteps = 0;
+      c = store.newConversation({ mode: 'code', cwd: wa, permissionMode: 'bypassPermissions' });
+      script = [
+        toolTurn('delegate_agent', { agent: 'engineer', task: 'change e.txt' }),
+        (b) => { engTools = toolsOf(b); engSteps++; return toolTurn('read_file', { path: 'e.txt' }); },
+        () => toolTurn('edit_file', { path: 'e.txt', old_string: 'old', new_string: 'new' }),
+        () => textTurn('Done, changed e.txt.'),
+        (b) => { sawNudge = /have not verified/.test(JSON.stringify(b.messages.at(-1))); return toolTurn('bash', { command: 'cat e.txt' }); },
+        () => textTurn('Changed e.txt; verified with cat: new.'),
+        (b) => textTurn('parent: ' + b.messages.at(-1).content[0].content)];
+      await agent.send(c.id, 'go', () => {}); c = store.getConversation(c.id);
+      assert(sawNudge && engTools.includes('bash') && /verified with cat/.test(resultsOf(c).at(-1)) && fs.readFileSync(path.join(wa, 'e.txt'), 'utf8') === 'new', 'real agents: an engineer that stops after an edit is sent back to verify, then its report comes back');
+    }
     assert(agent.__test.clampMode('bypassPermissions', 'default') === 'default' && agent.__test.clampMode('plan', 'bypassPermissions') === 'plan' && agent.__test.clampMode('', 'acceptEdits') === 'acceptEdits', 'agents: an agent\'s mode can only restrict, never widen, the conversation\'s mode');
 
     // settings: capAgents off removes the tools and the roster; unknown agent names are rejected with the list

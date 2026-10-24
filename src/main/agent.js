@@ -160,13 +160,16 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   sc.agentId = '';                              // the persona is added from the agent's own definition below
   const model = (sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
   let last = '', finished = false, lists = [];
+  const gs = agents.gateState([]), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
+  gs.followUp = sub.messages.length > 1;
   try {
-    for (let step = 0; step < Math.min(SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40)); step++) {
+    for (let step = 0; step < limit; step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
       lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
       const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
       const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
+      gs.can = new Set(toolDefs.map((t) => t.name));
       const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model) }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
@@ -176,7 +179,12 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       last = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('') || last;
       sub.messages.push({ role: 'assistant', content: res.content });
       const calls = res.content.filter((b) => b.type === 'tool_use');
-      if (!calls.length) { finished = true; break; }
+      if (!calls.length) {
+        gs.text = last;
+        const nudge = step + 1 < limit ? agents.gate(sub.def, gs) : ''; // not done yet: send it back to work
+        if (nudge) { sub.messages.push({ role: 'user', content: nudge }); continue; }
+        finished = true; break;
+      }
       const runs = new Map();
       for (const c of calls) {
         emit({ type: 'tool_call', convId, id: c.id, name: c.name, input: c.input, ...where });
@@ -187,6 +195,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
         let out;
         try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name, lists); }
         catch (e) { out = 'ERROR: ' + e.message; }
+        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input });
         out = savings.compressOutput(root, c.name, out, s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000), ...where });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
@@ -213,6 +222,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   active.set(convId, ac);
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
+  const gs = agents.gateState([]);
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
@@ -249,7 +259,12 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       store.saveConversation(conv);
       emit({ type: 'usage', convId, usage: conv.usage, last: u, ctx: conv.ctx });
       const calls = res.content.filter((b) => b.type === 'tool_use');
-      if (!calls.length) break;
+      if (!calls.length) {
+        const adef = agents.get(conv.agentId); gs.text = lastText; gs.can = new Set(toolDefs.map((t) => t.name));
+        const nudge = adef && adef.enabled && turn + 1 < maxSteps ? agents.gate(adef, gs) : ''; // the chosen agent's completion gates
+        if (nudge) { conv.messages.push({ role: 'user', content: nudge }); store.saveConversation(conv); continue; }
+        break;
+      }
       const results = [], agentRuns = new Map();
       // Agent calls start together so several delegated agents work in parallel; their reports are collected in call order below.
       for (const c of calls) if (tools.AGENT_TOOLS.includes(c.name)) { emit({ type: 'tool_call', convId, id: c.id, name: c.name, input: c.input }); agentRuns.set(c.id, startAgentCall(conv, convId, c, 0, s, emit, ac.signal, toolDefs)); }
@@ -266,6 +281,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
           else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal);
         } catch (e) { out = 'ERROR: ' + e.message; }
         agentRuns.delete(c.id);
+        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input });
         out = savings.compressOutput(conv, c.name, out, s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000) });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
