@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, nativeTheme, screen, Notification, powerSaveBlocker, session } = require('electron');
+const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, nativeTheme, screen, Notification, powerSaveBlocker, session, powerMonitor, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const store = require('./store');
@@ -22,6 +22,7 @@ const plugins = require('./plugins');
 const extensions = require('./extensions');
 const dataops = require('./dataops');
 const logger = require('./logger');
+const extras = require('./extras');
 
 const wins = new Set();
 let quick = null, quickReady = null, tray = null, aboutWin = null;
@@ -32,17 +33,24 @@ const preload = path.join(__dirname, '..', 'preload.js');
 const BG = () => (nativeTheme.shouldUseDarkColors ? '#20201f' : '#f9f9f7');
 
 let awakeId = null; const running = new Set();
+const onBattery = () => { try { return powerMonitor.isOnBatteryPower(); } catch { return false; } };
 function track(ev) {
   const st = store.getSettings();
-  if (ev.type === 'start') { running.add(ev.convId); if (st.keepAwake && awakeId === null) awakeId = powerSaveBlocker.start('prevent-app-suspension'); }
+  if (ev.type === 'start') { running.add(ev.convId); if (st.keepAwake && awakeId === null && (st.keepAwakeBattery !== false || !onBattery())) awakeId = powerSaveBlocker.start('prevent-app-suspension'); }
   else if (ev.type === 'done' || ev.type === 'error') { running.delete(ev.convId); if (!running.size && awakeId !== null) { powerSaveBlocker.stop(awakeId); awakeId = null; } }
   const away = !BrowserWindow.getAllWindows().some((w) => w.isFocused());
-  if (st.notifications && away && Notification.isSupported() && (ev.type === 'done' || ev.type === 'error' || ev.type === 'approval')) {
-    let title = 'GrizzyCode', body = '';
-    try { const c = store.getConversation(ev.convId); title = c.title || title; } catch {}
-    body = ev.type === 'approval' ? 'Needs your input to continue' : ev.type === 'error' ? 'Stopped with an error' : 'Finished';
-    const n = new Notification({ title, body, silent: !st.notifySound });
-    n.on('click', () => { showMain(); cmd('open', ev.convId); }); n.show();
+  const kind = ev.type === 'approval' ? 'notifyApproval' : (ev.type === 'done' || ev.type === 'error') ? 'notifyDone' : null;
+  const level = kind ? (st[kind] || 'banner') : 'off';
+  if (st.notifications && away && level !== 'off') {
+    if (st.dockBounce) { try { app.dock?.bounce(ev.type === 'approval' ? 'critical' : 'informational'); } catch {} }
+    if (level === 'badge') { try { app.dock?.setBadge('•'); } catch {} }
+    else if (Notification.isSupported()) {
+      let title = 'GrizzyCode', body = '';
+      try { const c = store.getConversation(ev.convId); title = c.title || title; } catch {}
+      body = ev.type === 'approval' ? 'Needs your input to continue' : ev.type === 'error' ? 'Stopped with an error' : 'Finished';
+      const n = new Notification({ title, body, silent: !st.notifySound });
+      n.on('click', () => { showMain(); cmd('open', ev.convId); }); n.show();
+    }
   }
 }
 const emit = (ev) => { try { track(ev); } catch {} for (const w of wins) if (!w.isDestroyed()) w.webContents.send('agent:event', ev); };
@@ -142,11 +150,18 @@ function submitQuick({ text = '', images = [] }) {
   const go = () => { w.webContents.send('ui:command', 'open', c.id); agent.send(c.id, text, emit, images); };
   w.webContents.isLoading() ? w.webContents.once('did-finish-load', go) : go();
 }
+// Auto-archive idle conversations and reap finished worktrees, per the settings (both off by default).
+function housekeeping() {
+  const st = store.getSettings();
+  try { if (extras.autoArchive(st.archiveDays, agent.isRunning)) for (const w of wins) if (!w.isDestroyed()) w.webContents.send('ui:command', 'dataChanged'); } catch {}
+  if (st.worktreeReapHours > 0) extras.reapWorktrees(st.worktreeReapHours).catch(() => {});
+}
 function registerShortcut() {
   globalShortcut.unregisterAll();
   const acc = store.getSettings().quickShortcut;
-  try { if (acc) globalShortcut.register(acc, toggleQuick); } catch {}
-  return !acc || globalShortcut.isRegistered(acc);
+  if (!acc || String(acc).toLowerCase() === 'off') return true;
+  try { globalShortcut.register(acc, toggleQuick); } catch {}
+  return globalShortcut.isRegistered(acc);
 }
 
 // ---------------- About ----------------
@@ -254,6 +269,7 @@ function ipc() {
     if ('launchAtLogin' in out) { try { app.setLoginItemSettings({ openAtLogin: !!out.launchAtLogin }); } catch {} }
     if ('retentionDays' in out) dataops.purgeOld(out.retentionDays);
     if (('keepAwake' in out) && !out.keepAwake && awakeId !== null) { powerSaveBlocker.stop(awakeId); awakeId = null; }
+    if ('archiveDays' in out) housekeeping();
     if ('font' in out) for (const w of wins) w.webContents.send('ui:command', 'font', out.font);
     return { ...withUsable(s), ...(shortcutOk === undefined ? {} : { shortcutOk }), ...(bad.length ? { rejected: bad } : {}) };
   });
@@ -458,6 +474,16 @@ function ipc() {
     if (r.canceled) return null; fs.writeFileSync(r.filePath, JSON.stringify(dataops.diagnostics(app), null, 2)); return { path: r.filePath };
   });
   h('dev:clearCache', async () => { const r = await dialog.showMessageBox(focused(), { type: 'question', message: 'Clear cached web content and restart?', detail: 'Conversations and settings are kept.', buttons: ['Clear and restart', 'Cancel'], defaultId: 0, cancelId: 1 }); if (r.response !== 0) return null; await session.defaultSession.clearCache(); app.relaunch(); app.exit(0); return true; });
+  h('dev:openMcpLog', () => { const f = path.join(logger.dir(), 'mcp.log'); fs.mkdirSync(logger.dir(), { recursive: true }); if (!fs.existsSync(f)) fs.writeFileSync(f, ''); shell.showItemInFolder(f); });
+  // --- Storage, updates, feedback, permissions ---
+  h('storage:usage', () => extras.usage(logger.dir()));
+  h('storage:cleanWorktrees', async () => extras.reapWorktrees(0));
+  h('app:checkUpdate', () => extras.checkUpdate(app.getVersion()));
+  h('app:openUrl', (u) => (/^https:\/\/github\.com\/Foscoe63\/GrizzyCode(\/|$)/.test(String(u)) ? shell.openExternal(u) : null));
+  h('app:feedback', () => shell.openExternal(extras.feedbackUrl({ version: app.getVersion(), electron: process.versions.electron, platform: process.platform + ' ' + process.arch })));
+  h('perm:status', () => extras.permissions(systemPreferences));
+  h('perm:open', (key) => { const u = extras.permissionUrl(key); return u ? shell.openExternal(u) : null; });
+  h('agent:suggest', (convId) => agent.suggest(convId));
 
   // === Claude.app parity: Telemetry ===
   h('telemetry:consent', async () => { ensureSwiftAddon(); return { consent: store.getSettings().telemetryConsent ?? true }; });
@@ -619,6 +645,17 @@ app.whenReady().then(() => {
   features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); buildTray(); registerShortcut(); createMain();
   mcp.startAll().catch(() => {});
   const purge = () => { try { dataops.purgeOld(store.getSettings().retentionDays); } catch {} }; purge(); setInterval(purge, 6 * 3600 * 1000);
+  housekeeping(); setInterval(housekeeping, 6 * 3600 * 1000);
+  app.on('browser-window-focus', () => { try { app.dock?.setBadge(''); } catch {} });
+  setTimeout(async () => {
+    const st = store.getSettings(); if (!st.checkUpdates) return;
+    const r = await extras.checkUpdate(app.getVersion());
+    if (r.newer && Notification.isSupported() && st.lastUpdateNotified !== r.latest) {
+      store.saveSettings({ lastUpdateNotified: r.latest });
+      const n = new Notification({ title: 'GrizzyCode update available', body: `Version ${r.latest} is out (you have ${r.current}).` });
+      n.on('click', () => shell.openExternal(r.url)); n.show();
+    }
+  }, 15000);
   app.on('activate', () => { if (!wins.size) createMain(); else showMain(); });
 });
 app.on('will-quit', () => { features.stop(); term.killAll(); modsGlue.host.stopAll(); globalShortcut.unregisterAll(); mcp.stopAll(); });

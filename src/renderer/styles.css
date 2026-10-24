@@ -338,3 +338,8 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 .agpick{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px}
 .agpick[hidden]{display:none}
 .agchk{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text)}
+
+#suggest{display:flex;flex-wrap:wrap;gap:6px;margin:0 auto 8px;max-width:760px;padding:0 4px}
+#suggest button{border:1px solid var(--line);background:transparent;color:inherit;border-radius:14px;padding:4px 11px;font:inherit;font-size:12.5px;cursor:pointer;opacity:.85}
+#suggest button:hover{opacity:1;background:var(--line)}
+#permList .srow,#stList .srow{align-items:center}

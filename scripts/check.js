@@ -830,6 +830,52 @@ export const register: Register = (on, options) => {
       assert(modHost.listDir(ccm).some((e) => e.name === 'zz-fake' && e.kind === 'dir'), 'mods: ~/.claude/mods lists GrizzyCode mods so the /mods pane finds them');
     } finally { modHost.nativeFolders = realNF; }
   }
+  {
+    // ---- gap-fill: settings validation, retry, update compare, archive, sandbox, storage ----
+    const extras = require('../src/main/extras');
+    const cv2 = cleanSettings({ notifyDone: 'badge', notifyApproval: 'loud', sandboxShell: 'strict', archiveDays: 99999, worktreeReapHours: -4 });
+    assert(cv2.out.notifyDone === 'badge' && cv2.out.sandboxShell === 'strict' && cv2.out.archiveDays === 3650 && cv2.out.worktreeReapHours === 0 && cv2.bad.join() === 'notifyApproval', 'settings: notification level, sandbox mode and housekeeping values are validated and clamped');
+    assert(extras.cmpVer('v0.5.4', '0.5.3') > 0 && extras.cmpVer('0.5.3', '0.5.3') === 0 && extras.cmpVer('0.5.3', '0.10.0') < 0 && extras.cmpVer('1.0.0-beta', '0.9.9') > 0, 'update check: versions compare numerically');
+    {
+      let n = 0; const said = [];
+      const fakeStream = async () => { n++; throw new Error('API 429: slow down'); };
+      const realStream = require('../src/main/llm').stream; require('../src/main/llm').stream = fakeStream;
+      let err = null;
+      try { await agent.__test.streamRetry({}, {}, {}, () => {}, new AbortController().signal, (t) => said.push(t), [1, 1]); } catch (e) { err = e; }
+      assert(n === 3 && said.length === 2 && /429/.test(err?.message), 'rate limits: 429 is retried twice with a notice, then surfaced');
+      n = 0; err = null;
+      try { await agent.__test.streamRetry({ autoResume: false }, {}, {}, () => {}, new AbortController().signal, () => {}, [1, 1]); } catch (e) { err = e; }
+      assert(n === 1 && err, 'rate limits: no retry when resume-after-rate-limits is off');
+      n = 0; require('../src/main/llm').stream = async () => { n++; throw new Error('API 400: bad request'); }; err = null;
+      try { await agent.__test.streamRetry({}, {}, {}, () => {}, new AbortController().signal, () => {}, [1, 1]); } catch (e) { err = e; }
+      assert(n === 1 && err, 'rate limits: other errors are not retried');
+      require('../src/main/llm').stream = realStream;
+    }
+    {
+      const old = store.newConversation({ mode: 'code', cwd: os.tmpdir() }); const pin = store.newConversation({ mode: 'code', cwd: os.tmpdir() }); const fresh = store.newConversation({ mode: 'chat' });
+      let c = store.getConversation(old.id); c.title = 'old-one'; store.saveConversation(c); let f = JSON.parse(fs.readFileSync(path.join(store.root(), 'conversations', old.id + '.json'), 'utf8')); f.updatedAt = Date.now() - 40 * 86400000; fs.writeFileSync(path.join(store.root(), 'conversations', old.id + '.json'), JSON.stringify(f));
+      c = store.getConversation(pin.id); c.pinned = true; store.saveConversation(c); f = JSON.parse(fs.readFileSync(path.join(store.root(), 'conversations', pin.id + '.json'), 'utf8')); f.updatedAt = Date.now() - 40 * 86400000; fs.writeFileSync(path.join(store.root(), 'conversations', pin.id + '.json'), JSON.stringify(f));
+      assert(extras.autoArchive(0) === 0, 'auto-archive: 0 days does nothing');
+      assert(extras.autoArchive(30) === 1 && store.getConversation(old.id).archived && !store.getConversation(pin.id).archived && !store.getConversation(fresh.id).archived, 'auto-archive: old idle sessions are archived, pinned and recent ones are kept');
+    }
+    {
+      const a = extras.sandboxArgs('strict', os.tmpdir(), 'true');
+      assert(process.platform !== 'darwin' || (a && a.includes('/bin/zsh') && /deny network/.test(a.join(' '))), 'sandbox: strict mode denies network');
+      assert(extras.sandboxArgs('off', os.tmpdir(), 'true') === null, 'sandbox: off runs the command unwrapped');
+      if (process.platform === 'darwin') {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-sb-')); const outside = path.join(os.homedir(), '.gc-sandbox-test');
+        const prev = store.getSettings().sandboxShell; store.saveSettings({ sandboxShell: 'files' });
+        const r = await tools.run('bash', { command: `echo a > inside.txt; echo b > "${outside}"; ls inside.txt` }, dir);
+        store.saveSettings({ sandboxShell: prev });
+        assert(fs.existsSync(path.join(dir, 'inside.txt')) && !fs.existsSync(outside) && /not permitted/.test(String(r)), 'sandbox: writes inside the project work and writes outside it are refused');
+        fs.rmSync(outside, { force: true });
+      }
+    }
+    {
+      const u = extras.usage(os.tmpdir());
+      assert(u.items.some((i) => i.label === 'Conversations') && u.total > 0 && u.path === store.root(), 'storage: usage lists categories and a total');
+    }
+  }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED'); app.exit(failed ? 1 : 0);

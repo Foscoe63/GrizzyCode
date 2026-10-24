@@ -56,6 +56,35 @@ function summarizer(s, model, convId, mode, signal) {
     return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   };
 }
+// Rate-limit / overload errors wait and retry (up to three times) instead of ending the run, unless "Resume after rate limits" is off.
+const RETRYABLE = /^API (429|503|529)\b|overloaded|rate.?limit/i;
+const sleep = (ms, signal) => new Promise((res) => { const t = setTimeout(res, ms); signal?.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true }); });
+async function streamRetry(s, cfg, req, onText, signal, say, delays = [20000, 45000, 90000]) {
+  for (let i = 0; ; i++) {
+    try { return await llm.stream(cfg, req, onText, signal); }
+    catch (e) {
+      if (s.autoResume === false || signal.aborted || i >= delays.length || !RETRYABLE.test(e.message)) throw e;
+      say(`Rate limited — retrying in ${Math.round(delays[i] / 1000)}s (attempt ${i + 1} of ${delays.length}).`);
+      await sleep(delays[i], signal); if (signal.aborted) throw e;
+    }
+  }
+}
+
+// Short follow-up prompts for the last reply (Settings → Code → Prompt suggestions); returns [] on any problem.
+async function suggest(convId) {
+  try {
+    const s = store.getSettings({ reveal: true }); if (!s.promptSuggestions) return [];
+    const conv = store.getConversation(convId); if (conv.mode !== 'code' || isRunning(convId)) return [];
+    const flat = (m) => (typeof m.content === 'string' ? m.content : (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(' '));
+    const tail = conv.messages.filter((m) => flat(m).trim()).slice(-6).map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${flat(m).slice(0, 1200)}`).join('\n\n');
+    if (!tail) return [];
+    const ask = summarizer(s, conv.model || s.model, convId, conv.mode, AbortSignal.timeout(30000));
+    const out = await ask(`Here is the end of a coding session:\n\n${tail}\n\nSuggest 3 short next messages the user might send (at most 8 words each). Reply with only a JSON array of strings.`);
+    const arr = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1));
+    return arr.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 80)).slice(0, 3);
+  } catch { return []; }
+}
+
 // /compact: summarize the older turns now, whatever the threshold.
 async function compactNow(convId) {
   if (isRunning(convId)) return { error: 'Wait for the current reply to finish, then try again.' };
@@ -246,7 +275,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
-        try { res = await llm.stream({ ...s, ...models.route(s, mstr0) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
+        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
         catch (e) { llmErr = e; return null; }
       });
       if (llmErr) throw llmErr;
@@ -313,4 +342,4 @@ const answer = (id, decision) => { if (acp.answer(id, decision)) return; approva
 const stop = (convId) => { acp.stop(convId); active.get(convId)?.abort(); for (const [id, r] of approvals) { r('deny'); approvals.delete(id); } };
 const isRunning = (convId) => active.has(convId) || acp.isRunning(convId);
 
-module.exports = { send, stop, answer, isRunning, decide, compactNow, __test: { clampMode, forgetAgents: () => registries.clear() } };
+module.exports = { send, stop, answer, isRunning, decide, compactNow, suggest, __test: { streamRetry, clampMode, forgetAgents: () => registries.clear() } };

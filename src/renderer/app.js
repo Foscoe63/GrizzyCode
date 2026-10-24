@@ -173,7 +173,7 @@ const clearView = goHome;
 async function open(id, push = true) {
   const c = await gc.conv.get(id);
   if (push) { hist.splice(hpos + 1); hist.push(id); hpos = hist.length - 1; }
-  renderConv(c); refreshList(); $('input').focus();
+  renderConv(c); clearSuggest(); refreshList(); $('input').focus();
 }
 async function togglePinFolder(f) {
   const set = new Set(settings.pinnedFolders); set.has(f) ? set.delete(f) : set.add(f);
@@ -209,6 +209,7 @@ async function newCode(folder) {
     else create = { mode: 'code', cwd: wt.path, worktree: wt };
   }
   const c = await gc.conv.create(create); await open(c.id);
+  if (settings.newTaskPrompt) { $('input').value = settings.newTaskPrompt; $('input').dispatchEvent(new Event('input')); }
 }
 async function closeSession(id) {
   if (busy.has(id)) gc.agent.stop(id);
@@ -436,6 +437,7 @@ function showSlash() {
 function runSlash(s) { $('input').value = ''; $('slash').hidden = true; autosize(); s[2](); }
 
 async function send() {
+  clearSuggest();
   let text = $('input').value.trim();
   if (!text && !atts.length) return;
   if (!canUse(settings)) { toast('Sign in first to start chatting'); await openSettings(); showTab('account'); return; }
@@ -489,6 +491,7 @@ gc.agent.onEvent((ev) => {
       typing(false);
       if (ev.type === 'error') bubble('assistant').innerHTML = `<span class="err">${esc(ev.message)}</span>`;
       live = null; syncComposer(); syncBranch(); if (document.body.classList.contains('diff')) refreshDiff();
+      if (ev.type === 'done') showSuggest(ev.convId);
     }
     refreshList(); return;
   }
@@ -919,7 +922,7 @@ async function commitField(el) {
 }
 function afterSetting(k) {
   if (k === 'font') applyFont(settings.font); else if (k === 'termFontSize') { for (const v of termViews.values()) { v.term.options.fontSize = settings.termFontSize; try { v.fit.fit(); } catch {} } }
-  else if (k === 'capArtifacts') applyCaps(); else if (k === 'allowBypass') { syncComposer(); } else if (k === 'devMode') $('devOnly').hidden = !settings.devMode;
+  else if (k === 'capArtifacts') applyCaps(); else if (k === 'allowBypass') { syncComposer(); } else if (k === 'devMode') $('devOnly').hidden = !settings.devMode; else if (k === 'promptSuggestions' && !settings.promptSuggestions) clearSuggest();
   else if (k === 'hardwareAccel') $('hwRestart').hidden = false; else if (k === 'launchAtLogin') renderSystem(); else if (k === 'worktreeDir') updateWtNote();
 }
 document.querySelectorAll('#settings [data-s]').forEach((el) => el.addEventListener('change', () => commitField(el)));
@@ -941,7 +944,48 @@ $('hwRestart').onclick = () => gc.system.relaunch();
 // Privacy
 $('privExport').onclick = async () => { const r = await gc.privacy.export(); $('privMsg').textContent = r ? 'Saved to ' + r.path : ''; };
 $('dataOpen').onclick = () => gc.data.open();
+// Prompt suggestions
+function clearSuggest() { const b = $('suggest'); b.hidden = true; b.innerHTML = ''; }
+async function showSuggest(id) {
+  if (!settings.promptSuggestions || cur?.mode !== 'code') return;
+  const list = await gc.suggest(id);
+  if (!list?.length || cur?.id !== id || busy.has(id) || $('input').value.trim()) return;
+  const b = $('suggest'); b.innerHTML = '';
+  for (const t of list) { const x = document.createElement('button'); x.type = 'button'; x.textContent = t; x.onclick = () => { $('input').value = t; $('input').dispatchEvent(new Event('input')); clearSuggest(); $('input').focus(); }; b.append(x); }
+  b.hidden = false;
+}
+// Storage, permissions, updates
+const fmtB = (n) => (n == null ? '—' : n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+$('stCalc').onclick = async () => {
+  $('stMsg').textContent = 'Calculating…'; const u = await gc.storage.usage(); $('stMsg').textContent = '';
+  $('stList').innerHTML = u.items.map((i) => `<div class="srow"><span>${esc(i.label)}</span><span>${fmtB(i.bytes)}</span></div>`).join('') + `<div class="srow"><b>Total</b><b>${fmtB(u.total)}</b></div><div class="srow"><span>Free disk space</span><span>${fmtB(u.free)}</span></div>`;
+};
+$('stOpen').onclick = () => gc.data.open();
+$('stClean').onclick = async () => {
+  if (!(await gc.confirm('Remove finished worktrees?', 'Deletes the worktree folder of every archived session that has no uncommitted changes. Branches and commits are kept.', 'Remove'))) return;
+  const r = await gc.storage.cleanWorktrees(); $('stMsg').textContent = `Removed ${r.removed}${r.kept ? `, kept ${r.kept} with uncommitted changes` : ''}.`;
+};
+const PERMS = [['accessibility', 'Accessibility'], ['screen', 'Screen recording'], ['microphone', 'Microphone']];
+async function renderPerms() {
+  const st = await gc.perm.status(), box = $('permList'); box.innerHTML = '';
+  $('permH').hidden = $('permHint').hidden = !st; if (!st) return;
+  for (const [k, label] of PERMS) {
+    const ok = st[k] === 'granted', row = document.createElement('div'); row.className = 'srow';
+    row.innerHTML = `<span>${label} <span class="hint">· ${ok ? 'allowed' : st[k] === 'denied' ? 'denied' : 'not allowed'}</span></span>`;
+    const b = document.createElement('button'); b.className = 'outline'; b.type = 'button'; b.textContent = 'Open settings'; b.onclick = () => gc.perm.open(k); row.append(b); box.append(row);
+  }
+}
+renderPerms();
+$('abUpdate').onclick = async () => {
+  $('abMsg').textContent = 'Checking…'; const r = await gc.app.checkUpdate();
+  if (r.error) { $('abMsg').textContent = r.error; return; }
+  if (!r.newer) { $('abMsg').textContent = `You’re up to date (${r.current}).`; return; }
+  $('abMsg').textContent = `Version ${r.latest} is available.`;
+  if (await gc.confirm(`Version ${r.latest} is available`, `You have ${r.current}. Open the release page?`, 'Open')) gc.app.openUrl(r.url);
+};
+$('abFeedback').onclick = () => gc.app.feedback();
 // Developer
+$('devMcpLog').onclick = () => gc.dev.openMcpLog();
 const devMsg = (t) => { $('devMsg').textContent = t; };
 $('devLogs').onclick = () => gc.dev.openLogs();
 $('devSettingsFile').onclick = () => gc.dev.openSettingsFile();

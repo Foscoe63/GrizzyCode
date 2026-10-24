@@ -13,6 +13,10 @@ function cleanSettings(p) {
     else if (k === 'shellPath') { try { if (v === '') out[k] = v; else { fs.accessSync(v, fs.constants.X_OK); if (fs.statSync(v).isDirectory()) throw new Error('dir'); out[k] = v; } } catch { bad.push(k); } }
     else if (k === 'saveOutputChars') num(k, 2000, 200000); else if (k === 'compactAtPct') num(k, 20, 95); else if (k === 'compactKeep') num(k, 2, 40);
     else if (k === 'compactModel') out[k] = String(v).trim().slice(0, 120);
+    else if (k === 'notifyApproval' || k === 'notifyDone') { if (['banner', 'badge', 'off'].includes(v)) out[k] = v; else bad.push(k); }
+    else if (k === 'sandboxShell') { if (['off', 'files', 'strict'].includes(v)) out[k] = v; else bad.push(k); }
+    else if (k === 'archiveDays') num(k, 0, 3650); else if (k === 'worktreeReapHours') num(k, 0, 8760);
+    else if (k === 'newTaskPrompt') out[k] = String(v).slice(0, 2000);
     else if (k === 'font') { if (['default', 'sans', 'serif', 'mono'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'displayName') out[k] = String(v).slice(0, 60); else if (k === 'preferences') out[k] = String(v).slice(0, 2000);
     else out[k] = v;

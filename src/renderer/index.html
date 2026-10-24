@@ -57,6 +57,7 @@
       </div>
       <div id="term"><div id="termHost"></div></div>
       <div id="modBand" hidden></div>
+      <div id="suggest" hidden></div>
       <form id="composer" style="position:relative">
         <div id="slash" hidden></div>
         <div class="card">
@@ -243,6 +244,14 @@
       <div class="row"><div><b>Allow bypass permissions mode</b><p>When off, “Bypass permissions” is hidden and ignored.</p></div><input type="checkbox" class="switch" data-s="allowBypass"></div>
       <div class="row"><div><b>Max steps per message</b><p>Stops a runaway loop after this many model turns.</p></div><input type="number" data-s="maxSteps" data-t="int" min="1" max="200" style="width:90px"></div>
       <div class="row"><div><b>Auto-open files Claude writes</b><p>Open each file in its default app after it’s written.</p></div><input type="checkbox" class="switch" data-s="autoOpenFiles"></div>
+      <div class="row"><div><b>Prompt suggestions</b><p>Show up to three suggested follow-ups after each reply. Costs one small model call per reply.</p></div><input type="checkbox" class="switch" data-s="promptSuggestions"></div>
+      <div class="row"><div><b>Resume after rate limits</b><p>When the provider is rate-limited or overloaded, wait and retry instead of stopping.</p></div><input type="checkbox" class="switch" data-s="autoResume"></div>
+      <div class="row"><div><b>New session prompt</b><p>Pre-fills the message box when you start a code session.</p></div><input data-s="newTaskPrompt" placeholder="(none)" style="width:220px" autocomplete="off"></div>
+      <div class="row"><div><b>Shell sandbox</b><p>Runs the bash tool under macOS sandboxing. “Project only” blocks writes outside the session folder and temp folders; “No network” also blocks network access.</p></div>
+        <select data-s="sandboxShell"><option value="off">Off</option><option value="files">Project only</option><option value="strict">No network</option></select></div>
+      <h3>Housekeeping</h3>
+      <div class="row"><div><b>Auto-archive idle sessions</b><p>Archive sessions untouched for this many days (0 = never). Pinned sessions are kept.</p></div><input type="number" data-s="archiveDays" data-t="int" min="0" max="3650" style="width:90px"></div>
+      <div class="row"><div><b>Remove finished worktrees</b><p>Delete the worktree of an archived session this many hours after it was closed, if it has no uncommitted changes (0 = never).</p></div><input type="number" data-s="worktreeReapHours" data-t="int" min="0" max="8760" style="width:90px"></div>
       <h3>Worktrees</h3>
       <div class="row"><div><b>Branch prefix</b><p>New worktree branches are named <code>prefix + task</code>.</p></div><input data-s="branchPrefix" placeholder="grizzy/" style="width:160px" autocomplete="off"></div>
       <div class="row"><div><b>Worktree folder</b><p id="wtDirNote">Where worktrees are created. Empty uses a hidden folder next to the repository.</p></div><span class="inline"><input data-s="worktreeDir" placeholder="Next to the repo" style="width:170px"><button class="outline" id="wtChoose" type="button">Choose…</button></span></div>
@@ -267,9 +276,19 @@
       <div class="row"><div><b>Launch at login</b><p>Open GrizzyCode when you sign in to your computer.</p></div><input type="checkbox" class="switch" data-s="launchAtLogin"></div>
       <div class="row"><div><b>Keep running in the system tray</b><p>Closing the window leaves GrizzyCode running in the menu bar.</p></div><input type="checkbox" class="switch" data-s="runInTray" id="sTray"></div>
       <div class="row"><div><b>Keep computer awake while working</b><p>Prevents sleep while a task is running.</p></div><input type="checkbox" class="switch" data-s="keepAwake"></div>
-      <div class="row"><div><b>Quick Entry shortcut</b><p>Global shortcut that opens the Quick Entry panel.</p></div><input id="sShortcut" placeholder="Alt+Space"></div>
+      <div class="row"><div><b>Keep awake on battery</b><p>When off, running tasks don’t block sleep while unplugged.</p></div><input type="checkbox" class="switch" data-s="keepAwakeBattery"></div>
+      <div class="row"><div><b>Quick Entry shortcut</b><p>Global shortcut that opens the Quick Entry panel. Type <code>off</code> to disable it.</p></div><input id="sShortcut" placeholder="Alt+Space"></div>
       <div class="row"><div><b>Hardware acceleration</b><p id="hwNote">Turn off if you see graphics glitches. Applies after a restart.</p></div><span class="inline"><input type="checkbox" class="switch" data-s="hardwareAccel"><button class="outline" id="hwRestart" type="button" hidden>Restart now</button></span></div>
       <div class="row"><div><b>Notifications</b><p id="sysNotifNote">System notification permission for GrizzyCode.</p></div><button class="outline" id="sysNotifTest" type="button">Send test</button></div>
+      <div class="row"><div><b>When a task needs input</b><p>How to alert you while GrizzyCode is in the background. “Badge” only marks the Dock icon.</p></div><select data-s="notifyApproval"><option value="banner">Banner</option><option value="badge">Badge</option><option value="off">Off</option></select></div>
+      <div class="row"><div><b>When a task finishes</b><p>Also used for tasks that stop with an error.</p></div><select data-s="notifyDone"><option value="banner">Banner</option><option value="badge">Badge</option><option value="off">Off</option></select></div>
+      <div class="row"><div><b>Bounce the Dock icon</b><p>Bounce when an alert fires and the app is in the background.</p></div><input type="checkbox" class="switch" data-s="dockBounce"></div>
+      <h3>Storage</h3>
+      <div class="pg-actions" style="margin-top:0"><button class="outline" id="stCalc" type="button">Calculate usage</button><button class="outline" id="stOpen" type="button">Show data folder</button><button class="outline" id="stClean" type="button">Remove finished worktrees</button><span class="hint" id="stMsg"></span></div>
+      <div id="stList"></div>
+      <h3 id="permH">macOS permissions</h3>
+      <p class="hint" id="permHint" style="margin-top:0">Access macOS grants to GrizzyCode and the tools it launches (screen capture, accessibility, microphone). Nothing is requested until a tool needs it.</p>
+      <div id="permList"></div>
     </section>
 
     <section data-pane="extensions" hidden><h2>Extensions</h2>
@@ -281,12 +300,14 @@
     <section data-pane="developer" hidden><h2>Developer</h2>
       <div class="row"><div><b>Developer mode</b><p>Shows developer tools below.</p></div><input type="checkbox" class="switch" data-s="devMode"></div>
       <h3>Logs and config</h3>
-      <div class="pg-actions"><button class="outline" id="devLogs" type="button">Show logs in Finder</button><button class="outline" id="devSettingsFile" type="button">Reveal settings file</button><button class="outline" id="devMcpCfg" type="button">Open connector config</button></div>
+      <div class="pg-actions"><button class="outline" id="devLogs" type="button">Show logs in Finder</button><button class="outline" id="devSettingsFile" type="button">Reveal settings file</button><button class="outline" id="devMcpCfg" type="button">Open connector config</button><button class="outline" id="devMcpLog" type="button">Show connector log</button></div>
       <div class="pg-actions"><button class="outline" id="devReload" type="button">Reload connectors</button><button class="outline" id="devReport" type="button">Generate diagnostic report…</button><span class="hint" id="devMsg"></span></div>
       <div id="devOnly" hidden><h3>Developer tools</h3><div class="pg-actions" style="margin-top:6px"><button class="outline" id="devTools" type="button">Open DevTools</button></div></div>
       <h3>Maintenance</h3>
       <div class="pg-actions"><button class="outline" id="devCache" type="button">Clear cache and restart…</button><button class="danger" id="devReset" type="button">Reset app data…</button></div>
       <h3>About</h3><div id="aboutBody"></div>
+      <div class="row"><div><b>Check for updates on launch</b><p>Asks GitHub for the latest release (no data is sent). Off by default.</p></div><input type="checkbox" class="switch" data-s="checkUpdates"></div>
+      <div class="pg-actions"><button class="outline" id="abUpdate" type="button">Check for updates</button><button class="outline" id="abFeedback" type="button">Send feedback…</button><span class="hint" id="abMsg"></span></div>
     </section>
 
     <section data-pane="skills" hidden><h2>Skills</h2><p class="hint" style="margin-top:0">Reusable instructions the model loads when a task matches. Includes skills from plugins.</p><div id="skillList"></div><p><button class="outline" id="skillImport">Import .skill / folder…</button></p></section>

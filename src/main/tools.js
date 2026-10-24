@@ -4,6 +4,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const skills = require('./skills');
 const memory = require('./memory');
+const extras = require('./extras');
 
 const MAX_OUT = 30000;
 const clip = (s) => (s.length > MAX_OUT ? s.slice(0, MAX_OUT) + `\n…[truncated ${s.length - MAX_OUT} chars]` : s);
@@ -132,7 +133,9 @@ function run(name, input, cwd, signal, ssh) {
 
 function sh(command, cwd, signal, env = {}) {
   return new Promise((resolve) => {
-    const p = spawn('/bin/zsh', ['-lc', command], { cwd: cwd || process.env.HOME, env: { ...process.env, ...env } });
+    let sb = null; try { sb = extras.sandboxArgs(require('./store').getSettings().sandboxShell, cwd, command); } catch {}
+    const p = sb ? spawn(extras.SB_BIN, sb, { cwd: cwd || process.env.HOME, env: { ...process.env, ...env } })
+      : spawn('/bin/zsh', ['-lc', command], { cwd: cwd || process.env.HOME, env: { ...process.env, ...env } });
     let out = '';
     const add = (d) => { out += d; };
     p.stdout.on('data', add); p.stderr.on('data', add);
