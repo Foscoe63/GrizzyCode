@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('gc', {
   mods: { list: inv('mods:list'), info: inv('mods:info'), setEnabled: inv('mods:setEnabled'), session: inv('mods:session'), render: inv('mods:render'), press: inv('mods:press'), debugState: inv('mods:debugState'), closePane: inv('mods:closePane'), command: inv('mods:command'), askAnswer: inv('mods:askAnswer'), pickInstall: inv('mods:pickInstall'), create: inv('mods:create'), reload: inv('mods:reload'), reveal: inv('mods:reveal'), export: inv('mods:export'), publish: inv('mods:publish'), remove: inv('mods:remove'), onDirty: on('mods:dirty'), onToast: on('mods:toast'), onLog: on('mods:log'), onAsk: on('mods:ask'), onOpenPane: on('mods:openPane') },
   providers: { list: inv('providers:list'), save: inv('providers:save'), remove: inv('providers:remove'), models: inv('providers:models'), test: inv('providers:test') },
   memory: { list: inv('memory:list'), add: inv('memory:add'), update: inv('memory:update'), remove: inv('memory:remove'), clear: inv('memory:clear') },
-  agents: { list: inv('agents:list'), save: inv('agents:save'), remove: inv('agents:remove') },
+  agents: { list: inv('agents:list'), save: inv('agents:save'), remove: inv('agents:remove'), schema: inv('agents:schema') },
   designSystems: { list: inv('ds:list'), save: inv('ds:save'), remove: inv('ds:remove'), import: inv('ds:import') },
   plugins: { list: inv('plugins:list'), commands: inv('plugins:commands'), pick: inv('plugins:pick'), install: inv('plugins:install'), remove: inv('plugins:remove') },
   extensions: { catalog: inv('ext:catalog'), install: inv('ext:install'), uninstall: inv('ext:uninstall'), pickBundle: inv('ext:pickBundle'), installBundle: inv('ext:installBundle'), openFolder: inv('ext:openFolder') },
@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('gc', {
   git: { status: inv('git:status'), diff: inv('git:diff'), isRepo: inv('git:isRepo'), worktreeAdd: inv('git:worktreeAdd'), worktreeList: inv('git:worktreeList') },
   ssh: { hosts: inv('ssh:hosts'), test: inv('ssh:test') },
   term: { open: inv('term:open'), input: inv('term:input'), resize: inv('term:resize'), run: inv('term:run'), kill: inv('term:kill'), onEvent: on('term:event') },
-  mcp: { status: inv('mcp:status'), config: inv('mcp:config'), save: inv('mcp:saveConfig'), list: inv('mcp:list'), saveServer: inv('mcp:save'), remove: inv('mcp:remove'), toggle: inv('mcp:toggle'), toolToggle: inv('mcp:toolToggle'), restart: inv('mcp:restart'), test: inv('mcp:test'), importJson: inv('mcp:import') },
+  mcp: { status: inv('mcp:status'), config: inv('mcp:config'), save: inv('mcp:saveConfig'), list: inv('mcp:list'), saveServer: inv('mcp:save'), remove: inv('mcp:remove'), toggle: inv('mcp:toggle'), toolToggle: inv('mcp:toolToggle'), toolPolicy: inv('mcp:toolPolicy'), restart: inv('mcp:restart'), test: inv('mcp:test'), importJson: inv('mcp:import') },
   skills: { list: inv('skills:list'), import: inv('skills:import'), remove: inv('skills:remove') },
   importCli: inv('cli:import'),
   find: inv('find'), findStop: inv('find:stop'),
@@ -61,12 +61,6 @@ contextBridge.exposeInMainWorld('gc', {
   onFeatures: on('features:update'),
 
   // --- Claude.app parity APIs (stubs that gracefully degrade) ---
-  // Desktop telemetry (Claude.app toggles essential telemetry via context bridge)
-  telemetry: {
-    getConsent: inv('telemetry:consent'),
-    setConsent: inv('telemetry:setConsent'),
-    getDisabled: inv('telemetry:disabled'),
-  },
 
   // Notifications (macOS-style via SwiftAddon group)
   notifications: {
@@ -98,12 +92,6 @@ contextBridge.exposeInMainWorld('gc', {
     nextWake: inv('wakeScheduler:nextWake'),
   },
 
-  // Keychain — macOS credential storage
-  keychain: {
-    setPassword: inv('keychain:setPassword'),
-    getPassword: inv('keychain:getPassword'),
-    deletePassword: inv('keychain:deletePassword'),
-  },
 
   // Memory pressure monitoring
   memoryPressure: {
@@ -111,12 +99,6 @@ contextBridge.exposeInMainWorld('gc', {
     onPressure: on('memoryPressure:event'),
   },
 
-  // OS entry points — deep linking / file associations
-  osEntryPoints: {
-    openFile: inv('osEntryPoints:openFile'),
-    openUrl: inv('osEntryPoints:openUrl'),
-    getRecentDocuments: inv('osEntryPoints:recentDocuments'),
-  },
 
   // System tray usage / menu integration
   trayUsage: {
@@ -136,8 +118,6 @@ contextBridge.exposeInMainWorld('gc', {
   // File viewer / artifact inspector (Claude.app file_viewer window)
   artifacts: {
     list: inv('artifacts:list'),
-    read: inv('artifacts:read'),
-    save: inv('artifacts:save'),
     open: inv('artifacts:open'),
     export: inv('artifacts:export'),
     preview: inv('artifacts:preview'),

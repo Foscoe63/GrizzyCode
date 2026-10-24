@@ -1,6 +1,7 @@
 // MCP client: local stdio servers (JSON-RPC 2.0, newline-delimited) and remote Streamable-HTTP servers.
 // Config is compatible with the common { "mcpServers": { name: { command, args, env, cwd } | { url, headers } } } shape;
-// GrizzyCode adds an optional `disabled: true` per server and `disabledTools: [toolName]` to hide individual tools.
+// GrizzyCode adds an optional `disabled: true` per server, `disabledTools: [toolName]` (Blocked: hidden from the model) and
+// `allowedTools: [toolName]` (Always allow: no approval prompt). Every other tool is "Needs approval".
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -157,13 +158,15 @@ function stopAll() { for (const e of servers.values()) stopEntry(e); servers.cle
 function stopServer(name) { const e = servers.get(name); if (e) { stopEntry(e); servers.delete(name); } }
 
 // ---- management used by the Connectors settings tab ----
-const toolInfo = (t, off = []) => ({ name: t.name, description: (t.description || '').slice(0, 200), enabled: !off.includes(t.name) });
+// Approval policy of one tool: 'block' | 'allow' | 'ask'. Tool annotations (readOnlyHint) only decide how the tools are grouped and what plan mode may use.
+const policyIn = (def, tool) => ((def?.disabledTools || []).includes(tool) ? 'block' : (def?.allowedTools || []).includes(tool) ? 'allow' : 'ask');
+const toolInfo = (t, def = {}) => ({ name: t.name, description: (t.description || '').slice(0, 200), enabled: policyIn(def, t.name) !== 'block', policy: policyIn(def, t.name), readOnly: t.annotations?.readOnlyHint === true, annotated: !!t.annotations && ('readOnlyHint' in t.annotations || 'destructiveHint' in t.annotations) });
 const offTools = (e) => e.def?.disabledTools || [];
 function list() {
   const cfg = readConfig().mcpServers || {};
   return Object.entries(cfg).map(([name, def]) => {
     const e = servers.get(name);
-    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def.disabledTools || [])) };
+    return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def)) };
   });
 }
 // Save (add or edit, with optional rename) and (re)start just that server.
@@ -177,6 +180,7 @@ async function saveServer({ name, def, oldName }) {
   const clean = { ...def }; for (const k of Object.keys(clean)) if (clean[k] == null || clean[k] === '' || (Array.isArray(clean[k]) && !clean[k].length) || (k === 'env' || k === 'headers') && !Object.keys(clean[k] || {}).length) delete clean[k];
   if (prevCfg?.disabled && def.disabled === undefined) clean.disabled = true;
   if (prevCfg?.disabledTools?.length && def.disabledTools === undefined) clean.disabledTools = prevCfg.disabledTools;
+  if (prevCfg?.allowedTools?.length && def.allowedTools === undefined) clean.allowedTools = prevCfg.allowedTools;
   cfg.mcpServers[name] = clean; writeConfig(cfg);
   stopServer(name);
   if (!clean.disabled) await startServer(name, clean).ready;
@@ -190,15 +194,27 @@ async function setDisabled(name, disabled) {
   if (!disabled) await startServer(name, d).ready;
   return list();
 }
-// Hide or show one tool of a server without restarting it.
-function setToolEnabled(name, tool, enabled) {
+// Set the policy of one tool, or of several at once, without restarting the server.
+function setToolPolicy(name, tools, policy) {
+  if (!['allow', 'ask', 'block'].includes(policy)) return list();
   const cfg = readConfig(); const d = cfg.mcpServers?.[name]; if (!d) return list();
-  const off = new Set(d.disabledTools || []); enabled ? off.delete(tool) : off.add(tool);
+  const off = new Set(d.disabledTools || []), on = new Set(d.allowedTools || []);
+  for (const t of [].concat(tools)) { off.delete(t); on.delete(t); if (policy === 'block') off.add(t); else if (policy === 'allow') on.add(t); }
   if (off.size) d.disabledTools = [...off]; else delete d.disabledTools;
+  if (on.size) d.allowedTools = [...on]; else delete d.allowedTools;
   writeConfig(cfg);
   const e = servers.get(name); if (e) e.def = d;
   return list();
 }
+// Older on/off switch: on means "needs approval" unless the tool was already always-allowed.
+function setToolEnabled(name, tool, enabled) {
+  const d = readConfig().mcpServers?.[name]; if (!d) return list();
+  return setToolPolicy(name, tool, enabled ? ((d.allowedTools || []).includes(tool) ? 'allow' : 'ask') : 'block');
+}
+// By full tool name (mcp__server__tool): the policy and whether the tool says it only reads.
+function lookup(fullName) { const [, server, ...rest] = String(fullName).split('__'); const e = servers.get(server); const tool = rest.join('__'); return { e, tool, t: e?.tools.find((x) => x.name === tool) }; }
+const policyOf = (fullName) => { const { e, tool } = lookup(fullName); return e ? policyIn(e.def, tool) : 'ask'; };
+const isReadOnly = (fullName) => lookup(fullName).t?.annotations?.readOnlyHint === true;
 async function restartServer(name) {
   const d = readConfig().mcpServers?.[name]; if (!d) return list();
   stopServer(name); if (!d.disabled) await startServer(name, d).ready; return list();
@@ -209,7 +225,7 @@ async function testServer(def) {
   await warmShellPath();
   const e = startServer('test', def, { register: false });
   await e.ready;
-  const out = e.status === 'running' ? { ok: true, tools: e.tools.map((t) => toolInfo(t)) } : { ok: false, error: e.error || 'Could not start', stderr: e.stderr };
+  const out = e.status === 'running' ? { ok: true, tools: e.tools.map((t) => toolInfo(t, def)) } : { ok: false, error: e.error || 'Could not start', stderr: e.stderr };
   stopEntry(e); return out;
 }
 // Accepts a full config ({mcpServers}), a bare map of servers, or one server definition (needs `name`).
@@ -254,4 +270,4 @@ async function callTool(fullName, args) {
   return r.isError ? 'ERROR: ' + text : text;
 }
 
-module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, setDisabled, setToolEnabled, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };
+module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, setDisabled, setToolEnabled, setToolPolicy, policyOf, isReadOnly, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };

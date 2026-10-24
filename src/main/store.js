@@ -106,6 +106,8 @@ function getSettings({ reveal = false } = {}) {
   const keys = { ...(s.keys || {}) };
   for (const [id, enc] of Object.entries(s.keysEnc || {})) if (safeStorage.isEncryptionAvailable()) { try { keys[id] = safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch {} }
   const d = defaultProviderId(out); if (out.apiKey && d !== 'custom' && !keys[d] && (!keyKind(out.apiKey) || keyKind(out.apiKey) === d || !['anthropic', 'openrouter'].includes(d))) keys[d] = out.apiKey;
+  const hintOf = (k) => (k.length > 12 ? k.slice(0, 7) + '…' + k.slice(-4) : '…' + k.slice(-2)); // enough to tell keys apart, never enough to use one
+  out.keyHints = Object.fromEntries(Object.entries(keys).filter(([, v]) => v).map(([k, v]) => [k, hintOf(v)]));
   out.providerKeys = { anthropic: false, openrouter: false, ...Object.fromEntries(Object.entries(keys).filter(([, v]) => v).map(([k]) => [k, true])) };
   delete out.keysEnc; delete out.keys;
   if (reveal) out.keys = keys;

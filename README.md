@@ -113,6 +113,18 @@ Settings → Capabilities → **Agents**.
 - 🔒 A delegated agent can only be **stricter** than the conversation's permission mode, never looser, and approval cards name the agent.
 - 💾 Delegated agents are saved with the conversation, so you can keep messaging them after a restart.
 
+### Agents are runtime profiles, not prompts
+
+Engineer, Reviewer, Planner, Researcher and Writer (and any agent you make under Settings → Agents) each carry:
+
+- 🧰 **Tools and folders** they may touch, plus their own model and reasoning effort.
+- ⏱️ A **step budget** that caps a run, whether the agent was picked or delegated to.
+- 🚧 **Rules on tool calls**, e.g. an existing file must be read before it is edited (refused before anything is written or asked).
+- ✅ **Completion checks** run against the tool calls GrizzyCode actually saw: an engineer cannot finish after an edit until a check has run and is not failing; a reviewer's `path:line` references must exist; a researcher may only cite URLs it fetched. A failing check sends the agent back to work (at most twice).
+- 🧾 A **run record** the harness appends to every delegated report (files changed, commands run and whether they passed), so the delegating agent need not trust the agent's own account.
+
+Grizzy (the Claude Code CLI) is separate and is not configured here.
+
 ## 🧩 Mods
 
 GrizzyCode runs Claude Code **mods** (function-hook plugins), each in its own worker thread. Settings → Mods, or `/mods` in a chat.

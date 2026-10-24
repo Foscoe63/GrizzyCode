@@ -243,6 +243,11 @@ function buildMenu() {
     { role: 'help', submenu: [{ label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', click: () => cmd('shortcuts') }] },
   ]));
 }
+// The menu bar icon follows "Keep running in the system tray": on shows it, off removes it (closing the last window then quits).
+function syncTray() {
+  const on = store.getSettings().runInTray !== false;
+  if (!on && tray) { tray.destroy(); tray = null; } else if (on && !tray) buildTray();
+}
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'tray.png')).resize({ width: 18, height: 18 });
   tray = new Tray(img);
@@ -268,6 +273,7 @@ function ipc() {
     const s = store.saveSettings(out); let shortcutOk;
     if ('quickShortcut' in out) shortcutOk = registerShortcut();
     if ('theme' in out) nativeTheme.themeSource = out.theme;
+    if ('runInTray' in out) syncTray();
     if ('launchAtLogin' in out) { try { app.setLoginItemSettings({ openAtLogin: !!out.launchAtLogin }); } catch {} }
     if ('retentionDays' in out) dataops.purgeOld(out.retentionDays);
     if (('keepAwake' in out) && !out.keepAwake && awakeId !== null) { powerSaveBlocker.stop(awakeId); awakeId = null; }
@@ -381,6 +387,7 @@ function ipc() {
   h('mcp:remove', (name) => mcp.removeServer(name));
   h('mcp:toggle', (name, disabled) => mcp.setDisabled(name, disabled));
   h('mcp:toolToggle', (name, tool, on) => mcp.setToolEnabled(name, tool, on));
+  h('mcp:toolPolicy', (name, tools, policy) => mcp.setToolPolicy(name, tools, policy));
   h('mcp:restart', (name) => mcp.restartServer(name));
   h('mcp:test', (def) => mcp.testServer(def));
   h('mcp:import', (text, o) => mcp.importJson(text, o));
@@ -419,6 +426,7 @@ function ipc() {
   h('agents:list', () => agents.list());
   h('agents:save', (p) => agents.save(p));
   h('agents:remove', (id) => agents.remove(id));
+  h('agents:schema', () => ({ gates: agents.GATE_INFO, guards: agents.GUARD_INFO }));
   h('ds:list', () => designsystems.list());
   h('ds:save', (p) => designsystems.save(p));
   h('ds:remove', (id) => designsystems.remove(id));
@@ -507,11 +515,6 @@ function ipc() {
     const n = createMain({ conv: convId }); n.setBounds({ x: d.x + half, y: d.y, width: d.width - half, height: d.height });
   });
 
-  // === Claude.app parity: Telemetry ===
-  h('telemetry:consent', async () => { ensureSwiftAddon(); return { consent: store.getSettings().telemetryConsent ?? true }; });
-  h('telemetry:setConsent', async (consent) => { ensureSwiftAddon(); store.saveSettings({ telemetryConsent: consent }); return true; });
-  h('telemetry:disabled', async () => { ensureSwiftAddon(); return { disabled: false }; });
-
   // === Claude.app parity: Notifications ===
   h('notifications:schedule', async (id, title, body, when) => { ensureSwiftAddon(); });
   h('notifications:cancel', async (id) => { ensureSwiftAddon(); });
@@ -534,19 +537,9 @@ function ipc() {
   h('wakeScheduler:cancel', async (id) => { ensureSwiftAddon(); });
   h('wakeScheduler:nextWake', async () => { ensureSwiftAddon(); return { nextWake: undefined }; });
 
-  // === Claude.app parity: Keychain ===
-  h('keychain:setPassword', async (service, account, password) => { ensureSwiftAddon(); });
-  h('keychain:getPassword', async (service, account) => { ensureSwiftAddon(); return { password: undefined }; });
-  h('keychain:deletePassword', async (service, account) => { ensureSwiftAddon(); });
-
   // === Claude.app parity: MemoryPressure ===
   h('memoryPressure:level', async () => { ensureSwiftAddon(); return { level: 'none' }; });
   // memoryPressure event pushed via generic onEvt dispatcher above
-
-  // === Claude.app parity: OSEntryPoints ===
-  h('osEntryPoints:openFile', async (filePath) => { ensureSwiftAddon(); shell.openPath(filePath); });
-  h('osEntryPoints:openUrl', async (url) => { ensureSwiftAddon(); shell.openExternal(url); });
-  h('osEntryPoints:recentDocuments', async () => { ensureSwiftAddon(); return { documents: [] }; });
 
   // === Claude.app parity: TrayUsage ===
   h('trayUsage:getUsage', async () => { ensureSwiftAddon(); return { usageMb: 0, lastUpdate: 0 }; });
@@ -573,9 +566,8 @@ function ipc() {
   h('dispatch:start', (o) => { try { return features.startDispatch(o); } catch (e) { return { error: e.message }; } });
   h('dispatch:stop', (id) => features.stopDispatch(id));
   h('dispatch:delete', (id) => features.removeDispatch(id));
-  h('artifacts:read', async (filePath) => { ensureSwiftAddon(); try { return { content: fs.readFileSync(filePath, 'utf-8') }; } catch { return { content: undefined }; } });
-  h('artifacts:save', async (filePath, content) => { ensureSwiftAddon(); fs.writeFileSync(filePath, content); });
-  h('artifacts:open', async (filePath) => { ensureSwiftAddon(); shell.openPath(filePath); });
+  // Opens a file the Files pane lists. Only plain existing files, never programs, app bundles or installers.
+  h('artifacts:open', async (filePath) => { try { const p = path.resolve(String(filePath)); if (!fs.statSync(p).isFile() || /\.(app|command|tool|workflow|scpt|pkg|dmg|exe|bat|cmd|msi|jar|terminal|webloc|inetloc)$/i.test(p) || (fs.statSync(p).mode & 0o111)) return false; return (await shell.openPath(p)) === ''; } catch { return false; } });
 
   // === Claude.app parity: Buddy ===
   h('buddy:visible', async () => { return { visible: quick && !quick.isDestroyed() && quick.isVisible() }; });
@@ -627,15 +619,6 @@ function ipc() {
   onEvt('memoryPressure:event', (level) => push('memoryPressure:event', level));
   onEvt('appearance:change', (theme) => push('appearance:change', theme));
 
-  // === Dynamic IPC dispatcher (parity with Claude.app's 1563 dynamic channel ops) ===
-  // Allow renderer to call any channel via a single dispatcher, mirroring
-  // Claude.app's context-bridge dynamic IPC routing.
-  h('ipc:dispatch', async (channel, ...args) => {
-    const handler = ipcMain.handlers.get(channel);
-    if (!handler) return { error: `no handler for ${channel}` };
-    try { return await handler({} , ...args); } catch (e) { return { error: e.message }; }
-  });
-
   console.log('IPC handlers registered (parity with Claude.app)');
 }
 
@@ -664,7 +647,7 @@ app.whenReady().then(() => {
   ipc();
   modsGlue.setup({ ipcMain, store, mcp, models, llm, tools: require('./tools'), logger, app, dialog, Notification, wins, showMain, focused });
   modsGlue.host.startEnabled().catch((e) => console.warn('mods failed to start:', e.message));
-  features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); buildTray(); registerShortcut(); createMain();
+  features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); syncTray(); registerShortcut(); createMain();
   mcp.startAll().catch(() => {});
   const purge = () => { try { dataops.purgeOld(store.getSettings().retentionDays); } catch {} }; purge(); setInterval(purge, 6 * 3600 * 1000);
   housekeeping(); setInterval(housekeeping, 6 * 3600 * 1000);

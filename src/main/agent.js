@@ -15,6 +15,7 @@ const savings = require('./savings');
 const checkpoints = require('./checkpoints');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const { randomUUID } = require('crypto');
 
 const active = new Map();      // convId -> AbortController
@@ -51,6 +52,12 @@ function decide(conv, name, settings = {}) {
   if (kind === 'read') return 'allow';
   let mode = conv.permissionMode;
   if (mode === 'bypassPermissions' && settings.allowBypass === false) mode = 'acceptEdits'; // disabled in Settings → Claude Code
+  if (name.startsWith('mcp__')) { // connector tools: the per-tool policy from Settings → Connectors comes first
+    const pol = mcp.policyOf(name);
+    if (pol === 'block') return 'deny';
+    if (mode === 'plan') return mcp.isReadOnly(name) ? 'allow' : 'deny'; // plan mode may use tools that only read
+    if (pol === 'allow') return 'allow';
+  }
   if (mode === 'bypassPermissions') return 'allow';
   if (mode === 'plan') return 'deny';
   if ((conv.allow || []).includes(name)) return 'allow';
@@ -109,7 +116,7 @@ async function compactNow(convId) {
 
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
 // `lists` are the access limits that apply (the conversation's agent; a delegated agent adds its own on top).
-async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))]) {
+async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))], run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
   if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, mcp.toolDefs()), c.input);
@@ -119,6 +126,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
   if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
+  if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});
     if (d === 'session') { const l = store.getConversation(convId); l.allow = [...new Set([...(l.allow || []), c.name])]; store.saveConversation(l); conv.allow = l.allow; }
@@ -127,6 +135,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
   const ctx = { convId, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
   const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh, ctx)));
+  if (!conv.ssh && !/^ERROR/.test(String(out))) agents.noteCall(run, c, conv.cwd);
   if (s.autoOpenFiles && !conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && !/^ERROR/.test(String(out))) { try { require('electron').shell.openPath(require('path').resolve(conv.cwd || '.', c.input.path)); } catch {} }
   return out;
 }
@@ -203,7 +212,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   sc.agentId = '';                              // the persona is added from the agent's own definition below
   const model = (sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
   let last = '', finished = false, lists = [];
-  const gs = agents.gateState([]), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
+  const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = agents.guardState(sub.def), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
   gs.followUp = sub.messages.length > 1;
   try {
     for (let step = 0; step < limit; step++) {
@@ -214,7 +223,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
       const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
-      const res = await llm.stream({ ...s, ...models.route(s, model) }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
+      const res = await llm.stream({ ...s, ...models.route(s, model), effort: sub.def.effort || root.effort }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
       store.addUsage(u, { model: models.canon(s, model), mode: root.mode, conv: convId, price: models.priceOf(s, model) });
@@ -236,9 +245,9 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       const results = [];
       for (const c of calls) {
         let out;
-        try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name, lists); }
+        try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name, lists, run); }
         catch (e) { out = 'ERROR: ' + e.message; }
-        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input });
+        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input, out: String(out).slice(-400) }); else gs.errors++;
         out = savings.compressOutput(root, c.name, out, s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000), ...where });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
@@ -247,7 +256,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       if (signal.aborted) throw new Error('Cancelled');
     }
   } finally { sub.running = false; }
-  return (last || '(no report)') + (finished ? '' : '\n\n[stopped at the step limit before finishing]');
+  return (last || '(no report)') + (finished ? '' : '\n\n[stopped at the step limit before finishing]') + agents.ledger(gs); // the record is the harness's own: the delegating agent need not trust the agent's account
 }
 
 async function send(convId, userText, emit, images = [], opts = {}) {
@@ -266,15 +275,16 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   active.set(convId, ac);
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
-  const gs = agents.gateState([]);
+  const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set() };
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
-    const maxSteps = Math.max(1, Math.min(200, Number(s.maxSteps) || 40));
+    const a0 = agents.get(conv.agentId), maxSteps = Math.max(1, Math.min(200, Number(s.maxSteps) || 40, a0 && a0.enabled && a0.steps ? a0.steps : 200)); // an agent's own step budget caps the run
     for (let turn = 0; turn < maxSteps; turn++) {
       const live = store.getConversation(convId); // pick up mode/allow changes made mid-run
       conv.permissionMode = live.permissionMode; conv.allow = live.allow; conv.model = live.model; conv.agentId = live.agentId;
       conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
+      { const ad = agents.get(conv.agentId); run.guards = ad && ad.enabled ? agents.guardState(ad).guards : []; }
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(conv.agentId)?.model || s.model;
       if (s.saveCompact) { // fold old turns into a summary when the context is getting full
         const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
@@ -290,7 +300,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
-        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
+        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(conv.agentId)?.enabled ? agents.get(conv.agentId).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
         catch (e) { llmErr = e; return null; }
       });
       if (llmErr) throw llmErr;
@@ -322,10 +332,10 @@ async function send(convId, userText, emit, images = [], opts = {}) {
             if (d === 'approve') { conv.permissionMode = 'acceptEdits'; const l = store.getConversation(convId); l.permissionMode = 'acceptEdits'; store.saveConversation(l); emit({ type: 'mode', convId, permissionMode: 'acceptEdits' }); out = 'Plan approved. Permission mode is now Accept edits. Proceed with the implementation.'; }
             else out = 'The user wants to keep planning. Revise the plan based on their feedback.';
           } else if (agentRuns.has(c.id)) out = await agentRuns.get(c.id);
-          else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal);
+          else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal, '', undefined, run);
         } catch (e) { out = 'ERROR: ' + e.message; }
         agentRuns.delete(c.id);
-        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input });
+        if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input, out: String(out).slice(-400) }); else gs.errors++;
         out = savings.compressOutput(conv, c.name, out, s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000) });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });

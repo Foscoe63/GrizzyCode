@@ -335,6 +335,8 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 
 .mtool{display:flex;align-items:center;gap:10px;padding:4px 0}
 .mtool .switch{flex:none}
+.mtool{justify-content:space-between}.mtool select,.mgrp select{flex:none;width:auto;min-width:130px;font-size:12px;padding:3px 6px}
+.mgrp{display:flex;align-items:center;gap:8px;margin-top:8px;padding:2px 0 2px 12px;font-size:12px}.mgrp .spacer{flex:1}.mtools .mtool,.mtools .mgrp{padding-right:0}
 .agpick{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px}
 .agpick[hidden]{display:none}
 .agchk{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--text)}

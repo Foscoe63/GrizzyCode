@@ -235,7 +235,7 @@
     </section>
 
     <section data-pane="agents" hidden><h2>Agents</h2>
-      <p class="hint" style="margin-top:0">An agent is a persona with its own instructions, and optionally its own model and permission mode. Pick one from the composer; the selection applies to that conversation. Built-in agents can be edited and reset.</p>
+      <p class="hint" style="margin-top:0">An agent is a runtime profile, not just a prompt: its own instructions, model and reasoning effort, the tools and folders it may touch, a step budget, rules on individual tool calls, and completion checks GrizzyCode runs against what it actually did before it may finish. Pick one from the composer, or let the model delegate to it. Built-in agents can be edited and reset; Grizzy is the Claude Code CLI and is not configurable here.</p>
       <div class="pg-actions"><button class="primary" id="agNew" type="button">New agent</button></div>
       <div id="agList"></div>
     </section>
@@ -327,8 +327,8 @@
     <section data-pane="skills" hidden><h2>Skills</h2><p class="hint" style="margin-top:0">Reusable instructions the model loads when a task matches. Includes skills from plugins.</p><div id="skillList"></div><p><button class="outline" id="skillImport">Import .skill / folder…</button></p></section>
 
     <section data-pane="mcp" hidden><h2>Connectors</h2>
-      <p class="hint">MCP servers give Code sessions extra tools. Run a local program or connect to a remote URL.</p>
-      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add connector</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
+      <p class="hint">MCP servers give Code sessions extra tools. Run a local program or connect to a remote URL. For each tool choose <b>Always allow</b> (no prompt), <b>Needs approval</b> or <b>Blocked</b> (never offered to the model); plan mode only uses tools that declare themselves read-only.</p>
+      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add custom connector</button><button class="outline" id="mcpBrowse" type="button">Browse extensions</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
       <div id="mcpList"></div>
       <details id="mcpAdv"><summary>Edit as JSON</summary>
         <textarea id="mcpCfg" rows="10" spellcheck="false"></textarea><div class="pg-actions"><button class="outline" id="mcpSave" type="button">Save JSON</button><span class="hint" id="mcpJsonMsg"></span></div></details>
@@ -410,6 +410,11 @@
   <div class="fld"><label>Permission mode <span class="hint">applied when you pick this agent in a code session</span><select id="agMode"><option value="">Keep current</option><option value="default">Ask permissions</option><option value="acceptEdits">Accept edits</option><option value="plan">Plan mode</option></select></label></div>
   <div class="fld"><label>Connectors <span class="hint">which connectors this agent can use</span><select id="agConnMode"><option value="all">All connectors</option><option value="selected">Only the ones I pick</option></select></label><div id="agConnList" class="agpick" hidden></div></div>
   <div class="fld"><label>Built-in tools <span class="hint">which tools this agent can use</span><select id="agToolMode"><option value="all">All tools</option><option value="selected">Only the ones I pick</option></select></label><div id="agToolList" class="agpick" hidden></div></div>
+  <div class="fld"><label>Reasoning effort <span class="hint">extended thinking for this agent (models without it ignore this)</span><select id="agEffort"><option value="">Keep current</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label></div>
+  <div class="fld"><label>Step budget <span class="hint">most model turns per run; Settings → Claude Code sets the overall cap</span><input id="agSteps" type="number" min="1" max="100" style="width:90px" placeholder="auto"></label></div>
+  <div class="fld"><label>Rules on tool calls <span class="hint">a call that breaks one is refused</span></label><div id="agGuardList" class="agpick" style="flex-direction:column"></div></div>
+  <div class="fld"><label>Completion checks <span class="hint">the run cannot finish until each passes; GrizzyCode checks them against the tool calls it saw</span></label><div id="agGateList" class="agpick" style="flex-direction:column"></div></div>
+  <div class="fld"><label>Report format <span class="hint">what the final message must contain</span><textarea id="agReport" rows="3" maxlength="1000" placeholder="e.g. Finish with the files you changed, how you verified, and what is left."></textarea></label></div>
   <div class="fld"><label>Folders <span class="hint">one per line; file tools stay inside them, and the shell is turned off. Leave empty for no limit</span><textarea id="agPaths" rows="3" placeholder="e.g. ~/Projects/site&#10;docs" autocomplete="off" spellcheck="false"></textarea></label></div>
   <div class="row" style="padding:6px 0"><div><b>Enabled</b><p>Disabled agents are hidden from the picker.</p></div><input type="checkbox" class="switch" id="agOn"></div>
   <div id="agMsg" class="mmsg"></div>

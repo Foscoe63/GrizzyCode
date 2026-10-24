@@ -206,7 +206,7 @@ function closePanels() { for (const id of ['tasksPanel', 'followPanel', 'sidePan
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ['tasksPanel', 'followPanel', 'sidePanel'].some((id) => !$(id).hidden)) closePanels(); });
 
 function syncPower() {
-  const e = cur?.effort || 'off';
+  const e = cur?.effort || (typeof currentAgent === 'function' && currentAgent()?.effort) || 'off'; // the picked agent's own effort applies until the user sets one
   $('effortChip').hidden = $('fastChip').hidden = !cur;
   $('effortChip').textContent = 'Think: ' + e; $('effortChip').classList.toggle('on', e !== 'off'); $('fastChip').classList.toggle('on', !!cur?.fast);
   syncTasksChip(); syncFollowChip(); renderQueue();
@@ -289,3 +289,4 @@ $('palInput').addEventListener('keydown', (e) => {
   else if (e.key === 'Escape') closePalette();
 });
 $('palette').addEventListener('mousedown', (e) => { if (e.target === $('palette')) closePalette(); });
+syncPower(); // the first syncComposer() can run before this file has loaded

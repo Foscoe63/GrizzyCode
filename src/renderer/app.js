@@ -231,7 +231,7 @@ function syncComposer() {
   ms.value = cur?.permissionMode || settings.permissionMode || 'default'; if (!ms.value) ms.value = 'default';
   ms.className = { default: 'mode-ask', acceptEdits: 'mode-accept', plan: 'mode-plan', bypassPermissions: 'mode-bypass' }[ms.value];
   syncModelLabel(); renderAgentPicker();
-  renderCtx(); syncPower();
+  renderCtx(); if (typeof syncPower === 'function') syncPower(); // power.js loads after this file; it syncs itself once it has loaded
   const run = cur && busy.has(cur.id);
   $('sendBtn').textContent = run ? '■' : '↑'; $('sendBtn').classList.toggle('stop', !!run);
   $('input').placeholder = viewMode === 'code' ? 'Describe a task or ask a question  (/ for commands)' : 'How can I help you today?';
@@ -685,10 +685,11 @@ function renderAccount() {
   const rows = Object.keys(s.providerKeys || {}).filter((id) => s.providerKeys[id]).map((id) => [id, (providerCache.find((p) => p.id === id) || {}).name || id]);
   $('provRows').innerHTML = rows.length ? '<h3>Connected providers</h3>' : '';
   for (const [id, label] of rows) {
-    const r = document.createElement('div'); r.className = 'srow'; r.innerHTML = `<span>${label}<br><span class="hint">Models appear in the model picker</span></span>`;
+    const r = document.createElement('div'); r.className = 'srow'; r.innerHTML = `<span>${esc(label)}<br><span class="hint">${s.keyHints?.[id] ? `Key <code>${esc(s.keyHints[id])}</code> · ` : ''}<span class="ptest">Models appear in the model picker</span></span></span>`;
+    const t = document.createElement('button'); t.type = 'button'; t.textContent = 'Test'; t.onclick = async () => { const o = r.querySelector('.ptest'); t.disabled = true; o.textContent = 'Testing…'; o.style.color = ''; const x = await gc.providers.test(id).catch((e) => ({ ok: false, error: e.message })); t.disabled = false; o.textContent = x.ok ? `Connected ✓${x.count != null ? ` · ${x.count} models` : ''}` : (x.error || 'Could not connect'); o.style.color = x.ok ? 'var(--git-add)' : 'var(--git-del)'; };
     const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Remove';
     b.onclick = async () => { if (!(await gc.confirm(`Remove ${label}?`, 'Deletes the saved key from this computer. Its models disappear from the picker.', 'Remove'))) return; settings = await gc.auth.removeProvider(id); renderAccount(); openSettingsFields(); syncComposer(); loadCatalog(true); };
-    r.appendChild(b); $('provRows').appendChild(r);
+    const act = document.createElement('span'); act.className = 'inline'; act.append(t, b); r.appendChild(act); $('provRows').appendChild(r);
   }
 }
 let anPoll = null;
@@ -788,6 +789,19 @@ const MCP_PRESETS = [
   { label: 'Fetch', name: 'fetch', type: 'stdio', command: 'uvx', args: ['mcp-server-fetch'], note: 'Needs uv installed.' },
   { label: 'Remote URL', name: '', type: 'http', url: '' },
 ];
+// Connector tool policy: like Claude's connector settings, each tool is Always allow, Needs approval or Blocked, grouped by what the tool says it does.
+const POLICIES = [['allow', 'Always allow'], ['ask', 'Needs approval'], ['block', 'Blocked']];
+const GROUPS = [['read', 'Read-only tools'], ['write', 'Write/delete tools'], ['other', 'Other tools']];
+const groupOf = (t) => (t.readOnly ? 'read' : t.annotated ? 'write' : 'other');
+const polSelect = (cls, val, extra) => `<select class="${cls}" ${extra}><option value=""${val === '' ? ' selected' : ''} disabled hidden>Mixed</option>${POLICIES.map(([v, l]) => `<option value="${v}"${v === val ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
+const toolSummary = (tools) => { const n = (p) => tools.filter((t) => t.policy === p).length; return `Tools (${tools.length}) <span class="hint">· ${n('allow')} always allowed · ${n('block')} blocked</span>`; };
+function toolGroups(tools) {
+  return GROUPS.map(([g, label]) => {
+    const ts = tools.filter((t) => groupOf(t) === g); if (!ts.length) return '';
+    const ps = new Set(ts.map((t) => t.policy));
+    return `<div class="mgrp"><b>${label}</b> <span class="hint">${ts.length}</span><span class="spacer"></span>${polSelect('', ps.size === 1 ? [...ps][0] : '', `data-g="${g}" title="Set every tool in this group"`)}</div>` + ts.map((t) => `<div class="mtool"><div><code>${esc(t.name)}</code> <span class="hint">${esc(t.description.slice(0, 90))}</span></div>${polSelect('', t.policy, `data-t="${esc(t.name)}"`)}</div>`).join('');
+  }).join('');
+}
 let mcpEditing = null; // original name when editing
 const dot = { running: 'ok', error: 'bad', starting: 'wait', stopped: 'off', disabled: 'off' };
 async function refreshMcp(list) {
@@ -800,17 +814,17 @@ async function refreshMcp(list) {
     d.innerHTML = `<div class="mhead"><span class="mdot ${dot[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.type === 'http' ? 'remote' : 'local'}</span><span class="spacer"></span><span class="hint">${s.status === 'running' ? s.tools.length + ' tool' + (s.tools.length === 1 ? '' : 's') : esc(s.status)}</span></div>
       <div class="msum" title="${esc(summary)}">${esc(summary)}</div>
       ${s.error ? `<div class="merr">${esc(s.error)}${s.stderr ? `<details><summary>Server output</summary><pre>${esc(s.stderr)}</pre></details>` : ''}</div>` : ''}
-      ${s.tools.length ? `<details class="mtools"><summary>Tools (${s.tools.filter((t) => t.enabled).length}/${s.tools.length} on)</summary>${s.tools.map((t) => `<div class="mtool"><input type="checkbox" class="switch" data-t="${esc(t.name)}" ${t.enabled ? 'checked' : ''}><div><code>${esc(t.name)}</code> <span class="hint">${esc(t.description.slice(0, 90))}</span></div></div>`).join('')}</details>` : ''}
+      ${s.tools.length ? `<details class="mtools"><summary>${toolSummary(s.tools)}</summary>${toolGroups(s.tools)}</details>` : ''}
       <div class="mact"></div>`;
-    d.querySelectorAll('.mtool input').forEach((cb) => (cb.onchange = async () => {
-      const r = await gc.mcp.toolToggle(s.name, cb.dataset.t, cb.checked), me = r.find((x) => x.name === s.name);
-      if (me) d.querySelector('.mtools summary').textContent = `Tools (${me.tools.filter((t) => t.enabled).length}/${me.tools.length} on)`;
-    }));
+    // Per-tool policy. A group header's select applies one policy to every tool in the group.
+    const applyPolicy = async (tools, policy) => { const r = await gc.mcp.toolPolicy(s.name, tools, policy), me = r.find((x) => x.name === s.name); if (me) { d.querySelector('.mtools summary').innerHTML = toolSummary(me.tools); d.querySelectorAll('.mtool select').forEach((x) => { x.value = me.tools.find((t) => t.name === x.dataset.t)?.policy || 'ask'; }); d.querySelectorAll('.mgrp select').forEach((x) => { const ps = new Set(me.tools.filter((t) => groupOf(t) === x.dataset.g).map((t) => t.policy)); x.value = ps.size === 1 ? [...ps][0] : ''; }); } };
+    d.querySelectorAll('.mtool select').forEach((sel) => (sel.onchange = () => applyPolicy([sel.dataset.t], sel.value)));
+    d.querySelectorAll('.mgrp select').forEach((sel) => (sel.onchange = () => { if (sel.value) applyPolicy(s.tools.filter((t) => groupOf(t) === sel.dataset.g).map((t) => t.name), sel.value); }));
     const act = d.querySelector('.mact');
     const btn = (t, f, cls = 'outline') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = t; b.onclick = f; act.appendChild(b); return b; };
     btn('Edit', () => openMcpDialog(s.name, s.def));
-    if (!s.disabled) btn('Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Restarting…'; refreshMcp(await gc.mcp.restart(s.name)); });
-    btn(s.disabled ? 'Enable' : 'Disable', async () => refreshMcp(await gc.mcp.toggle(s.name, !s.disabled)));
+    if (!s.disabled) btn(s.status === 'error' ? 'Reconnect' : 'Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Connecting…'; refreshMcp(await gc.mcp.restart(s.name)); });
+    btn(s.disabled ? 'Connect' : 'Disconnect', async () => refreshMcp(await gc.mcp.toggle(s.name, !s.disabled)));
     btn('Remove', async () => { if (await gc.confirm(`Remove “${s.name}”?`, 'The server is stopped and its configuration deleted.', 'Remove')) refreshMcp(await gc.mcp.remove(s.name)); });
     box.appendChild(d);
   }
@@ -845,6 +859,7 @@ function readMcp() {
 $('mcpPresets').innerHTML = MCP_PRESETS.map((p, i) => `<button type="button" class="chip" data-i="${i}">${esc(p.label)}</button>`).join('');
 $('mcpPresets').onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const p = MCP_PRESETS[b.dataset.i]; fillMcp(p.name, p.type === 'http' ? { url: p.url } : { command: p.command, args: p.args }, p.note); };
 $('mcpAdd').onclick = () => openMcpDialog();
+$('mcpBrowse').onclick = () => showTab('extensions');
 $('mCancel').onclick = () => $('mcpDlg').close();
 const mmsg = (t, ok) => { $('mMsg').textContent = t; $('mMsg').className = 'mmsg ' + (ok === true ? 'ok' : ok === false ? 'bad' : ''); };
 $('mTest').onclick = async () => {
@@ -1042,7 +1057,7 @@ $('memAdd').onclick = addMemory; $('memNew').addEventListener('keydown', (e) => 
 $('memClear').onclick = async () => { await gc.memory.clear(); renderMemory(); };
 
 // Agents
-let agents = [], agEditing = null;
+let agents = [], agEditing = null, agSchema = null;
 async function loadAgents() { agents = await gc.agents.list(); renderAgentPicker(); }
 const agentById = (id) => agents.find((x) => x.id === id && x.enabled) || null;
 const currentAgentId = () => (cur ? cur.agentId : settings.activeAgent) || '';
@@ -1081,7 +1096,7 @@ async function renderAgents() {
   await loadAgents(); const box = $('agList'); box.innerHTML = '';
   for (const a of agents) {
     const r = document.createElement('div'); r.className = 'mcard'; const isActive = currentAgent()?.id === a.id;
-    const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+    const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.effort && `thinking ${esc(a.effort)}`, a.steps && `${a.steps} steps`, a.gates?.length && `${a.gates.length} check${a.gates.length === 1 ? '' : 's'}`, a.guards?.length && `${a.guards.length} rule${a.guards.length === 1 ? '' : 's'}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
     r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
     const act = r.querySelector('.mact'); const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.textContent = t; b.onclick = f; act.appendChild(b); };
     if (a.enabled && !isActive) btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
@@ -1115,11 +1130,15 @@ async function openAgent(a) {
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
   $('agPaths').value = (a?.paths || []).join('\n');
+  $('agEffort').value = a?.effort || ''; $('agSteps').value = a?.steps || ''; $('agReport').value = a?.report || '';
+  agSchema ||= await gc.agents.schema().catch(() => ({ gates: {}, guards: {} }));
+  const chk = (box, info, on) => { $(box).innerHTML = Object.entries(info).map(([k, label]) => `<label class="agchk"><input type="checkbox" value="${esc(k)}"${on?.includes(k) ? ' checked' : ''}> ${esc(label)}</label>`).join('') || '<span class="hint">None.</span>'; };
+  chk('agGuardList', agSchema.guards, a?.guards); chk('agGateList', agSchema.gates, a?.gates);
   $('agDlg').showModal(); $('agName').focus();
 }
 $('agNew').onclick = () => openAgent(null); $('agCancel').onclick = () => $('agDlg').close();
 $('agSave').onclick = async () => {
-  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), enabled: $('agOn').checked });
+  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
   if (r.error) { $('agMsg').textContent = r.error; $('agMsg').className = 'mmsg bad'; return; }
   $('agDlg').close(); renderAgents();
 };

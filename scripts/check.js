@@ -268,6 +268,22 @@ app.whenReady().then(() => srv.listen(0, async () => {
   assert(r.servers.find((x) => x.name === 'local2').disabled === true, 'connector: editing keeps the disabled flag');
   list = await mcp.setDisabled('local2', false); assert(list.find((x) => x.name === 'local2').status === 'running', 'connector: enable starts it');
   list = await mcp.restartServer('local2'); assert(list.find((x) => x.name === 'local2').status === 'running', 'connector: restart');
+  // per-tool policy: Always allow / Needs approval / Blocked, grouped by annotations, honoured by the permission engine
+  {
+    const ann = path.join(os.tmpdir(), 'ann-mcp.js');
+    fs.writeFileSync(ann, `const rl=require('readline').createInterface({input:process.stdin});rl.on('line',l=>{const m=JSON.parse(l);if(m.id==null)return;const T=[{name:'look',description:'reads',inputSchema:{type:'object'},annotations:{readOnlyHint:true}},{name:'wipe',description:'deletes',inputSchema:{type:'object'},annotations:{readOnlyHint:false,destructiveHint:true}},{name:'misc',description:'?',inputSchema:{type:'object'}}];const r=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{},serverInfo:{name:'a',version:'1'}}:m.method==='tools/list'?{tools:T}:{content:[{type:'text',text:'ran '+m.params.name}]};process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:r})+'\\n')})`);
+    await mcp.saveServer({ name: 'pol', def: { command: process.execPath, args: [ann], env: { ELECTRON_RUN_AS_NODE: '1' } } });
+    const tl = () => mcp.list().find((x) => x.name === 'pol').tools; const pol = (n) => tl().find((t) => t.name === n).policy;
+    assert(tl().find((t) => t.name === 'look').readOnly && tl().find((t) => t.name === 'wipe').annotated && !tl().find((t) => t.name === 'wipe').readOnly && !tl().find((t) => t.name === 'misc').annotated && tl().every((t) => t.policy === 'ask'), 'connector tools: annotations decide the group and every tool starts as Needs approval');
+    mcp.setToolPolicy('pol', ['look', 'misc'], 'allow'); mcp.setToolPolicy('pol', 'wipe', 'block');
+    assert(pol('look') === 'allow' && pol('misc') === 'allow' && pol('wipe') === 'block' && mcp.policyOf('mcp__pol__look') === 'allow' && mcp.policyOf('mcp__pol__wipe') === 'block' && !mcp.toolDefs().some((d) => d.name === 'mcp__pol__wipe') && mcp.toolDefs().some((d) => d.name === 'mcp__pol__look'), 'connector tools: policies are set one by one or in bulk, and a blocked tool is no longer offered');
+    assert((await mcp.callTool('mcp__pol__wipe', {}).catch((e) => e.message)).includes('disabled'), 'connector tools: a blocked tool cannot be called even by name');
+    assert(agent.decide({ permissionMode: 'default' }, 'mcp__pol__look') === 'allow' && agent.decide({ permissionMode: 'default' }, 'mcp__pol__wipe') === 'deny' && agent.decide({ permissionMode: 'default' }, 'mcp__m__ping') === 'ask' && agent.decide({ permissionMode: 'plan' }, 'mcp__pol__look') === 'allow' && agent.decide({ permissionMode: 'plan' }, 'mcp__pol__misc') === 'deny' && agent.decide({ permissionMode: 'bypassPermissions' }, 'mcp__pol__wipe') === 'deny', 'connector tools: Always allow skips the prompt, Blocked is refused in every mode, plan mode only uses read-only tools');
+    mcp.setToolEnabled('pol', 'look', false); assert(pol('look') === 'block'); mcp.setToolEnabled('pol', 'look', true); assert(pol('look') === 'ask', 'connector tools: the old on/off switch maps onto block / needs approval');
+    await mcp.saveServer({ name: 'pol', def: { command: process.execPath, args: [ann], env: { ELECTRON_RUN_AS_NODE: '1' } }, oldName: 'pol' });
+    assert(pol('misc') === 'allow' && pol('wipe') === 'block', 'connector tools: editing a connector keeps its tool policies');
+    await mcp.removeServer('pol');
+  }
   const t1 = await mcp.testServer(stdioDef); assert(t1.ok && t1.tools.length === 1 && !mcp.list().some((x) => x.name === 'test'), 'connector: test lists tools without saving');
   const t2 = await mcp.testServer({ command: '/nonexistent/cmd' }); assert(!t2.ok && /not found/i.test(t2.error), 'connector: missing command reports a clear error');
   const crash = path.join(os.tmpdir(), 'crash-mcp.js'); fs.writeFileSync(crash, "console.error('boom: missing API_KEY'); process.exit(3)");
@@ -365,6 +381,8 @@ app.whenReady().then(() => srv.listen(0, async () => {
   assert(cv.out.maxSteps === 200 && cv.out.termFontSize === 9 && cv.out.displayName.length === 60 && cv.bad.join() === 'retentionDays,branchPrefix,font,worktreeDir,shellPath', 'validate: out-of-range values clamped, invalid ones rejected');
   cv = cleanSettings({ branchPrefix: 'feature', shellPath: '/bin/zsh', worktreeDir: os.tmpdir(), retentionDays: 30, font: 'serif' });
   assert(cv.out.branchPrefix === 'feature/' && cv.out.shellPath === '/bin/zsh' && cv.out.retentionDays === 30 && !cv.bad.length, 'validate: good values accepted, branch prefix gets a slash');
+  cv = cleanSettings({ capShell: 'false', capWeb: 1, allowBypass: true, theme: 'neon', permissionMode: 'yolo', provider: 'openai', quickShortcut: '  ', launchAtLogin: false });
+  assert(!('capShell' in cv.out) && !('capWeb' in cv.out) && !('theme' in cv.out) && !('permissionMode' in cv.out) && !('quickShortcut' in cv.out) && cv.out.allowBypass === true && cv.out.launchAtLogin === false && cv.out.provider === 'openai' && cv.bad.length === 5, 'settings: switches must be real booleans and enums/shortcuts are checked, so a stray string cannot turn a safety setting on');
   // memory
   memory.clear(); const m1 = memory.add('Prefers metric units'); assert(m1.ok && memory.add('prefers METRIC units').duplicate && memory.list().length === 1, 'memory: add and de-duplicate');
   assert(memory.update(m1.memory.id, 'Prefers metric units and tea').ok && memory.update('nope', 'x').error && memory.add('   ').error, 'memory: edit, missing id and empty text rejected');
@@ -510,6 +528,34 @@ app.whenReady().then(() => srv.listen(0, async () => {
         (b) => textTurn('parent: ' + b.messages.at(-1).content[0].content)];
       await agent.send(c.id, 'go', () => {}); c = store.getConversation(c.id);
       assert(sawNudge && engTools.includes('bash') && /verified with cat/.test(resultsOf(c).at(-1)) && fs.readFileSync(path.join(wa, 'e.txt'), 'utf8') === 'new', 'real agents: an engineer that stops after an edit is sent back to verify, then its report comes back');
+      assert(/\[Run record by GrizzyCode\]/.test(resultsOf(c).at(-1)) && /Changed: e\.txt/.test(resultsOf(c).at(-1)) && /Ran: `cat e\.txt` → ok/.test(resultsOf(c).at(-1)), 'real agents: a delegated report ends with a run record the harness wrote itself (files changed, commands and their outcome)');
+
+      // guard: an agent may not edit an existing file it never read (the refusal happens before anything is written or asked)
+      fs.writeFileSync(path.join(wa, 'g.txt'), 'keep'); let guardAsked = false;
+      c = store.newConversation({ mode: 'code', cwd: wa, permissionMode: 'default' });
+      script = [toolTurn('delegate_agent', { agent: 'engineer', task: 'blind edit' }), () => toolTurn('edit_file', { path: 'g.txt', old_string: 'keep', new_string: 'lost' }), () => toolTurn('write_file', { path: 'brand-new.txt', content: 'x' }), () => textTurn('gave up'), textTurn('end')];
+      await agent.send(c.id, 'go', (e) => { if (e.type === 'approval') { if (e.name === 'edit_file') guardAsked = true; agent.answer(e.approvalId, 'once'); } }); c = store.getConversation(c.id);
+      assert(/Read g\.txt with read_file before changing it/.test(JSON.stringify(c.agents)) && fs.readFileSync(path.join(wa, 'g.txt'), 'utf8') === 'keep' && !guardAsked && fs.existsSync(path.join(wa, 'brand-new.txt')), 'real agents: readBeforeEdit refuses a blind edit of an existing file without asking the user, and still lets a new file be created');
+
+      // gates that check the work rather than the wording
+      fs.mkdirSync(path.join(wa, 'src'), { recursive: true }); fs.writeFileSync(path.join(wa, 'src', 'r.js'), 'a\nb\nc\n');
+      const sc = (calls, text, extra = {}) => ({ ...agents.gateState(['bash', 'read_file', 'web_fetch'], { cwd: wa }), calls, text, ...extra });
+      const rv = (t) => g('reviewer', sc([{ name: 'read_file' }], t));
+      assert(rv('High: src/r.js:2 — off by one').length === 0 && /no such file/.test(rv('High: src/nope.js:9 — gone')) && /fewer lines/.test(rv('High: src/r.js:99 — gone')) && rv('Low: src/r.js:1 — fine. The API is at localhost:8080 and example.com:443').length === 0, 'real agents: a reviewer\'s path:line references must exist (missing files and lines past the end are sent back; hosts and ports are ignored)');
+      assert(/never fetched/.test(g('researcher', sc([{ name: 'web_fetch', input: { url: 'https://a.dev/x' } }], 'From https://a.dev/x and https://b.dev/y. Unverified: nothing'))) && g('researcher', sc([{ name: 'web_fetch', input: { url: 'https://a.dev/x/' } }], 'From https://a.dev/x. Unverified: nothing')) === '', 'real agents: a researcher may only cite URLs it actually fetched');
+      const failedRun = [{ name: 'read_file', input: { path: 'a' } }, { name: 'edit_file', input: { path: 'a' } }, { name: 'bash', input: { command: 'npm test' }, out: 'boom\n[exit 1]' }];
+      assert(/last check failed/.test(g('engineer', sc(failedRun, 'All done'))) && g('engineer', sc(failedRun, 'The test still fails: boom')) === '' && g('engineer', sc([failedRun[0], failedRun[1], { name: 'bash', input: { command: 'npm test' }, out: 'ok' }], 'Done')) === '', 'real agents: an engineer whose last check failed must fix it or say plainly that it still fails');
+
+      // main-conversation runs honour the picked agent: step budget and reasoning effort
+      const budget = agents.save({ name: 'Budgeted', instructions: 'Be quick.', steps: 2, effort: 'high' }).agents.find((x) => x.name === 'Budgeted');
+      store.saveSettings({ maxSteps: 40 }); let turns = 0, thinking = null;
+      c = store.newConversation({ mode: 'code', cwd: wa, permissionMode: 'bypassPermissions' }); store.saveConversation(Object.assign(store.getConversation(c.id), { agentId: budget.id }));
+      script = [0, 1, 2, 3, 4].map(() => (b) => { turns++; thinking = thinking || b.thinking; return toolTurn('list_dir', { path: '.' }); });
+      await agent.send(c.id, 'loop', () => {}); agents.remove(budget.id);
+      assert(turns === 2 && thinking?.type === 'enabled', 'real agents: the picked agent\'s step budget caps a run and its effort turns on extended thinking (' + turns + ' turns)');
+      const sv = agents.save({ id: 'reviewer', name: 'Reviewer', effort: 'low', gates: ['findings'], guards: [], steps: 7, report: 'Short.' }); const rvw = sv.agents.find((x) => x.id === 'reviewer'); agents.remove('reviewer');
+      assert(rvw.effort === 'low' && rvw.steps === 7 && rvw.gates.length === 1 && rvw.guards.length === 0 && rvw.report === 'Short.' && agents.get('reviewer').steps === 20 && agents.save({ name: 'X', effort: 'bogus', guards: ['nope'] }).agents.find((x) => x.name === 'X').guards.length === 0, 'real agents: effort, steps, rules, checks and report format are saved and reset like the other fields, and bad values are dropped');
+      agents.remove(agents.list().find((x) => x.name === 'X').id);
     }
     assert(agent.__test.clampMode('bypassPermissions', 'default') === 'default' && agent.__test.clampMode('plan', 'bypassPermissions') === 'plan' && agent.__test.clampMode('', 'acceptEdits') === 'acceptEdits', 'agents: an agent\'s mode can only restrict, never widen, the conversation\'s mode');
 

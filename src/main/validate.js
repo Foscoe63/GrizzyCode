@@ -2,11 +2,17 @@
 const fs = require('fs');
 const path = require('path');
 
+// Switches must be real booleans: a stray string like "false" would otherwise read as on and quietly turn a safety setting (shell, web, bypass) on.
+const BOOL = new Set(['runInTray', 'sidebarHidden', 'notifications', 'notifySound', 'capArtifacts', 'capShell', 'capEdit', 'capWeb', 'capSkills', 'capAgents', 'memoryEnabled', 'memoryAuto', 'allowBypass', 'autoOpenFiles', 'launchAtLogin', 'keepAwake', 'keepAwakeBattery', 'hardwareAccel', 'devMode', 'dockBounce', 'promptSuggestions', 'autoResume', 'checkUpdates', 'saveRouter', 'saveOutputs', 'saveCompact']);
+const ENUM = { theme: ['system', 'light', 'dark'], permissionMode: ['default', 'acceptEdits', 'plan', 'bypassPermissions'], provider: ['anthropic', 'openai'] };
 function cleanSettings(p) {
   const out = {}, bad = [];
   const num = (k, lo, hi) => { const n = Math.round(Number(p[k])); if (Number.isFinite(n)) out[k] = Math.max(lo, Math.min(hi, n)); else bad.push(k); };
   for (const [k, v] of Object.entries(p)) {
-    if (k === 'maxSteps') num(k, 1, 200); else if (k === 'termFontSize') num(k, 9, 24);
+    if (BOOL.has(k)) { if (typeof v === 'boolean') out[k] = v; else bad.push(k); }
+    else if (ENUM[k]) { if (ENUM[k].includes(v)) out[k] = v; else bad.push(k); }
+    else if (k === 'quickShortcut') { if (typeof v === 'string' && v.trim() && v.length <= 60) out[k] = v.trim(); else bad.push(k); }
+    else if (k === 'maxSteps') num(k, 1, 200); else if (k === 'termFontSize') num(k, 9, 24);
     else if (k === 'retentionDays') { const n = Number(v); if ([0, 7, 30, 90, 180, 365].includes(n)) out[k] = n; else bad.push(k); }
     else if (k === 'branchPrefix') { if (typeof v === 'string' && /^[A-Za-z0-9._\/-]{0,30}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-')) out[k] = v && !/[\/-]$/.test(v) ? v + '/' : v; else bad.push(k); }
     else if (k === 'worktreeDir') { if (v === '' || (typeof v === 'string' && path.isAbsolute(v) && fs.existsSync(v) && fs.statSync(v).isDirectory())) out[k] = v; else bad.push(k); }
