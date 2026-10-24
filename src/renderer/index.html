@@ -331,11 +331,11 @@
       <div class="pg-actions"><button class="outline" id="abUpdate" type="button">Check for updates</button><button class="outline" id="abFeedback" type="button">Send feedback…</button><span class="hint" id="abMsg"></span></div>
     </section>
 
-    <section data-pane="skills" hidden><h2>Skills</h2><p class="hint" style="margin-top:0">Reusable instructions the model loads when a task matches. Includes skills from plugins.</p><div id="skillList"></div><p><button class="outline" id="skillImport">Import .skill / folder…</button></p></section>
+    <section data-pane="skills" hidden><h2>Skills</h2><p class="hint" style="margin-top:0">Reusable instructions the model loads when a task matches. Includes skills from plugins.</p><div id="skillList"></div><p class="pg-actions"><button class="primary" id="skillMarket" type="button">Browse skills</button><button class="outline" id="skillImport">Import .skill / folder…</button></p></section>
 
     <section data-pane="mcp" hidden><h2>Connectors</h2>
       <p class="hint">MCP servers give Code sessions extra tools. Run a local program or connect to a remote URL. For each tool choose <b>Always allow</b> (no prompt), <b>Needs approval</b> or <b>Blocked</b> (never offered to the model); plan mode only uses tools that declare themselves read-only.</p>
-      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add custom connector</button><button class="outline" id="mcpBrowse" type="button">Browse extensions</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
+      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add custom connector</button><button class="outline" id="mcpMarket" type="button">Browse connectors</button><button class="outline" id="mcpBrowse" type="button">Browse extensions</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
       <div id="mcpList"></div>
       <details id="mcpAdv"><summary>Edit as JSON</summary>
         <textarea id="mcpCfg" rows="10" spellcheck="false"></textarea><div class="pg-actions"><button class="outline" id="mcpSave" type="button">Save JSON</button><span class="hint" id="mcpJsonMsg"></span></div></details>
@@ -356,7 +356,7 @@
 
     <section data-pane="plugins" hidden><h2>Plugins</h2>
       <p class="hint" style="margin-top:0">A plugin bundles skills, connectors and slash commands. Install one from a folder or a .plugin / .zip file.</p>
-      <div class="pg-actions"><button class="primary" id="plugAdd" type="button">Install plugin…</button><span class="hint" id="plugMsg"></span></div>
+      <div class="pg-actions"><button class="primary" id="plugMarket" type="button">Browse plugins</button><button class="outline" id="plugAdd" type="button">Install from file…</button><span class="hint" id="plugMsg"></span></div>
       <div id="plugList"></div>
     </section>
 
@@ -394,6 +394,11 @@
   </div>
   <div id="mMsg" class="mmsg"></div>
   <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="mTest" class="outline" type="button">Test</button><button id="mCancel" class="outline" type="button">Cancel</button><button id="mSave" class="primary" type="button">Save</button></div></div></dialog>
+<dialog id="marketDlg" style="width:760px"><div class="body" style="padding:20px 24px"><h2 id="mkTitle">Market</h2>
+  <p class="hint" id="mkSub" style="margin:0 0 8px"></p>
+  <div class="pg-actions" style="margin-top:0"><input id="mkQ" type="search" placeholder="Search" spellcheck="false" autocomplete="off" style="flex:1"><select id="mkCat" hidden></select></div>
+  <div id="mkList" style="max-height:52vh;overflow:auto"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;align-items:center;justify-content:flex-end"><span class="hint" id="mkMsg" style="margin-right:auto"></span><button id="mkMore" class="outline" type="button" hidden>Load more</button><button id="mkClose" class="outline" type="button">Close</button></div></div></dialog>
 <dialog id="mcpImpDlg"><div class="body" style="padding:20px 24px"><h2>Import connectors</h2>
   <p class="hint" style="margin:0 0 8px">Paste a config from a README or another app: <code>{"mcpServers": {…}}</code>, or one server with <code>command</code> / <code>url</code>.</p>
   <textarea id="impText" rows="9" spellcheck="false" style="width:100%"></textarea>

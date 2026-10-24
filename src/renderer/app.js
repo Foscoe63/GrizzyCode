@@ -1270,6 +1270,69 @@ $('plugAdd').onclick = async () => {
   $('plugMsg').textContent = r.error || (r.errors?.length ? `Installed, but: ${r.errors.join('; ')}` : `${i.name} installed`); await loadPluginCmds(); renderPlugins(); renderSkills(); renderMcp();
 };
 
+// ---------- markets (plugins / skills / connectors) ----------
+const MK = {
+  plugins: { title: 'Plugin market', sub: 'Plugins from the official Claude plugin marketplace (anthropics/claude-plugins-official). They can include skills, connectors and commands.', load: () => gc.market.plugins(), cats: true },
+  skills: { title: 'Skills market', sub: 'Skills from Anthropic’s public skills repository (anthropics/skills).', load: () => gc.market.skills() },
+  connectors: { title: 'Connector market', sub: 'Servers from the official MCP registry. Connectors run a program on your computer or connect to a remote URL, so only add ones you trust.', search: true },
+};
+let mk = null;
+async function openMarket(kind) {
+  mk = { kind, cfg: MK[kind], items: [], next: '', q: '', cat: '', seq: 0 };
+  $('mkTitle').textContent = mk.cfg.title; $('mkSub').textContent = mk.cfg.sub; $('mkQ').value = ''; $('mkMsg').textContent = ''; $('mkCat').hidden = true;
+  $('marketDlg').showModal(); await mkFetch(false);
+}
+async function mkFetch(more) {
+  const m = mk, seq = ++m.seq; $('mkMsg').textContent = 'Loading…'; $('mkMore').hidden = true;
+  if (!more) { $('mkList').innerHTML = ''; m.items = []; m.next = ''; }
+  const r = m.cfg.search ? await gc.market.connectors({ q: m.q, cursor: more ? m.next : '' }) : (m.loaded || (m.loaded = await m.cfg.load()));
+  if (seq !== m.seq) return;
+  if (r?.error) { $('mkMsg').textContent = ''; $('mkList').innerHTML = `<p class="merr">${esc(r.error)}</p><p><button class="outline" id="mkRetry" type="button">Retry</button></p>`; $('mkRetry').onclick = () => { m.loaded = null; mkFetch(false); }; return; }
+  m.items = more ? m.items.concat(r.items) : r.items; m.next = r.next || '';
+  if (m.cfg.cats) { const cats = [...new Set(m.items.map((x) => x.category).filter(Boolean))].sort(); $('mkCat').innerHTML = '<option value="">All categories</option>' + cats.map((c) => `<option>${esc(c)}</option>`).join(''); $('mkCat').value = m.cat; $('mkCat').hidden = false; }
+  mkRender();
+}
+function mkRender() {
+  const m = mk, box = $('mkList'), q = m.q.toLowerCase();
+  const shown = m.cfg.search ? m.items : m.items.filter((x) => (!m.cat || x.category === m.cat) && (!q || `${x.name} ${x.description} ${x.author || ''}`.toLowerCase().includes(q)));
+  box.innerHTML = '';
+  for (const it of shown.slice(0, m.cfg.search ? 500 : 80)) {
+    const d = document.createElement('div'); d.className = 'mcard';
+    const badge = it.category || (m.kind === 'connectors' ? (it.kind === 'remote' ? 'remote' : it.kind) : '');
+    d.innerHTML = `<div class="mhead"><b>${esc(it.name)}</b>${badge ? `<span class="mbadge">${esc(badge)}</span>` : ''}<span class="spacer"></span><span class="hint">${esc(it.author || '')}</span></div><div class="msum" style="white-space:normal">${esc((it.description || 'No description.').slice(0, 280))}</div><div class="mfields"></div><div class="mact"></div>`;
+    const act = d.querySelector('.mact'), b = document.createElement('button'); b.type = 'button';
+    if (it.installed) { b.className = 'outline'; b.textContent = 'Installed'; b.disabled = true; } else { b.className = 'primary'; b.textContent = 'Install'; b.onclick = () => mkInstall(it, b, d); }
+    act.appendChild(b); if (it.homepage) { const a = document.createElement('button'); a.type = 'button'; a.className = 'outline'; a.textContent = 'Details ↗'; a.onclick = () => gc.openUrl(it.homepage); act.appendChild(a); }
+    box.appendChild(d);
+  }
+  if (!shown.length) box.innerHTML = '<p class="hint">Nothing matches.</p>';
+  $('mkMsg').textContent = `${shown.length} shown`; $('mkMore').hidden = !m.next;
+}
+async function mkInstall(it, b, card) {
+  const kind = mk.kind; let values = {};
+  if (kind === 'connectors') {
+    const f = await gc.market.connectorFields(it.id); if (f.error) { $('mkMsg').textContent = f.error; return; }
+    const box = card.querySelector('.mfields');
+    if (f.fields.length && !box.children.length) {
+      box.innerHTML = f.fields.map((x, i) => `<div class="fld"><label>${esc(x.name)} <span class="hint">${esc(x.description).slice(0, 120)}</span><input data-f="${esc(x.name)}" ${x.secret ? 'type="password"' : ''} spellcheck="false" autocomplete="off"></label></div>`).join('');
+      b.textContent = 'Install with these values'; return;
+    }
+    for (const i of box.querySelectorAll('input')) values[i.dataset.f] = i.value.trim();
+    if (!box.children.length && !(await gc.confirm(`Add “${it.name}”?`, `${it.description || ''}\n\nThis connector will ${/^https?:/.test(f.run) ? 'connect to' : 'run'}: ${f.run}`, 'Add'))) return;
+  } else if (kind === 'plugins' && !(await gc.confirm(`Install “${it.name}”?`, `${it.description || ''}\n\nPlugins can include connectors that run programs on your computer. Only install ones you trust.`, 'Install'))) return;
+  b.disabled = true; b.textContent = 'Installing…'; $('mkMsg').textContent = '';
+  const r = await (kind === 'plugins' ? gc.market.installPlugin(it.id) : kind === 'skills' ? gc.market.installSkill(it.id) : gc.market.installConnector(it.id, values));
+  if (r.error) { b.disabled = false; b.textContent = 'Install'; $('mkMsg').textContent = r.error; toast(r.error); return; }
+  it.installed = true; if (r.errors?.length) toast(`Installed, but: ${r.errors.join('; ')}`); else toast(`${it.name} installed`);
+  if (kind === 'plugins') { await loadPluginCmds(); renderPlugins(); renderSkills(); renderMcp(); } else if (kind === 'skills') renderSkills(); else renderMcp();
+  mkRender();
+}
+let mkT; $('mkQ').oninput = () => { if (!mk) return; mk.q = $('mkQ').value.trim(); if (mk.cfg.search) { clearTimeout(mkT); mkT = setTimeout(() => mkFetch(false), 350); } else mkRender(); };
+$('mkCat').onchange = () => { mk.cat = $('mkCat').value; mkRender(); };
+$('mkMore').onclick = () => mkFetch(true);
+$('mkClose').onclick = () => $('marketDlg').close();
+$('plugMarket').onclick = () => openMarket('plugins'); $('skillMarket').onclick = () => openMarket('skills'); $('mcpMarket').onclick = () => openMarket('connectors');
+
 // ---------- providers ----------
 const provOpen = new Set();
 async function loadProviders() { try { providerCache = await gc.providers.list(); } catch { providerCache = []; } return providerCache; }

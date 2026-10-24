@@ -20,6 +20,7 @@ const memory = require('./memory');
 const designsystems = require('./designsystems');
 const plugins = require('./plugins');
 const extensions = require('./extensions');
+const market = require('./market');
 const dataops = require('./dataops');
 const logger = require('./logger');
 const extras = require('./extras');
@@ -440,6 +441,15 @@ function ipc() {
   });
   h('plugins:install', async (src) => plugins.install(src));
   h('plugins:remove', (name) => plugins.remove(name));
+  // --- Markets ---
+  const safe = (f) => async (...a) => { try { return await f(...a); } catch (e) { return { error: /fetch failed|timeout|abort/i.test(e.message) ? 'Could not reach the marketplace. Check your internet connection.' : e.message }; } };
+  h('market:plugins', safe(async () => ({ items: await market.pluginCatalog() })));
+  h('market:skills', safe(async () => ({ items: await market.skillCatalog() })));
+  h('market:connectors', safe((o) => market.connectorSearch(o)));
+  h('market:connectorFields', safe((id) => market.connectorFields(id)));
+  h('market:installPlugin', safe((n) => market.installPlugin(n)));
+  h('market:installSkill', safe((id) => market.installSkill(id)));
+  h('market:installConnector', safe((id, v) => market.installConnector(id, v)));
   // --- Extensions ---
   h('ext:catalog', () => extensions.catalog());
   h('ext:install', (id, params) => extensions.install(id, params));

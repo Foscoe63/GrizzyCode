@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('gc', {
   agents: { list: inv('agents:list'), save: inv('agents:save'), remove: inv('agents:remove'), schema: inv('agents:schema'), notes: inv('agents:notes'), forgetNote: inv('agents:forgetNote'), clearNotes: inv('agents:clearNotes') },
   designSystems: { list: inv('ds:list'), save: inv('ds:save'), remove: inv('ds:remove'), import: inv('ds:import') },
   plugins: { list: inv('plugins:list'), commands: inv('plugins:commands'), pick: inv('plugins:pick'), install: inv('plugins:install'), remove: inv('plugins:remove') },
+  market: { plugins: inv('market:plugins'), skills: inv('market:skills'), connectors: inv('market:connectors'), connectorFields: inv('market:connectorFields'), installPlugin: inv('market:installPlugin'), installSkill: inv('market:installSkill'), installConnector: inv('market:installConnector') },
   extensions: { catalog: inv('ext:catalog'), install: inv('ext:install'), uninstall: inv('ext:uninstall'), pickBundle: inv('ext:pickBundle'), installBundle: inv('ext:installBundle'), openFolder: inv('ext:openFolder') },
   privacy: { export: inv('privacy:export'), delete: inv('privacy:delete') },
   billing: { openrouter: inv('billing:openrouter') },
