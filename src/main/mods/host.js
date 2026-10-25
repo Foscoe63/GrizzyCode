@@ -13,6 +13,8 @@ const WORKER = path.join(__dirname, 'worker.js');
 const HOME = os.homedir();
 const NATIVE_DIR = path.join(HOME, '.GrizzyCode', 'mods');
 const CC_MODS = path.join(HOME, '.claude', 'mods');
+const CC_MODS_DATA = path.join(HOME, '.claude', 'mods-data');       // where mods keep their settings (cut from their own root)
+const NATIVE_DATA = path.join(HOME, '.GrizzyCode', 'mods-data');    // GrizzyCode's copy, so mod data never lands in ~/.claude
 const EVENT_TIMEOUT = 15000;
 
 // GrizzyCode tool names → the names (and field names) mods know from Claude Code.
@@ -220,13 +222,14 @@ class ModHost {
   // Mods find the shared home (switches.json, the /mods list, open requests) by cutting their own root at "/.claude/".
   // A mod in GrizzyCode's folder would cut at nothing, so it sees itself at ~/.claude/mods/<folder> instead; the paths
   // below map that view back to the real folder, and map switches.json / .open-* to ~/.GrizzyCode/mods so GrizzyCode's
-  // switches stay separate from Claude Code's. Nothing is written to ~/.claude/mods.
+  // switches stay separate from Claude Code's. Likewise ~/.claude/mods-data (mod settings) maps to ~/.GrizzyCode/mods-data. Nothing is written to ~/.claude.
   pluginRoot(m) { return m.source === 'GrizzyCode' ? path.join(CC_MODS, path.basename(m.root)) : m.root; }
   nativeFolders() {
     try { return fs.readdirSync(NATIVE_DIR, { withFileTypes: true }).filter((d) => d.isDirectory() && fs.existsSync(path.join(NATIVE_DIR, d.name, '.claude-plugin', 'plugin.json'))).map((d) => d.name); } catch { return []; }
   }
   mapPath(p) {
     p = String(p);
+    if (p === CC_MODS_DATA || p.startsWith(CC_MODS_DATA + path.sep)) return path.join(NATIVE_DATA, p.slice(CC_MODS_DATA.length));
     if (!p.startsWith(CC_MODS + path.sep)) return p;
     const rest = p.slice(CC_MODS.length + 1), name = rest.split(path.sep)[0];
     if (name === 'switches.json' || name.startsWith('.open-')) return path.join(NATIVE_DIR, rest); // GrizzyCode keeps its own switches and open requests

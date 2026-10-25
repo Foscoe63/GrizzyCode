@@ -133,7 +133,7 @@ body.home.chatview #composer{max-width:700px}
 .chip-b{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;padding:3px 8px;font-size:12.5px;border-radius:var(--r);color:var(--text-2)}
 .mode-ask{color:var(--text-2)}.mode-accept{color:var(--git-mod)}.mode-plan{color:#3b82f6}.mode-bypass{color:var(--danger)}
 #tok{font-size:11px;color:var(--text-3);padding:0 6px;white-space:nowrap}
-#slash{position:absolute;bottom:100%;left:20px;margin-bottom:4px;background:var(--bg-raised);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:260px;overflow:hidden;z-index:6}
+#slash{position:absolute;bottom:100%;left:20px;margin-bottom:4px;background:var(--bg-raised);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:260px;max-height:min(320px,50vh);overflow-y:auto;z-index:6}
 #slash div{padding:6px 12px;cursor:pointer;display:flex;gap:10px}#slash div.on,#slash div:hover{background:var(--hover)}#slash b{font-family:var(--mono);font-weight:500}#slash span{color:var(--text-3)}
 #toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:7px 14px;border-radius:9px;z-index:80;font-size:12.5px}
 
@@ -378,4 +378,14 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 .msg.user{position:relative}
 .msg.user .rw{align-self:center;margin-right:6px;opacity:0;border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;border-radius:6px;padding:2px 6px}
 .msg.user:hover .rw{opacity:1}.msg.user .rw:hover{background:var(--hover);color:inherit}
+
+.msg .acts{display:flex;gap:2px;margin-top:4px;height:26px;opacity:0;transition:opacity .12s}
+.msg:hover .acts,.msg .acts:focus-within{opacity:1}
+.msg.user{flex-wrap:wrap}.msg.user .acts{flex:0 0 100%;justify-content:flex-end}
+.act{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:7px;background:transparent;color:var(--text-3);cursor:pointer;padding:0}
+.act svg{width:15px;height:15px}.act:hover{background:var(--hover);color:var(--text)}.act.ok{color:var(--clay-em)}
+.editbox{display:flex;flex-direction:column;gap:8px}
+.editbox textarea{width:100%;box-sizing:border-box;border:1px solid var(--line-strong);border-radius:10px;background:var(--bg-raised);color:inherit;font:inherit;line-height:1.55;padding:10px 12px;resize:vertical;outline:none}
+.editrow{display:flex;gap:8px;justify-content:flex-end}
+
 .pg-how{margin-top:28px;border:1px solid var(--line);background:var(--bg-raised);border-radius:14px;padding:14px 18px;max-width:640px}.pg-how h3{margin:0 0 6px}.pg-how ol{margin:0 0 8px;padding-left:20px;color:var(--text-2);line-height:1.7}

@@ -380,6 +380,8 @@ function ipc() {
   h('mcp:signIn', async (name) => { const r = await mcp.signIn(name, { open: (u) => shell.openExternal(u) }); const w = focused(); if (w && r.ok) { w.show(); w.focus(); } return r; });
   h('mcp:signOut', (name) => mcp.signOut(name));
   h('mcp:cancelSignIn', (name) => mcp.cancelSignIn(name));
+  h('google:client', () => mcp.google.client());
+  h('google:setClient', (p) => mcp.google.setClient(p));
   h('mcp:toolPolicy', (name, tools, policy) => mcp.setToolPolicy(name, tools, policy));
   h('mcp:restart', (name) => mcp.restartServer(name));
   h('mcp:test', (def) => mcp.testServer(def));
@@ -501,6 +503,7 @@ function ipc() {
   // --- Rewind, side chat, follow-ups, background tasks, @-mention search, split view ---
   h('conv:rewindPreview', (id, idx) => agent.rewindPreview(id, idx));
   h('conv:rewind', (id, idx, opts) => agent.rewind(id, idx, opts));
+  h('conv:editText', (id, oldText, newText) => agent.editText(id, oldText, newText));
   h('agent:side', async (id, q, prior) => { try { return { text: await agent.side(id, q, prior || []) }; } catch (e) { return { error: e.message }; } });
   h('backlog:list', (id) => { try { return store.getConversation(id).backlog || []; } catch { return []; } });
   h('backlog:update', (id, itemId, patch) => {

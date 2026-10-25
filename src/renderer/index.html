@@ -399,6 +399,14 @@
   <div class="pg-actions" style="margin-top:0"><input id="mkQ" type="search" placeholder="Search" spellcheck="false" autocomplete="off" style="flex:1"><select id="mkCat" hidden></select></div>
   <div id="mkList" style="max-height:52vh;overflow:auto"></div>
   <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;align-items:center;justify-content:flex-end"><span class="hint" id="mkMsg" style="margin-right:auto"></span><button id="mkMore" class="outline" type="button" hidden>Load more</button><button id="mkClose" class="outline" type="button">Close</button></div></div></dialog>
+<dialog id="googleDlg" style="width:560px"><div class="body" style="padding:20px 24px"><h2>Google (Gmail, Calendar, Sheets, Docs, Drive)</h2>
+  <p class="hint" style="margin:0 0 10px">Built in. Create a Google Cloud OAuth client once, paste it here, and one browser sign-in unlocks all five apps. Your Client ID, secret and tokens are stored sealed on this computer.</p>
+  <ol id="gSteps" style="margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.5"></ol>
+  <div class="fld"><label>Redirect URI <span class="hint">add this to the OAuth client</span><input id="gRedirect" readonly spellcheck="false"></label></div>
+  <div class="fld"><label>Client ID<input id="gId" spellcheck="false" autocomplete="off" placeholder="1234-abc.apps.googleusercontent.com"></label></div>
+  <div class="fld"><label>Client secret <span class="hint" id="gSecretHint"></span><input id="gSecret" type="password" spellcheck="false" autocomplete="off"></label></div>
+  <div id="gMsg" class="mmsg"></div>
+  <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="gCancel" class="outline" type="button">Close</button><button id="gSave" class="outline" type="button">Save</button><button id="gSignIn" class="primary" type="button">Save &amp; sign in with Google</button></div></div></dialog>
 <dialog id="mcpImpDlg"><div class="body" style="padding:20px 24px"><h2>Import connectors</h2>
   <p class="hint" style="margin:0 0 8px">Paste a config from a README or another app: <code>{"mcpServers": {…}}</code>, or one server with <code>command</code> / <code>url</code>.</p>
   <textarea id="impText" rows="9" spellcheck="false" style="width:100%"></textarea>

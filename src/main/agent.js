@@ -32,6 +32,7 @@ function buildSystem(s, conv) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
     sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. Prefer small, verified steps.`;
+    sys += '\n\nIf asked to build or install a mod for GrizzyCode: put it in ~/.GrizzyCode/mods/<name>/ (same as ~/.grizzycode) and keep its saved data under ~/.grizzycode/mods-data/<name>/. Never use ~/.claude or `claude plugin install` for it; load the mod-authoring skill first.';
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
@@ -393,6 +394,20 @@ function rewind(convId, idx, { files = true } = {}) {
   return { ok: true, text: humanText(m), files: restored };
 }
 
+// Replace the text of an assistant message (found by its current text). The first text block takes the new text, any further text blocks are dropped.
+function editText(convId, oldText, newText) {
+  if (isRunning(convId)) return { error: 'Stop the running task first.' };
+  newText = String(newText ?? ''); if (!newText.trim()) return { error: 'The reply can’t be empty.' };
+  const conv = store.getConversation(convId); const textOf = (m) => (typeof m.content === 'string' ? m.content : (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(''));
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    const m = conv.messages[i]; if (m.role !== 'assistant' || textOf(m) !== String(oldText)) continue;
+    if (typeof m.content === 'string') m.content = newText;
+    else { let done = false; m.content = m.content.flatMap((b) => (b.type !== 'text' ? [b] : done ? [] : (done = true, [{ ...b, text: newText }]))); }
+    conv.ctx = null; store.saveConversation(conv); return { ok: true };
+  }
+  return { error: 'Couldn’t find that reply in the conversation.' };
+}
+
 // ---- Side chat: a quick question about the session that never touches it (no tools, nothing saved to the conversation) ----
 async function side(convId, question, prior = []) {
   const s = store.getSettings({ reveal: true }); const conv = store.getConversation(convId);
@@ -406,4 +421,4 @@ async function side(convId, question, prior = []) {
   return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('') || '(no answer)';
 }
 
-module.exports = { rewind, rewindPreview, side, send, stop, answer, isRunning, decide, compactNow, suggest, __test: { streamRetry, clampMode, forgetAgents: () => registries.clear() } };
+module.exports = { editText, rewind, rewindPreview, side, send, stop, answer, isRunning, decide, compactNow, suggest, __test: { streamRetry, clampMode, forgetAgents: () => registries.clear() } };

@@ -971,6 +971,7 @@ export const register: Register = (on, options) => {
       assert(modHost.mapPath(path.join(ccm, 'zz-fake', 'hooks', 'a.ts')) === path.join(modHost.constructor === Object ? '' : require('../src/main/mods/author').NATIVE_DIR, 'zz-fake', 'hooks', 'a.ts') && modHost.mapPath('/etc/hosts') === '/etc/hosts', 'mods: the shared view maps to the real folder; other paths are untouched');
       assert(modHost.mapPath(path.join(ccm, 'switches.json')) === path.join(require('../src/main/mods/author').NATIVE_DIR, 'switches.json') && modHost.mapPath(path.join(ccm, '.open-x-1')) === path.join(require('../src/main/mods/author').NATIVE_DIR, '.open-x-1'), 'mods: switches.json and open requests live in ~/.GrizzyCode/mods, not Claude Code’s folder');
       assert(modHost.listDir(ccm).some((e) => e.name === 'zz-fake' && e.kind === 'dir'), 'mods: ~/.claude/mods lists GrizzyCode mods so the /mods pane finds them');
+      assert(modHost.mapPath(path.join(os.homedir(), '.claude', 'mods-data', 'g', 'settings.json')) === path.join(os.homedir(), '.GrizzyCode', 'mods-data', 'g', 'settings.json'), 'mods: mod data (mods-data) is kept in ~/.GrizzyCode, not ~/.claude');
     } finally { modHost.nativeFolders = realNF; }
   }
   {
@@ -1038,6 +1039,10 @@ export const register: Register = (on, options) => {
       rr = agent.rewind(rc.id, 0, { files: true });
       assert(rr.ok && fs.readFileSync(path.join(wr, 'x.txt'), 'utf8') === 'v0' && !fs.existsSync(path.join(wr, 'new.txt')) && store.getConversation(rc.id).messages.length === 0, 'rewind: back to the start restores the original file and removes files Claude created');
       assert(agent.rewind(rc.id, 5).error, 'rewind: an index that is not a user message is refused');
+      script = [textTurn('first reply')]; await agent.send(rc.id, 'edit me', () => {});
+      assert(agent.editText(rc.id, 'first reply', 'better reply').ok && JSON.stringify(store.getConversation(rc.id).messages).includes('better reply') && !JSON.stringify(store.getConversation(rc.id).messages).includes('first reply'), 'edit reply: the new text replaces the assistant message');
+      assert(agent.editText(rc.id, 'better reply', '  ').error && agent.editText(rc.id, 'no such text', 'x').error, 'edit reply: empty text and unknown replies are refused');
+      agent.rewind(rc.id, 0, { files: false });
       script = [toolTurn('write_file', { path: 'y.txt', content: 'k' }), textTurn('ok')]; await agent.send(rc.id, 'again', () => {});
       rr = agent.rewind(rc.id, 0, { files: false });
       assert(rr.ok && fs.existsSync(path.join(wr, 'y.txt')) && cp.turns(rc.id).length === 0, 'rewind: conversation-only keeps files and discards the checkpoints');
@@ -1112,6 +1117,68 @@ export const register: Register = (on, options) => {
       const u = extras.usage(os.tmpdir());
       assert(u.items.some((i) => i.label === 'Conversations') && u.total > 0 && u.path === store.root(), 'storage: usage lists categories and a total');
     }
+  }
+  { // built-in Google connectors: own OAuth client, one sign-in for all five apps, direct REST tools
+    const google = mcp.google, nodeCrypto = require('crypto');
+    const calls = []; let challenge = '', issued = 0, revoked = false;
+    const gsrv = http.createServer((req, res) => {
+      const u = new URL(req.url, 'http://x'); let body = ''; req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        const json = (o, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
+        if (u.pathname === '/token') { const p = new URLSearchParams(body);
+          if (p.get('grant_type') === 'authorization_code') { const ok = p.get('client_id') === 'cid' && p.get('client_secret') === 'sec' && nodeCrypto.createHash('sha256').update(p.get('code_verifier') || '').digest('base64url') === challenge; return ok ? json({ access_token: 'at' + ++issued, refresh_token: 'rt', expires_in: issued === 1 ? 1 : 3600, scope: 'x' }) : json({ error: 'invalid_grant' }, 400); }
+          return p.get('refresh_token') === 'rt' ? json({ access_token: 'at' + ++issued, expires_in: 3600 }) : json({ error: 'invalid_grant' }, 400); }
+        if (u.pathname === '/userinfo') return json({ email: 'me@example.com' });
+        if (u.pathname === '/revoke') { revoked = true; return json({}); }
+        calls.push({ m: req.method, p: u.pathname + u.search, auth: req.headers.authorization, body });
+        if (u.pathname === '/gmail/v1/users/me/messages/send') return json({ id: 'sent1' });
+        if (u.pathname === '/gmail/v1/users/me/messages') return json({ messages: [{ id: 'm1' }] });
+        if (u.pathname === '/gmail/v1/users/me/messages/m1') return json({ id: 'm1', snippet: 'hello', payload: { headers: [{ name: 'Subject', value: 'Hi' }, { name: 'From', value: 'a@b.c' }, { name: 'Date', value: 'Mon' }] } });
+        if (u.pathname.endsWith('/events') && req.method === 'POST') return json({ id: 'ev1', summary: 'Lunch', start: { dateTime: '2026-03-04T12:00:00' }, htmlLink: 'http://cal/ev1' });
+        if (u.pathname.endsWith('/events')) return json({ items: [{ id: 'ev9', summary: 'Standup', start: { dateTime: 'T1' }, end: { dateTime: 'T2' } }] });
+        if (u.pathname.includes('/events/ev1') && req.method === 'DELETE') { res.writeHead(204); return res.end(); }
+        if (u.pathname.startsWith('/v4/spreadsheets/')) return json({ values: [['a', 'b'], ['1', '2']] });
+        if (u.pathname === '/drive/v3/files') return json({ files: [{ id: 'f1', name: 'Plan.md', mimeType: 'text/markdown' }] });
+        json({ error: { message: 'API has not been used in project' } }, 403);
+      });
+    });
+    await new Promise((r) => gsrv.listen(0, '127.0.0.1', r)); const gbase = `http://127.0.0.1:${gsrv.address().port}`;
+    Object.assign(google.ENDPOINTS, { auth: gbase + '/auth', token: gbase + '/token', userinfo: gbase + '/userinfo', revoke: gbase + '/revoke', api: gbase });
+    let list = mcp.list(); const names = list.filter((x) => x.builtin).map((x) => x.name);
+    assert(['gmail', 'google-calendar', 'google-sheets', 'google-docs', 'google-drive'].every((n) => names.includes(n)) && list.find((x) => x.name === 'gmail').auth.state === 'required', 'google: five built-in connectors are always listed, signed out');
+    assert(list.find((x) => x.name === 'google-calendar').tools.length > 3 && !mcp.toolDefs().some((t) => t.name.startsWith('mcp__gmail__')), 'google: tools are listed for policy but hidden from the model until signed in');
+    assert((await mcp.saveServer({ name: 'gmail', def: stdioDef })).error?.includes('built-in') && (await mcp.removeServer('gmail')).some((x) => x.name === 'gmail'), 'google: a built-in connector cannot be replaced or removed');
+    assert(!(await mcp.signIn('gmail', { open: async () => {} })).ok, 'google: signing in without a client explains what to add');
+    assert(google.setClient({ clientId: 'cid' }).error && google.setClient({ clientId: 'cid', clientSecret: 'sec' }).ok && google.client().hasSecret && google.client().clientId === 'cid', 'google: client id and secret are required together and saved');
+    assert(!JSON.stringify(google.client()).includes('sec"') && !fs.readFileSync(path.join(store.root(), 'google_oauth' + store.vault.tag() + '.json'), 'utf8').includes('sec'), 'google: the secret is never returned to the page and is sealed on disk');
+    const gp = 18765; let authUrl = null;
+    const browser = async (url) => { authUrl = new URL(url); challenge = authUrl.searchParams.get('code_challenge'); await fetch(`${authUrl.searchParams.get('redirect_uri')}/?code=gc&state=${authUrl.searchParams.get('state')}`); };
+    let gr = await google.signIn({ open: browser, port: gp });
+    assert(gr.ok && gr.email === 'me@example.com' && authUrl.searchParams.get('code_challenge_method') === 'S256' && authUrl.searchParams.get('access_type') === 'offline' && ['gmail.modify', 'calendar', 'spreadsheets', 'documents', 'drive'].every((sc) => authUrl.searchParams.get('scope').includes('auth/' + sc)), 'google: PKCE sign-in covers every app and reads the account email');
+    const bad = await google.signIn({ port: gp, open: async (url) => { const a = new URL(url); await fetch(`${a.searchParams.get('redirect_uri')}/?code=gc&state=wrong`); setTimeout(() => google.cancel(), 50); } });
+    assert(!bad.ok, 'google: a callback with the wrong state is rejected');
+    await mcp.signIn('gmail', { open: browser, port: gp });
+    list = mcp.list(); assert(list.filter((x) => x.builtin).every((x) => x.status === 'running' && x.auth.state === 'signed-in' && x.auth.account === 'me@example.com') && mcp.toolDefs().some((t) => t.name === 'mcp__google-calendar__create_event'), 'google: one sign-in connects all five and exposes their tools');
+    await new Promise((r) => setTimeout(r, 1100)); // first access token lives 1s (and the 60s skew makes it already stale): the next call refreshes
+    let out = await mcp.callTool('mcp__gmail__search_messages', { query: 'is:unread' });
+    assert(/\[m1\].*a@b\.c.*Hi/.test(out) && /^Bearer at\d+$/.test(calls.at(-1).auth) && calls.some((c) => c.p.includes('q=is%3Aunread')), 'google gmail: search lists messages with a refreshed bearer token');
+    out = await mcp.callTool('mcp__gmail__send_message', { to: 'x@y.z', subject: 'Héllo', body: 'hi' });
+    const sent = JSON.parse(calls.find((c) => c.p === '/gmail/v1/users/me/messages/send').body).raw, mime = Buffer.from(sent, 'base64url').toString();
+    assert(out.includes('sent1') && /^To: x@y\.z/.test(mime) && /Subject: =\?UTF-8\?B\?/.test(mime), 'google gmail: send builds an encoded RFC 2822 message');
+    assert((await mcp.callTool('mcp__gmail__send_message', { to: 'nobody', body: 'x' })).startsWith('ERROR: nobody is not an email'), 'google gmail: a bad address is refused before anything is sent');
+    out = await mcp.callTool('mcp__google-calendar__create_event', { summary: 'Lunch', start: '2026-03-04T12:00:00', timeZone: 'America/New_York' });
+    const ev = JSON.parse(calls.find((c) => c.m === 'POST' && c.p.endsWith('/events')).body);
+    assert(out.includes('[ev1]') && ev.start.timeZone === 'America/New_York' && ev.end.dateTime && JSON.stringify(google.eventBody({ summary: 'Day', start: '2026-03-04' }, true).end) === '{"date":"2026-03-05"}', 'google calendar: create defaults the end and handles all-day dates');
+    assert((await mcp.callTool('mcp__google-calendar__list_events', {})).includes('[ev9] T1 → T2 · Standup') && (await mcp.callTool('mcp__google-calendar__delete_event', { eventId: 'ev1' })).includes('Deleted'), 'google calendar: list shows ids; delete works on a 204');
+    assert((await mcp.callTool('mcp__google-sheets__read_range', { spreadsheetId: 'https://docs.google.com/spreadsheets/d/abc123XYZ/edit', range: 'A1:B2' })) === 'a\tb\n1\t2' && calls.at(-1).p.startsWith('/v4/spreadsheets/abc123XYZ/values/A1%3AB2'), 'google sheets: a pasted URL resolves to the id');
+    assert((await mcp.callTool('mcp__google-drive__search_files', { query: "it's" })).includes('[f1] Plan.md') && decodeURIComponent(calls.at(-1).p).includes("fullText contains 'it\\'s'"), 'google drive: plain words become an escaped full-text query');
+    assert(/not been used|not enabled/.test(await mcp.callTool('mcp__google-docs__read_document', { documentId: 'doc1' })), 'google docs: API errors surface with a hint');
+    mcp.setToolPolicy('google-drive', ['upload_file'], 'allow'); mcp.setToolPolicy('google-drive', ['search_files'], 'block');
+    assert(mcp.policyOf('mcp__google-drive__upload_file') === 'allow' && !mcp.toolDefs().some((t) => t.name === 'mcp__google-drive__search_files') && mcp.isReadOnly('mcp__gmail__read_message') && !mcp.isReadOnly('mcp__gmail__send_message'), 'google: per-tool policy and read-only hints work for built-ins');
+    await mcp.setDisabled('google-drive', true); assert(mcp.list().find((x) => x.name === 'google-drive').status === 'disabled' && !mcp.toolDefs().some((t) => t.name.startsWith('mcp__google-drive__')), 'google: a built-in connector can be disconnected');
+    await mcp.setDisabled('google-drive', false); mcp.setToolPolicy('google-drive', ['upload_file', 'search_files'], 'ask');
+    list = await mcp.signOut('gmail'); assert(revoked && list.filter((x) => x.builtin).every((x) => x.auth.state === 'required' && x.status === 'stopped') && google.client().clientId === 'cid', 'google: sign-out revokes the token, keeps the client, disconnects all five');
+    gsrv.close();
   }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();

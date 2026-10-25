@@ -36,13 +36,60 @@ function decorate(el) {
     pre.appendChild(b);
   });
 }
-const setMd = (el, text) => { el.innerHTML = md(text); decorate(el); if (typeof modInfo !== 'undefined' && modInfo.messageHooks) modMask(el, text); };
+const setMd = (el, text) => { el._raw = text; el.innerHTML = md(text); decorate(el); if (typeof modInfo !== 'undefined' && modInfo.messageHooks) modMask(el, text); };
 
 // ---------- message rendering ----------
 function bubble(role) {
   const d = document.createElement('div'); d.className = 'msg ' + role;
-  const b = document.createElement('div'); b.className = 'b'; d.appendChild(b);
+  const b = document.createElement('div'); b.className = 'b'; d.appendChild(b); d.appendChild(msgActions(role, d, b));
   $('msgs').appendChild(d); return b;
+}
+// Copy / edit icon buttons under each bubble (shown on hover).
+const IC = {
+  copy: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 3.5v-.2A1.8 1.8 0 0 0 8.7 1.5H3.8a1.8 1.8 0 0 0-1.8 1.8v4.9a1.8 1.8 0 0 0 1.8 1.8h.2"/></svg>',
+  check: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 4.8"/></svg>',
+  edit: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.8 2.7l2.5 2.5M2.5 13.5l.5-3L11.3 2.2a1.2 1.2 0 0 1 1.7 0l.8.8a1.2 1.2 0 0 1 0 1.7L5.5 13l-3 .5z"/></svg>',
+};
+const bubbleText = (b) => (b._raw != null ? b._raw : [...b.children].map((c) => (c._raw != null ? c._raw : '')).join(''));
+function msgActions(role, d, b) {
+  const bar = document.createElement('div'); bar.className = 'acts';
+  const mk = (kind, title, fn) => { const x = document.createElement('button'); x.type = 'button'; x.className = 'act'; x.title = title; x.setAttribute('aria-label', title); x.innerHTML = IC[kind]; x.onclick = (e) => { e.stopPropagation(); fn(x); }; bar.appendChild(x); return x; };
+  mk('copy', 'Copy', async (x) => {
+    const t = bubbleText(b) || b.innerText || '';
+    try { await navigator.clipboard.writeText(t); } catch { return toast('Couldn’t copy'); }
+    x.innerHTML = IC.check; x.classList.add('ok'); setTimeout(() => { x.innerHTML = IC.copy; x.classList.remove('ok'); }, 1200);
+  });
+  mk('edit', role === 'user' ? 'Edit and resend' : 'Edit reply', () => (role === 'user' ? editPrompt(d) : editReply(b)));
+  return bar;
+}
+// Edit a prompt: rewind the conversation to it (files untouched) and put its text back in the composer.
+async function editPrompt(row) {
+  if (!cur) return; const id = cur.id;
+  if (busy.has(id)) return toast('Stop the running task first');
+  const n = [...$('msgs').querySelectorAll('.msg.user')].indexOf(row);
+  const c = await gc.conv.get(id), idx = humanIdx(c)[n];
+  if (idx == null) return toast('Can’t edit that message');
+  await doRewind(id, idx, false);
+}
+// Edit a reply in place; saved to the conversation.
+function editReply(b) {
+  if (!cur) return; if (busy.has(cur.id)) return toast('Stop the running task first');
+  if (b.querySelector(':scope > .editbox')) return;
+  const old = bubbleText(b), id = cur.id;
+  const box = document.createElement('div'); box.className = 'editbox';
+  const ta = document.createElement('textarea'); ta.value = old; ta.rows = Math.min(24, Math.max(4, old.split('\n').length + 1));
+  const row = document.createElement('div'); row.className = 'editrow';
+  const save = document.createElement('button'); save.type = 'button'; save.className = 'primary'; save.textContent = 'Save';
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = 'Cancel';
+  row.append(cancel, save); box.append(ta, row);
+  const hidden = [...b.children].filter((c) => c !== box); hidden.forEach((c) => (c.hidden = true)); b.appendChild(box); ta.focus();
+  const close = () => { box.remove(); hidden.forEach((c) => (c.hidden = false)); };
+  cancel.onclick = close;
+  save.onclick = async () => {
+    const t = ta.value; if (t === old) return close();
+    const r = await gc.conv.editText(id, old, t); if (r.error) return toast(r.error);
+    const c = await gc.conv.get(id); renderConv(c);
+  };
 }
 const KIND = { read_file: 'read', list_dir: 'read', grep: 'read', write_file: 'edit', edit_file: 'edit', bash: 'run', delegate_agent: 'agent', message_agent: 'agent' };
 function toolBox(name, input, output, id) {
@@ -57,6 +104,7 @@ function toolBox(name, input, output, id) {
 }
 function userBubble(content) {
   const b = bubble('user'); attachRewind(b.parentElement);
+  b._raw = typeof content === 'string' ? content : content.filter((x) => x.type === 'text').map((x) => x.text).join('\n');
   if (typeof content === 'string') { b.textContent = content; if (modInfo.messageHooks) modMaskUser(b, content); return; }
   for (const blk of content) {
     if (blk.type === 'image') { const i = document.createElement('img'); i.className = 'att'; i.src = `data:${blk.source.media_type};base64,${blk.source.data}`; b.appendChild(i); }
@@ -430,9 +478,9 @@ function showSlash() {
   if (!v.startsWith('/') || v.includes(' ')) { box.hidden = true; return; }
   const m = allSlash().filter((s) => s[0].startsWith(v)); if (!m.length) { box.hidden = true; return; }
   slashSel = Math.min(slashSel, m.length - 1);
-  box.innerHTML = ''; box.hidden = false;
+  const keep = box.scrollTop; box.innerHTML = ''; box.hidden = false;
   m.forEach((s, i) => { const d = document.createElement('div'); if (i === slashSel) d.className = 'on'; d.innerHTML = `<b>${s[0]}</b><span>${s[1]}</span>`; d.onclick = () => runSlash(s); box.appendChild(d); });
-  box._m = m;
+  box._m = m; box.scrollTop = keep; box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
 }
 function runSlash(s) { $('input').value = ''; $('slash').hidden = true; autosize(); s[2](); }
 
@@ -815,8 +863,8 @@ async function refreshMcp(list) {
   if (!list.length) box.innerHTML = '<p class="hint">No connectors yet. Add one to give Code sessions more tools.</p>';
   for (const s of list) {
     const d = document.createElement('div'); d.className = 'mcard';
-    const summary = s.type === 'http' ? s.def.url : [s.def.command, ...(s.def.args || [])].join(' ');
-    d.innerHTML = `<div class="mhead"><span class="mdot ${dot[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.type === 'http' ? 'remote' : 'local'}</span>${s.auth?.state === 'signed-in' ? '<span class="mbadge">signed in</span>' : s.auth?.state === 'required' ? '<span class="mbadge">sign-in needed</span>' : ''}<span class="spacer"></span><span class="hint">${s.status === 'running' ? s.tools.length + ' tool' + (s.tools.length === 1 ? '' : 's') : esc(s.status)}</span></div>
+    const summary = s.builtin ? `${s.label} · built in${s.auth.state === 'signed-in' && s.auth.account ? ' · ' + s.auth.account : ''}` : s.type === 'http' ? s.def.url : [s.def.command, ...(s.def.args || [])].join(' ');
+    d.innerHTML = `<div class="mhead"><span class="mdot ${dot[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.builtin ? 'built-in' : s.type === 'http' ? 'remote' : 'local'}</span>${s.auth?.state === 'signed-in' ? '<span class="mbadge">signed in</span>' : s.auth?.state === 'required' ? '<span class="mbadge">sign-in needed</span>' : ''}<span class="spacer"></span><span class="hint">${s.status === 'running' ? s.tools.length + ' tool' + (s.tools.length === 1 ? '' : 's') : esc(s.status)}</span></div>
       <div class="msum" title="${esc(summary)}">${esc(summary)}</div>
       ${s.error ? `<div class="merr">${esc(s.error)}${s.stderr ? `<details><summary>Server output</summary><pre>${esc(s.stderr)}</pre></details>` : ''}</div>` : ''}
       ${s.tools.length ? `<details class="mtools"><summary>${toolSummary(s.tools)}</summary>${toolGroups(s.tools)}</details>` : ''}
@@ -827,7 +875,21 @@ async function refreshMcp(list) {
     d.querySelectorAll('.mgrp select').forEach((sel) => (sel.onchange = () => { if (sel.value) applyPolicy(s.tools.filter((t) => groupOf(t) === sel.dataset.g).map((t) => t.name), sel.value); }));
     const act = d.querySelector('.mact');
     const btn = (t, f, cls = 'outline') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = t; b.onclick = f; act.appendChild(b); return b; };
-    btn('Edit', () => openMcpDialog(s.name, s.def));
+    if (s.builtin) btn('Google settings…', openGoogleDialog);
+    else btn('Edit', () => openMcpDialog(s.name, s.def));
+    if (s.builtin && !s.disabled) {
+      if (s.auth.state === 'signed-in') btn('Sign out', async () => { refreshMcp(await gc.mcp.signOut(s.name)); toast('Signed out of Google'); });
+      else if (!s.auth.configured) btn('Set up Google…', openGoogleDialog, 'primary');
+      else {
+        const sb = btn('Sign in with Google', async () => {
+          if (sb.dataset.busy) return gc.mcp.cancelSignIn(s.name);
+          sb.dataset.busy = '1'; sb.textContent = 'Cancel sign-in'; toast('Finish signing in in your browser');
+          const r = await gc.mcp.signIn(s.name).catch((e) => ({ ok: false, error: e.message }));
+          if (r.ok) toast('Signed in to Google' + (r.email ? ' as ' + r.email : '')); else if (r.error && r.error !== 'Cancelled') toast(r.error);
+          refreshMcp(r.servers);
+        }, 'primary');
+      }
+    }
     if (s.type === 'http' && !s.disabled) {
       if (s.auth?.state === 'signed-in') btn('Sign out', async () => { refreshMcp(await gc.mcp.signOut(s.name)); toast(`${s.name} signed out`); });
       else {
@@ -840,14 +902,37 @@ async function refreshMcp(list) {
         }, s.auth?.state === 'required' ? 'primary' : 'outline');
       }
     }
-    if (!s.disabled) btn(s.status === 'error' ? 'Reconnect' : 'Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Connecting…'; refreshMcp(await gc.mcp.restart(s.name)); });
+    if (!s.disabled && !s.builtin) btn(s.status === 'error' ? 'Reconnect' : 'Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Connecting…'; refreshMcp(await gc.mcp.restart(s.name)); });
     btn(s.disabled ? 'Connect' : 'Disconnect', async () => refreshMcp(await gc.mcp.toggle(s.name, !s.disabled)));
-    btn('Remove', async () => { if (await gc.confirm(`Remove “${s.name}”?`, 'The server is stopped and its configuration deleted.', 'Remove')) refreshMcp(await gc.mcp.remove(s.name)); });
+    if (!s.builtin) btn('Remove', async () => { if (await gc.confirm(`Remove “${s.name}”?`, 'The server is stopped and its configuration deleted.', 'Remove')) refreshMcp(await gc.mcp.remove(s.name)); });
     box.appendChild(d);
   }
   $('mcpCfg').value = JSON.stringify(await gc.mcp.config(), null, 2);
 }
 const renderMcp = () => refreshMcp();
+// Built-in Google connectors: the user's own OAuth client (Client ID + Secret), then one browser sign-in for all five apps.
+const gmsg = (t, ok) => { $('gMsg').textContent = t; $('gMsg').className = 'mmsg ' + (ok === true ? 'ok' : ok === false ? 'bad' : ''); };
+async function openGoogleDialog() {
+  const c = await gc.google.client();
+  $('gSteps').innerHTML = c.steps.map((st) => `<li><b>${esc(st.title)}.</b> ${esc(st.body)}${st.link ? ` <a href="#" data-l="${esc(st.link)}">Open ↗</a>` : ''}</li>`).join('');
+  $('gSteps').querySelectorAll('[data-l]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); gc.openUrl(a.dataset.l); }));
+  $('gRedirect').value = c.redirectUri; $('gId').value = c.clientId; $('gSecret').value = '';
+  $('gSecretHint').textContent = c.hasSecret ? 'saved — leave blank to keep it' : ''; gmsg('');
+  $('googleDlg').showModal();
+}
+$('gRedirect').onclick = () => $('gRedirect').select();
+$('gCancel').onclick = () => $('googleDlg').close();
+async function saveGoogle() { const r = await gc.google.setClient({ clientId: $('gId').value, clientSecret: $('gSecret').value }); if (r.error) gmsg(r.error, false); else { $('gSecret').value = ''; $('gSecretHint').textContent = 'saved — leave blank to keep it'; } return !r.error; }
+$('gSave').onclick = async () => { if (await saveGoogle()) { gmsg('Saved ✓', true); refreshMcp(); } };
+$('gSignIn').onclick = async () => {
+  if (!(await saveGoogle())) return;
+  const b = $('gSignIn'); if (b.dataset.busy) return gc.mcp.cancelSignIn('gmail');
+  b.dataset.busy = '1'; b.textContent = 'Cancel sign-in'; gmsg('Finish signing in in your browser…');
+  const r = await gc.mcp.signIn('gmail').catch((e) => ({ ok: false, error: e.message }));
+  delete b.dataset.busy; b.textContent = 'Save & sign in with Google';
+  if (r.ok) { $('googleDlg').close(); toast('Signed in to Google' + (r.email ? ' as ' + r.email : '')); } else if (r.error !== 'Cancelled') gmsg(r.error, false); else gmsg('');
+  refreshMcp(r.servers);
+};
 const lines = (t) => t.split('\n').map((x) => x.trim()).filter(Boolean);
 function mType(t) { $('mType').dataset.v = t; document.querySelectorAll('#mType button').forEach((b) => b.classList.toggle('on', b.dataset.v === t)); $('mStdio').hidden = t !== 'stdio'; $('mHttp').hidden = t !== 'http'; }
 document.querySelectorAll('#mType button').forEach((b) => (b.onclick = () => mType(b.dataset.v)));
@@ -1527,7 +1612,7 @@ async function modMaskTool(d, summary, pre, name, input, output) {
 // Settings → Mods
 async function renderMods2() {
   const l = await gc.mods.list(), box = $('modList'); box.innerHTML = '';
-  if (!l.length) box.innerHTML = '<p class="hint">No mods found. Install one in Claude Code (<code>claude plugin install …</code>) or use “Install from folder or .zip…”.</p>';
+  if (!l.length) box.innerHTML = '<p class="hint">No mods found. Use “Install from folder or .zip…” (mods are kept in <code>~/.grizzycode/mods</code>), or install one in Claude Code.</p>';
   for (const m of l) {
     const d = document.createElement('div'); d.className = 'mcard';
     const dot = m.status === 'running' ? 'ok' : m.status === 'failed' ? 'bad' : 'off';
@@ -1605,7 +1690,7 @@ async function renderRs() {
   const { used, max, pct } = ctxState(); const p100 = Math.round(pct * 100);
   box.appendChild(rsCard('context', 'Context', max ? `${p100}% <span class="rsbar ${pct >= 0.95 ? 'full' : pct >= 0.8 ? 'warn' : ''}"><i style="width:${Math.max(3, p100)}%"></i></span>` : `${fmt(used)}`, (b) => { b.innerHTML = ctxPopHtml().replace(/<div class="act">[\s\S]*$/, ''); }));
   // Connectors
-  let mcp = []; try { mcp = await gc.mcp.list(); } catch {}
+  let mcp = []; try { mcp = (await gc.mcp.list()).filter((m) => !m.builtin || m.status === 'running' || m.disabled); } catch {} // built-in Google apps appear here once signed in
   const bad = mcp.filter((m) => !m.disabled && m.status !== 'running');
   box.appendChild(rsCard('connectors', 'Connectors', mcp.length ? (bad.length ? `${bad.length} to reconnect` : `${mcp.length} connected`) : 'None', (b) => {
     if (!mcp.length) { b.innerHTML = '<div class="hint" style="padding:4px 2px">No connectors. Add one in Settings → Connectors.</div>'; return; }

@@ -8,12 +8,21 @@ const os = require('os');
 const path = require('path');
 const store = require('./store');
 const mcpauth = require('./mcpauth');
+const google = require('./google');
 
 const configPath = () => path.join(store.root(), 'mcp_config.json');
 const servers = new Map(); // name -> entry
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/;
 const PROTOCOL = '2024-11-05';
 
+// Built-in connectors (Google's apps) are always listed. They are not in `mcpServers`: only their user choices (disabled, tool policies) are kept, under `builtin`.
+const isBuiltin = (name) => google.isApp(name);
+const builtinNames = () => Object.keys(google.APPS);
+const defOf = (cfg, name) => (cfg.mcpServers || {})[name] || (isBuiltin(name) ? { builtin: name, ...((cfg.builtin || {})[name] || {}) } : undefined);
+function putDef(cfg, name, d) {
+  if (!isBuiltin(name)) { cfg.mcpServers ||= {}; cfg.mcpServers[name] = d; return; }
+  const { builtin, ...own } = d; cfg.builtin ||= {}; if (Object.keys(own).length) cfg.builtin[name] = own; else delete cfg.builtin[name];
+}
 function readConfig() {
   try { const c = JSON.parse(fs.readFileSync(configPath(), 'utf8')); return { mcpServers: {}, ...c }; } catch { return { mcpServers: {} }; }
 }
@@ -35,6 +44,7 @@ function fullPath() {
 // ---- validation ----
 function validate(name, def) {
   if (!NAME_RE.test(name || '')) return 'Name must be 1–40 letters, numbers, "-" or "_", starting with a letter or number.';
+  if (isBuiltin(name)) return `“${name}” is a built-in connector.`;
   if (!def || typeof def !== 'object') return 'Missing server definition.';
   if (def.url) {
     try { const u = new URL(def.url); if (!/^https?:$/.test(u.protocol)) return 'URL must start with http:// or https://.'; } catch { return 'That URL is not valid.'; }
@@ -132,11 +142,16 @@ async function notify(entry, method) {
 }
 
 function makeEntry(name, def) {
-  return { name, def, kind: def.url ? 'http' : 'stdio', tools: [], status: 'starting', error: null, stderr: '', pending: new Map(), nextId: 1, buf: '', sessionId: null, initialized: false };
+  return { name, def, kind: def.builtin ? 'builtin' : def.url ? 'http' : 'stdio', tools: [], status: 'starting', error: null, stderr: '', pending: new Map(), nextId: 1, buf: '', sessionId: null, initialized: false };
 }
 function startServer(name, def, { register = true } = {}) {
   const entry = makeEntry(name, def);
   if (register) servers.set(name, entry);
+  if (entry.kind === 'builtin') { // in-process: nothing to spawn. Tools are known up front so their policies can be set before signing in.
+    entry.tools = google.toolList(name); entry.ready = Promise.resolve();
+    if (google.signedIn()) entry.status = 'running'; else { entry.status = 'stopped'; entry.authRequired = true; }
+    return entry;
+  }
   if (entry.kind === 'stdio' && !startStdio(entry, def)) { entry.ready = Promise.resolve(); return entry; }
   entry.ready = (async () => {
     await rpc(entry, 'initialize', { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'GrizzyCode', version: require('electron').app?.getVersion?.() || '0' } }, 20000);
@@ -157,7 +172,8 @@ async function startAll() {
   stopAll();
   await warmShellPath();
   const cfg = readConfig();
-  await Promise.all(Object.entries(cfg.mcpServers || {}).filter(([, d]) => !d.disabled).map(([n, d]) => startServer(n, d).ready));
+  const all = [...builtinNames().map((n) => [n, defOf(cfg, n)]), ...Object.entries(cfg.mcpServers || {})];
+  await Promise.all(all.filter(([, d]) => !d.disabled).map(([n, d]) => startServer(n, d).ready));
 }
 function stopAll() { for (const e of servers.values()) stopEntry(e); servers.clear(); }
 function stopServer(name) { const e = servers.get(name); if (e) { stopEntry(e); servers.delete(name); } }
@@ -168,9 +184,10 @@ const policyIn = (def, tool) => ((def?.disabledTools || []).includes(tool) ? 'bl
 const toolInfo = (t, def = {}) => ({ name: t.name, description: (t.description || '').slice(0, 200), enabled: policyIn(def, t.name) !== 'block', policy: policyIn(def, t.name), readOnly: t.annotations?.readOnlyHint === true, annotated: !!t.annotations && ('readOnlyHint' in t.annotations || 'destructiveHint' in t.annotations) });
 const offTools = (e) => e.def?.disabledTools || [];
 function list() {
-  const cfg = readConfig().mcpServers || {};
-  return Object.entries(cfg).map(([name, def]) => {
+  const c = readConfig(), cfg = c.mcpServers || {};
+  return [...builtinNames().map((n) => [n, defOf(c, n)]), ...Object.entries(cfg)].map(([name, def]) => {
     const e = servers.get(name);
+    if (def.builtin) return { name, def, type: 'builtin', builtin: true, label: google.APPS[name].label, disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: null, stderr: '', tools: (e?.tools || google.toolList(name)).map((t) => toolInfo(t, def)), auth: { state: google.state(), account: google.account(), configured: google.configured() } };
     return { name, def, type: def.url ? 'http' : 'stdio', disabled: !!def.disabled, status: def.disabled ? 'disabled' : e?.status || 'stopped', error: e?.error || null, stderr: e?.stderr || '', tools: (e?.tools || []).map((t) => toolInfo(t, def)), auth: def.url ? { state: mcpauth.signedIn(name, def) ? 'signed-in' : e?.authRequired ? 'required' : 'none', clientId: def.oauth?.clientId || '' } : null };
   });
 }
@@ -192,36 +209,43 @@ async function saveServer({ name, def, oldName }) {
   if (!clean.disabled) await startServer(name, clean).ready;
   return { ok: true, servers: list() };
 }
-async function removeServer(name) { const cfg = readConfig(); delete (cfg.mcpServers || {})[name]; writeConfig(cfg); stopServer(name); mcpauth.remove(name); return list(); }
+async function removeServer(name) { if (isBuiltin(name)) return list(); const cfg = readConfig(); delete (cfg.mcpServers || {})[name]; writeConfig(cfg); stopServer(name); mcpauth.remove(name); return list(); }
 // OAuth sign-in / sign-out for a remote connector (`open` shows the authorization page in the browser).
 async function signIn(name, opts) {
+  if (isBuiltin(name)) { // one Google sign-in covers every built-in Google connector
+    const r = await google.signIn(opts); if (r.ok) await restartBuiltins();
+    return { ...r, servers: list() };
+  }
   const def = readConfig().mcpServers?.[name]; if (!def) return { ok: false, error: 'No such connector.', servers: list() };
   const r = await mcpauth.signIn(name, def, opts); if (r.ok && !def.disabled) { stopServer(name); await startServer(name, def).ready; }
   return { ...r, servers: list() };
 }
-async function signOut(name) { mcpauth.remove(name); const d = readConfig().mcpServers?.[name]; if (d && !d.disabled) { stopServer(name); await startServer(name, d).ready; } return list(); }
+async function restartBuiltins() { const cfg = readConfig(); await Promise.all(builtinNames().map(async (n) => { stopServer(n); const d = defOf(cfg, n); if (!d.disabled) await startServer(n, d).ready; })); }
+async function signOut(name) {
+  if (isBuiltin(name)) { await google.signOut(); await restartBuiltins(); return list(); }
+  mcpauth.remove(name); const d = readConfig().mcpServers?.[name]; if (d && !d.disabled) { stopServer(name); await startServer(name, d).ready; } return list(); }
 async function setDisabled(name, disabled) {
-  const cfg = readConfig(); const d = cfg.mcpServers?.[name]; if (!d) return list();
+  const cfg = readConfig(); const d = defOf(cfg, name); if (!d) return list();
   if (disabled) d.disabled = true; else delete d.disabled;
-  writeConfig(cfg); stopServer(name);
+  putDef(cfg, name, d); writeConfig(cfg); stopServer(name);
   if (!disabled) await startServer(name, d).ready;
   return list();
 }
 // Set the policy of one tool, or of several at once, without restarting the server.
 function setToolPolicy(name, tools, policy) {
   if (!['allow', 'ask', 'block'].includes(policy)) return list();
-  const cfg = readConfig(); const d = cfg.mcpServers?.[name]; if (!d) return list();
+  const cfg = readConfig(); const d = defOf(cfg, name); if (!d) return list();
   const off = new Set(d.disabledTools || []), on = new Set(d.allowedTools || []);
   for (const t of [].concat(tools)) { off.delete(t); on.delete(t); if (policy === 'block') off.add(t); else if (policy === 'allow') on.add(t); }
   if (off.size) d.disabledTools = [...off]; else delete d.disabledTools;
   if (on.size) d.allowedTools = [...on]; else delete d.allowedTools;
-  writeConfig(cfg);
+  putDef(cfg, name, d); writeConfig(cfg);
   const e = servers.get(name); if (e) e.def = d;
   return list();
 }
 // Older on/off switch: on means "needs approval" unless the tool was already always-allowed.
 function setToolEnabled(name, tool, enabled) {
-  const d = readConfig().mcpServers?.[name]; if (!d) return list();
+  const d = defOf(readConfig(), name); if (!d) return list();
   return setToolPolicy(name, tool, enabled ? ((d.allowedTools || []).includes(tool) ? 'allow' : 'ask') : 'block');
 }
 // By full tool name (mcp__server__tool): the policy and whether the tool says it only reads.
@@ -229,7 +253,7 @@ function lookup(fullName) { const [, server, ...rest] = String(fullName).split('
 const policyOf = (fullName) => { const { e, tool } = lookup(fullName); return e ? policyIn(e.def, tool) : 'ask'; };
 const isReadOnly = (fullName) => lookup(fullName).t?.annotations?.readOnlyHint === true;
 async function restartServer(name) {
-  const d = readConfig().mcpServers?.[name]; if (!d) return list();
+  const d = defOf(readConfig(), name); if (!d) return list();
   stopServer(name); if (!d.disabled) await startServer(name, d).ready; return list();
 }
 // Try a definition without saving it: start, list tools, stop.
@@ -278,9 +302,10 @@ async function callTool(fullName, args) {
   const e = servers.get(server);
   if (!e || e.status !== 'running') throw new Error(`MCP server ${server} not running`);
   if (offTools(e).includes(rest.join('__'))) throw new Error(`Tool ${rest.join('__')} is disabled in settings`);
+  if (e.kind === 'builtin') { try { return await google.callTool(server, rest.join('__'), args); } catch (err) { return 'ERROR: ' + err.message; } }
   const r = await rpc(e, 'tools/call', { name: rest.join('__'), arguments: args }, 120000);
   const text = (r.content || []).map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
   return r.isError ? 'ERROR: ' + text : text;
 }
 
-module.exports = { readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, signIn, signOut, cancelSignIn: mcpauth.cancel, setDisabled, setToolEnabled, setToolPolicy, policyOf, isReadOnly, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };
+module.exports = { google, readConfig, writeConfig, startAll, stopAll, status, toolDefs, callTool, configPath, list, saveServer, removeServer, signIn, signOut, cancelSignIn: (name) => (isBuiltin(name) ? google.cancel() : mcpauth.cancel(name)), setDisabled, setToolEnabled, setToolPolicy, policyOf, isReadOnly, restartServer, testServer, importJson, parseImport, validate, warmShellPath, fullPath };

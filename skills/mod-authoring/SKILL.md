@@ -1,10 +1,12 @@
 ---
 name: mod-authoring
-description: Create, edit or publish a GrizzyCode mod (panels, status text, slash commands, hooks around chats). Use when the user asks to make or change a mod.
+description: Create, edit or publish a GrizzyCode mod (panels, status text, slash commands, hooks around chats). Use when the user asks to make, change or install a mod. Mods live in ~/.GrizzyCode/mods (alias ~/.grizzycode), never ~/.claude.
 ---
 # Making a GrizzyCode mod
 
 **Where it goes.** Create every new mod in `~/.GrizzyCode/mods/<name>/`. Never write into `~/.claude/plugins`, a marketplace folder (such as `benai-mods`) or another mod's folder, and never edit a mod that came from Claude Code in place. Names are lowercase letters, digits and single dashes (`my-mod`) and must not match an existing mod.
+
+**Never use Claude Code's folders or commands.** A mod built for GrizzyCode is not installed with `claude plugin install` / `claude plugin marketplace add`, and nothing it creates or saves goes under `~/.claude`. Writing the folder in `~/.GrizzyCode/mods/<name>/` *is* the install. If you start from a Claude Code mod (for example one from a `5-mods` marketplace), copy it into `~/.GrizzyCode/mods/<name>/` and replace every `~/.claude` path in it with `~/.grizzycode` (settings go in `~/.grizzycode/mods-data/<name>/`, or use `$.store`). Don't derive paths by cutting `$.plugin.root` at `/.claude/`.
 
 **Layout** (the same format Claude Code uses):
 
