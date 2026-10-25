@@ -307,7 +307,7 @@ function ipc() {
   h('conv:list', (q) => store.searchConversations(q));
   h('conv:get', (id) => store.getConversation(id));
   h('conv:new', (o) => store.newConversation(o));
-  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'title', 'pinned', 'projectId', 'agentId', 'effort', 'fast']) if (k in patch) c[k] = patch[k]; store.saveConversation(c); return c; });
+  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'title', 'pinned', 'projectId', 'agentId', 'effort', 'fast', 'archived', 'closedAt']) if (k in patch) c[k] = patch[k]; store.saveConversation(c); return c; });
   h('conv:close', (id) => { const c = store.getConversation(id); c.archived = true; c.closedAt = Date.now(); store.saveConversation(c); });
   h('conv:reopen', () => { const m = store.lastClosed(); if (!m) return null; const c = store.getConversation(m.id); c.archived = false; c.closedAt = 0; store.saveConversation(c); return c; });
   h('conv:delete', async (id) => { const c = store.getConversation(id); term.kill(id); require('./acp').kill(id); bgtasks.stopAll(id); require('./checkpoints').drop(id); const r = c?.worktree ? await git.worktreeRemove(c.worktree) : null; store.deleteConversation(id); return r; });
@@ -547,6 +547,7 @@ function ipc() {
   h('projects:list', () => store.listProjects());
   h('projects:save', (p) => store.saveProject(p));
   h('projects:delete', (id) => store.deleteProject(id));
+  h('projects:chats', (id) => store.listConversations(true).filter((c) => c.projectId === id));
   h('schedules:list', () => features.listSchedules());
   h('schedules:save', (p) => features.saveSchedule(p));
   h('schedules:delete', (id) => features.removeSchedule(id));

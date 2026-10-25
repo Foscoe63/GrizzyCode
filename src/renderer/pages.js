@@ -32,22 +32,22 @@ async function pgProjects() {
   const list = await gc.projects.list();
   if (projSel === null) {
     $('page').innerHTML = shell('Projects', '<button class="primary" id="pNew">New project</button>',
-      list.length ? `<div class="cards">${list.map((p) => `<div class="card2" data-id="${p.id}"><b>${esc(p.name)}</b><p>${esc(p.instructions.slice(0, 110) || 'No instructions')}</p><i>${p.chats} chat${p.chats === 1 ? '' : 's'}${p.folder ? ' · ' + esc(folderName(p.folder)) : ''}</i></div>`).join('')}</div>`
-        : '<div class="pg-empty">Projects group related chats and give them shared instructions.<br>Create one to get started.</div>');
+      (list.length ? `<div class="cards">${list.map((p) => `<div class="card2" data-id="${p.id}"><b>${esc(p.name)}</b><p>${esc(p.instructions.slice(0, 110) || 'No instructions')}</p><i>${p.chats} chat${p.chats === 1 ? '' : 's'}${p.folder ? ' · ' + esc(folderName(p.folder)) : ''}</i></div>`).join('')}</div>`
+        : '<div class="pg-empty">Projects group related chats and give them shared instructions.<br>Create one to get started.</div>') + `<div class="pg-how" id="pHow"><h3>How projects work</h3><ol><li>Click <b>New project</b> and give it a name.</li><li>Write <b>instructions</b>: tone, context and rules. They are added to every chat in the project.</li><li>Optionally pick a <b>default folder</b>. Chats then start as code sessions there.</li><li>Press <b>Save</b>, then <b>New chat in project</b>. Chats you start from the project stay listed on its page, including closed ones.</li></ol><p class="hint">Deleting a project keeps its chats; they just lose the project instructions.</p></div>`);
     P('#pNew').onclick = () => { projSel = 'new'; pgProjects(); };
     $('page').querySelectorAll('.card2').forEach((c) => (c.onclick = () => { projSel = c.dataset.id; pgProjects(); }));
     return;
   }
   const p = projSel === 'new' ? { id: null, name: '', instructions: '', folder: null, chats: 0 } : list.find((x) => x.id === projSel);
   if (!p) { projSel = null; return pgProjects(); }
-  const convs = p.id ? (await gc.conv.list('')).filter((c) => c.projectId === p.id) : [];
+  const convs = p.id ? await gc.projects.chats(p.id) : [];
   $('page').innerHTML = shell(p.id ? p.name : 'New project', `<button class="outline" id="pBack">← All projects</button>`, `
     <label class="fld">Name<input id="pName" value="${esc(p.name)}" placeholder="e.g. Website redesign"></label>
     <label class="fld">Instructions<textarea id="pInst" rows="7" placeholder="How should GrizzyCode behave in this project? Tone, context, rules…">${esc(p.instructions)}</textarea></label>
     <div class="fld">Default folder <span class="hint">(optional — chats become code sessions in this folder)</span>
       <div class="inl"><code id="pFolder">${esc(p.folder || 'None')}</code><button class="outline" id="pPick">Choose…</button>${p.folder ? '<button class="outline" id="pClear">Clear</button>' : ''}</div></div>
     <div class="pg-actions"><button class="primary" id="pSave">Save</button>${p.id ? '<button class="outline" id="pChat">New chat in project</button><span class="grow"></span><button class="outline danger" id="pDel">Delete project</button>' : ''}</div>
-    ${p.id ? `<h3>Chats in this project</h3>${convs.length ? convs.map((c) => `<div class="rowi" data-id="${c.id}"><span>${esc(c.title)}</span><i>${when(c.updatedAt)}</i></div>`).join('') : '<p class="hint">No chats yet.</p>'}` : ''}`);
+    ${p.id ? `<h3>Chats in this project</h3>${convs.length ? convs.map((c) => `<div class="rowi" data-id="${c.id}" data-closed="${c.archived ? 1 : ''}"><span>${esc(c.title)}</span><i>${c.archived ? 'closed · ' : ''}${when(c.updatedAt)}</i></div>`).join('') : '<p class="hint">No chats yet.</p>'}` : ''}`);
   let folder = p.folder;
   P('#pBack').onclick = () => { projSel = null; pgProjects(); };
   P('#pPick').onclick = async () => { const f = await gc.pickFolder(); if (f) { folder = f; P('#pFolder').textContent = f; } };
@@ -61,7 +61,7 @@ async function pgProjects() {
       else { setView('chat', false); const c = await gc.conv.create({ mode: 'chat', projectId: r.id }); await open(c.id); }
     };
     P('#pDel').onclick = async () => { if (await gc.confirm(`Delete “${p.name}”?`, 'Its chats are kept but lose the project instructions.', 'Delete')) { await gc.projects.remove(p.id); projSel = null; pgProjects(); } };
-    $('page').querySelectorAll('.rowi').forEach((r) => (r.onclick = () => open(r.dataset.id)));
+    $('page').querySelectorAll('.rowi').forEach((r) => (r.onclick = async () => { if (r.dataset.closed) await gc.conv.update(r.dataset.id, { archived: false, closedAt: 0 }); open(r.dataset.id); }));
   }
 }
 

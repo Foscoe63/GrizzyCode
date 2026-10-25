@@ -56,7 +56,7 @@ contextBridge.exposeInMainWorld('gc', {
   newWindow: inv('window:new'), build: inv('app:build'),
   quick: { submit: inv('quick:submit'), dismiss: inv('quick:dismiss'), skooch: inv('quick:skooch'), onReset: on('quick:reset') },
   onCommand: on('ui:command'),
-  projects: { list: inv('projects:list'), save: inv('projects:save'), remove: inv('projects:delete') },
+  projects: { list: inv('projects:list'), save: inv('projects:save'), remove: inv('projects:delete'), chats: inv('projects:chats') },
   schedules: { list: inv('schedules:list'), save: inv('schedules:save'), remove: inv('schedules:delete'), run: inv('schedules:run') },
   dispatch: { list: inv('dispatch:list'), start: inv('dispatch:start'), stop: inv('dispatch:stop'), remove: inv('dispatch:delete') },
   onFeatures: on('features:update'),
