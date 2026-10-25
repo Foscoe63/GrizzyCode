@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.5.3-8A2BE2)
+![Version](https://img.shields.io/badge/version-0.6.0-8A2BE2)
 ![License](https://img.shields.io/badge/license-MIT-2EA44F)
 ![MCP](https://img.shields.io/badge/MCP-ready-FF6B35)
 
@@ -26,7 +26,8 @@
 | 👨‍💻 | **Code sessions** | Pick a folder; the agent reads, searches, edits and runs commands. Risky tools ask first. |
 | 🔐 | **Permission modes** | Ask · Accept edits · Plan · Bypass. Plan mode is read-only until you approve the plan. |
 | 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, or any compatible endpoint. |
-| 🧰 | **Connectors (MCP)** | Local commands or remote URLs, with a Test button and JSON import. |
+| 🧰 | **Connectors (MCP)** | Local commands or remote URLs, with a Test button, JSON import and OAuth sign-in. |
+| 📧 | **Google apps** | Built-in Gmail, Calendar, Sheets, Docs and Drive tools behind one Google sign-in. |
 | 🎓 | **Skills** | Installable instruction folders the model loads when relevant. |
 | 🤝 | **Agents** | Hand tasks to Engineer, Reviewer or your own agents. They run in parallel, and you can message them later. |
 | 🧩 | **Mods** | Panels, status lines and slash commands around your chats. Create, export and publish your own. |
@@ -34,7 +35,7 @@
 | ⚡ | **Quick Entry** | <kbd>⌥</kbd> <kbd>Space</kbd> anywhere. Paste images, <kbd>Esc</kbd> to dismiss. |
 | 🖥️ | **Terminal and diffs** | Built-in terminal pane and a Changes pane for your code sessions. |
 | 🧠 | **Memory** | Facts it remembers across conversations. You control them. |
-| 📁 | **Projects** | Group chats under shared instructions. |
+| 📁 | **Projects** | Group chats under shared instructions and an optional default folder. Closed chats stay listed on the project page. |
 | 🧪 | **Artifacts** | Code and pages from your chats collected in one view, with charts and diagrams rendered. |
 | ⏰ | **Scheduled tasks** | Run a prompt every N minutes, daily or on weekdays. |
 | 📨 | **Dispatch** | Start a background code session and check on it later. |
@@ -85,10 +86,22 @@ Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx
 > [!IMPORTANT]
 > On a new computer, install the Claude Code CLI first: `npm i -g @anthropic-ai/claude-code`, then `claude /login`. Make sure Node and `npx` are available. GrizzyCode shows a reminder in the model picker when `claude` isn't found.
 
+## 📁 Projects
+
+A project groups chats under shared instructions.
+
+1. Open **Projects** and click **New project**, then give it a name.
+2. Write **instructions** (tone, context, rules). They are added to every chat in the project.
+3. Optionally choose a **default folder**. Chats then start as code sessions there.
+4. **Save**, then **New chat in project**. The project page lists its chats, closed ones included, and clicking one reopens it.
+
+Deleting a project keeps its chats; they only lose the project instructions.
+
 ## 🧰 Connectors, extensions, plugins and skills
 
 - **MCP servers:** Settings → Connectors → **Add custom connector** (local command or remote URL, with Test), or **Import JSON**. Each tool is *Always allow*, *Needs approval* or *Blocked*.
 - **Remote connectors sign in with OAuth:** if a server answers 401, choose **Sign in…** — GrizzyCode finds the server's authorization endpoints, registers itself (or uses a client ID you enter), signs you in through your browser with PKCE, keeps the tokens sealed and refreshes them. A header you type yourself always wins.
+- **Google (Gmail, Calendar, Sheets, Docs, Drive):** built in under Settings → Connectors → **Google**. Create a Google Cloud OAuth client once, paste its Client ID and secret, and one browser sign-in (PKCE) unlocks all five apps. Credentials and tokens are stored sealed on this computer and tokens refresh on their own. Read tools are marked read-only; sending mail, deleting events and overwriting cells ask first by default, and you can set any tool to *Always allow*, *Needs approval* or *Blocked*.
 - **Extensions:** Settings → Extensions has one-click connectors (Filesystem, Knowledge graph memory, Sequential thinking, Browser (Playwright), Fetch, Git, Time) and installs `.mcpb` / `.dxt` bundles.
 - **Plugins:** Settings → Plugins installs a folder or `.plugin` / `.zip` that bundles skills, connectors and slash commands.
 - **Skills:** Settings → Skills. GrizzyCode ships `docx`, `pdf`, `pptx`, `xlsx`, `frontend-design` and `mod-authoring`.
@@ -178,7 +191,9 @@ Settings → Capabilities → **Token savers**. Figures are estimates (about 4 c
 
 ```bash
 npm start                         # launch
-npx electron scripts/check.js     # headless backend tests (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, skills, mods, token savers)
+npm run check                     # backend tests plus the headless Projects page test
+npx electron scripts/check.js     # backend only (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, Google connectors, skills, mods, token savers)
+npx electron scripts/ui-check.js  # drives the Projects page against a fake bridge
 npx electron scripts/shot.js out  # render the real UI to PNGs (add `dark` for dark mode)
 npm run dist                      # build the signed DMG and zip into dist/
 ```
@@ -190,7 +205,7 @@ src/main/        main process: agent loop, providers, MCP, tools, savings, mods 
 src/main/mods/   mod host, worker sandbox, authoring (create/export/publish)
 src/renderer/    the UI
 skills/          bundled skills
-scripts/         tests and screenshots
+scripts/         tests (check.js, ui-check.js) and screenshots
 docs/            reverse-engineering notes (RE-FINDINGS.md)
 ```
 
