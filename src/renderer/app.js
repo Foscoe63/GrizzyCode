@@ -1309,7 +1309,9 @@ async function renderBrowser() {
     <div class="msum" style="white-space:normal">${esc(c.description)}</div>${c.error ? `<div class="merr">${esc(c.error)}</div>` : ''}${!c.available ? '<div class="merr">Node.js (npx) wasn’t found on this computer, so this connector can’t start. Install Node.js and try again.</div>' : ''}<div class="mact"></div></div>`;
   const act = box.querySelector('.mact'); const btn = (t, f, cls = 'outline') => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = t; b.onclick = f; act.appendChild(b); return b; };
   if (!on) btn('Turn on', async (e) => { e.target.disabled = true; e.target.textContent = 'Starting…'; const r = await gc.extensions.install('playwright', {}); if (r.error) toast(r.error); renderBrowser(); renderMcp(); }, 'primary');
-  else { btn('Restart', async () => { renderMcp(await gc.mcp.restart('playwright')); renderBrowser(); }); btn('Turn off', async () => { await gc.extensions.uninstall('playwright'); renderBrowser(); renderMcp(); }); }
+  else { if (c.status === 'disabled') btn('Turn on', async (e) => { e.target.disabled = true; e.target.textContent = 'Starting…'; await gc.mcp.toggle('playwright', false); renderBrowser(); renderMcp(); }, 'primary');
+    else btn('Restart', async (e) => { e.target.disabled = true; e.target.textContent = 'Restarting…'; await gc.mcp.restart('playwright'); renderBrowser(); renderMcp(); });
+    btn('Turn off', async () => { await gc.extensions.uninstall('playwright'); renderBrowser(); renderMcp(); }); }
 }
 
 // Extensions

@@ -72,18 +72,10 @@
           </div>
         </div>
         <div class="foot-row">
-          <button type="button" id="envChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><rect x="3" y="3.500" width="10" height="7" rx="1"/><path d="M2 12.500h12"/></svg><span id="envName">This computer</span></button>
-          <button type="button" id="dirChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg><span id="dirName"></span></button>
-          <button type="button" id="wtChip" class="chip-b" hidden title="Work on a new git branch in a separate worktree"><svg viewBox="0 0 16 16"><circle cx="4.500" cy="3.500" r="1.500"/><circle cx="4.500" cy="12.500" r="1.500"/><circle cx="11.500" cy="6" r="1.500"/><path d="M4.500 5v6M11.500 7.500c0 2-2 2.500-7 3"/></svg><span>Worktree</span></button>
           <div id="agentWrap"><button type="button" id="agentBtn" class="chip-b" title="Agent"><span id="agentIcon"></span><span id="agentLabel"></span><span class="caret">⌄</span></button>
             <div id="agentMenu" hidden role="listbox"></div></div>
-          <select id="modeSel" title="Permission mode"></select>
-          <button type="button" id="effortChip" class="chip-b" title="Reasoning effort" hidden></button>
-          <button type="button" id="fastChip" class="chip-b" title="Fast mode: use the fast model from Settings" hidden>⚡ Fast</button>
-          <button type="button" id="tasksChip" class="chip-b" title="Background tasks" hidden></button>
-          <button type="button" id="followChip" class="chip-b" title="Follow-up tasks Claude noted" hidden></button>
           <span class="spacer"></span>
-          <span id="modStatus" hidden></span><span id="ctxWrap"><button type="button" id="ctxBtn" hidden title="Context window"><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" id="ctxArc" cx="10" cy="10" r="7.5" transform="rotate(-90 10 10)"/></svg><span id="tok"></span></button><div id="ctxPop" hidden></div></span>
+          
           <div id="modelWrap"><button type="button" id="modelBtn" class="chip-b" title="Model"><span id="modelLabel"></span><span class="caret">⌄</span></button>
             <div id="modelMenu" hidden><input id="modelSearch" placeholder="Search models" spellcheck="false" autocomplete="off"><div id="modelList" role="listbox"></div><div id="modelFoot" class="hint"></div></div></div>
         </div>
@@ -95,6 +87,18 @@
         <div id="rsTabs"><button class="rt on" data-t="overview" title="Overview"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.500 6h5M5.500 8.500h5M5.500 11h3"/></svg></button><button class="rt" data-t="terminal" title="Terminal"><svg viewBox="0 0 16 16"><path d="m3.500 5 3 3-3 3M8 11.500h4.500"/></svg></button><button class="rt" data-t="changes" title="Changes"><svg viewBox="0 0 16 16"><rect x="3" y="2.500" width="10" height="11" rx="1.500"/><path d="M8 5.500v5M5.500 8h5"/></svg></button><button class="rt" data-t="files" title="Files"><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg></button><span class="spacer"></span><button class="rt" id="rsMore" title="More"><svg viewBox="0 0 16 16"><path d="M8 3.500h.01M8 8h.01M8 12.500h.01"/></svg></button></div>
         <div id="rsBody"></div></aside>
       <aside id="diffPane"><div id="diffHead"><span id="diffTitle">Changes</span><span class="spacer"></span><button id="diffRefresh">↻</button></div><div id="diffFiles"></div><div id="diffBody"></div></aside>
+  </div>
+  <div id="statusbar">
+    <button type="button" id="envChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><rect x="3" y="3.500" width="10" height="7" rx="1"/><path d="M2 12.500h12"/></svg><span id="envName">This computer</span></button>
+    <button type="button" id="dirChip" class="chip-b" hidden><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg><span id="dirName"></span></button>
+    <button type="button" id="wtChip" class="chip-b" hidden title="Work on a new git branch in a separate worktree"><svg viewBox="0 0 16 16"><circle cx="4.500" cy="3.500" r="1.500"/><circle cx="4.500" cy="12.500" r="1.500"/><circle cx="11.500" cy="6" r="1.500"/><path d="M4.500 5v6M11.500 7.500c0 2-2 2.500-7 3"/></svg><span>Worktree</span></button>
+    <select id="modeSel" title="Permission mode"></select>
+    <button type="button" id="effortChip" class="chip-b" title="Reasoning effort" hidden></button>
+    <button type="button" id="fastChip" class="chip-b" title="Fast mode: use the fast model from Settings" hidden>⚡ Fast</button>
+    <button type="button" id="tasksChip" class="chip-b" title="Background tasks" hidden></button>
+    <button type="button" id="followChip" class="chip-b" title="Follow-up tasks Claude noted" hidden></button>
+    <span class="spacer"></span>
+    <span id="modStatus" hidden></span><span id="ctxWrap"><button type="button" id="ctxBtn" hidden title="Context window"><svg viewBox="0 0 20 20" aria-hidden="true"><circle class="bg" cx="10" cy="10" r="7.5"/><circle class="fg" id="ctxArc" cx="10" cy="10" r="7.5" transform="rotate(-90 10 10)"/></svg><span id="tok"></span></button><div id="ctxPop" hidden></div></span>
   </div>
 </main>
 <div id="ctx" hidden></div>

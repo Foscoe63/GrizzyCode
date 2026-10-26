@@ -128,7 +128,9 @@ body.home.chatview #composer{max-width:700px}
 #sendBtn{flex:none;width:30px;height:30px;padding:0;border-radius:50%;background:var(--clay);color:#fff;font-size:15px}
 #sendBtn:hover{background:var(--clay-em);color:#fff}#sendBtn.stop{background:var(--text);color:var(--bg)}
 .foot-row{white-space:nowrap;display:flex;align-items:center;gap:2px;padding:6px 8px 0;font-size:12.5px}
-.foot-row .spacer{flex:1}
+.foot-row .spacer,#statusbar .spacer{flex:1}
+#statusbar{flex:none;white-space:nowrap;display:flex;align-items:center;gap:2px;padding:3px 10px;font-size:12px;border-top:1px solid var(--line);min-height:28px;overflow:visible}
+#statusbar select{border:0;background:transparent;color:var(--text-2);padding:2px 4px;border-radius:var(--r);cursor:pointer;max-width:170px}#statusbar select:hover{background:var(--hover)}
 .foot-row select{border:0;background:transparent;color:var(--text-2);padding:3px 4px;border-radius:var(--r);cursor:pointer;max-width:170px}.foot-row select:hover{background:var(--hover)}
 .chip-b{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;padding:3px 8px;font-size:12.5px;border-radius:var(--r);color:var(--text-2)}
 .mode-ask{color:var(--text-2)}.mode-accept{color:var(--git-mod)}.mode-plan{color:#3b82f6}.mode-bypass{color:var(--danger)}
@@ -188,7 +190,7 @@ mark{background:#ffe08a;color:#000}
 
 /* pages */
 #page{display:none;flex:1;overflow:auto;min-height:0}
-body.paged #page{display:block}body.paged .work,body.paged #findbar{display:none}
+body.paged #page{display:block}body.paged .work,body.paged #findbar,body.paged #statusbar{display:none}
 body.paged #termBtn,body.paged #diffBtn{display:none}
 .pg{max-width:860px;margin:0 auto;padding:12px 32px 60px}
 .pg-head{display:flex;align-items:center;gap:10px;margin-bottom:18px}.pg-head h1{font:400 26px var(--serif);margin:0}
@@ -364,7 +366,7 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 #palList div{display:flex;gap:10px;align-items:baseline;padding:7px 12px;border-radius:8px;cursor:pointer}
 #palList div.on{background:var(--hover)}#palList small{margin-left:auto;color:var(--text-3);font-size:11.5px;white-space:nowrap}
 #palList .ph{cursor:default;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);padding:8px 12px 2px}
-.fpanel{position:fixed;right:24px;bottom:150px;width:400px;max-height:55vh;overflow:auto;background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);z-index:20;padding:10px 12px;font-size:13px}
+.fpanel{position:fixed;right:24px;bottom:84px;width:400px;max-height:55vh;overflow:auto;background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);z-index:20;padding:10px 12px;font-size:13px}
 .fpanel[hidden]{display:none}
 .fp-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}.fp-head .grow{flex:1}.fp-x{border:0;background:transparent;color:var(--text-3);cursor:pointer}
 .fp-row{border-top:1px solid var(--line);padding:7px 0}.fp-row:first-of-type{border-top:0}
