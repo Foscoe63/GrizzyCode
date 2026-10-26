@@ -619,7 +619,7 @@ function renderDiff(t) {
   const b = $('diffBody'); b.innerHTML = '';
   for (const line of t.split('\n')) { const d = document.createElement('div'); d.className = 'l ' + (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff') || line.startsWith('@@') ? 'h' : line[0] === '+' ? 'a' : line[0] === '-' ? 'd' : ''); d.textContent = line || ' '; b.appendChild(d); }
 }
-$('diffRefresh').onclick = refreshDiff; $('diffBtn').onclick = () => toggle('diff'); $('termBtn').onclick = () => toggle('term');
+$('diffRefresh').onclick = refreshDiff; $('diffClose').onclick = () => { if (document.body.classList.contains('diff')) toggle('diff'); }; $('diffBtn').onclick = () => toggle('diff'); $('termBtn').onclick = () => toggle('term');
 // One xterm.js view per session, each backed by a real pty in the main process.
 const termViews = new Map(); // id -> { term, fit, el, opened }
 const termId = () => cur?.id || 'global';
