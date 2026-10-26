@@ -18,7 +18,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.55 var(--font);-webkit-font-smoothing:antialiased}
-body{display:flex;overflow:hidden}
+body{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
 .drag{-webkit-app-region:drag}button,input,textarea,select,.nodrag{-webkit-app-region:no-drag}
 button,input,textarea,select{font:inherit;color:inherit}
 button{background:transparent;border:0;border-radius:var(--r);padding:5px 9px;cursor:pointer;color:var(--text-2)}
@@ -129,7 +129,7 @@ body.home.chatview #composer{max-width:700px}
 #sendBtn:hover{background:var(--clay-em);color:#fff}#sendBtn.stop{background:var(--text);color:var(--bg)}
 .foot-row{white-space:nowrap;display:flex;align-items:center;gap:2px;padding:6px 8px 0;font-size:12.5px}
 .foot-row .spacer,#statusbar .spacer{flex:1}
-#statusbar{flex:none;white-space:nowrap;display:flex;align-items:center;gap:2px;padding:3px 10px;font-size:12px;border-top:1px solid var(--line);min-height:28px;overflow:visible}
+#statusbar{grid-column:1/-1;background:var(--bg-side);white-space:nowrap;display:flex;align-items:center;gap:2px;padding:3px 10px;font-size:12px;border-top:1px solid var(--line);min-height:28px;overflow:visible}
 #statusbar select{border:0;background:transparent;color:var(--text-2);padding:2px 4px;border-radius:var(--r);cursor:pointer;max-width:170px}#statusbar select:hover{background:var(--hover)}
 .foot-row select{border:0;background:transparent;color:var(--text-2);padding:3px 4px;border-radius:var(--r);cursor:pointer;max-width:170px}.foot-row select:hover{background:var(--hover)}
 .chip-b{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;padding:3px 8px;font-size:12.5px;border-radius:var(--r);color:var(--text-2)}
