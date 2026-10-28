@@ -1206,6 +1206,17 @@ export const register: Register = (on, options) => {
     list = await mcp.signOut('gmail'); assert(revoked && list.filter((x) => x.builtin).every((x) => x.auth.state === 'required' && x.status === 'stopped') && google.client().clientId === 'cid', 'google: sign-out revokes the token, keeps the client, disconnects all five');
     gsrv.close();
   }
+  // window shell: deep links, bounds restore, permission policy
+  {
+    const sh = require('../src/main/shell');
+    const l1 = sh.parseDeepLink('grizzycode://new?q=hello%20world&mode=code'), l2 = sh.parseDeepLink('grizzycode://open?id=abc-123');
+    assert(l1 && l1.type === 'new' && l1.text === 'hello world' && l1.mode === 'code' && l2 && l2.id === 'abc-123' && sh.parseDeepLink('grizzycode://settings').type === 'settings', 'deep links parse');
+    assert(!sh.parseDeepLink('https://x.com') && !sh.parseDeepLink('grizzycode://open?id=../etc') && !sh.parseDeepLink('grizzycode://run?cmd=ls') && !sh.parseDeepLink('nonsense'), 'deep links reject unknown actions and bad ids');
+    const d = [{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }];
+    assert(sh.boundsOnScreen({ x: 100, y: 80, width: 1000, height: 700 }, d) && !sh.boundsOnScreen({ x: 5000, y: 80, width: 1000, height: 700 }, d) && !sh.boundsOnScreen({ x: 0, y: 0, width: 100, height: 100 }, d) && !sh.boundsOnScreen(null, d), 'saved window bounds must be on a display');
+    let req = []; const fake = { setPermissionRequestHandler: (f) => { f(null, 'media', (v) => { req.push(v); }); f(null, 'clipboard-sanitized-write', (v) => { req.push(v); }); }, setPermissionCheckHandler() {}, on() {} };
+    sh.lockSession(fake); assert(req[0] === false && req[1] === true, 'permissions denied except clipboard write');
+  }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED'); app.exit(failed ? 1 : 0);

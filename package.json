@@ -21,11 +21,27 @@
       "**/node_modules/node-pty/**"
     ],
     "mac": {
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "GrizzyCode only uses the microphone if a tool or MCP server you run asks for it.",
+        "NSCameraUsageDescription": "GrizzyCode only uses the camera if a tool or MCP server you run asks for it.",
+        "NSDesktopFolderUsageDescription": "GrizzyCode reads and edits files in folders you open for code sessions.",
+        "NSDocumentsFolderUsageDescription": "GrizzyCode reads and edits files in folders you open for code sessions.",
+        "NSDownloadsFolderUsageDescription": "GrizzyCode reads and edits files in folders you open for code sessions.",
+        "NSAppleEventsUsageDescription": "GrizzyCode sends Apple events only when a tool you approve asks it to."
+      }
     },
     "dmg": {
       "icon": "build/icon.icns"
-    }
+    },
+    "protocols": [
+      {
+        "name": "GrizzyCode",
+        "schemes": [
+          "grizzycode"
+        ]
+      }
+    ]
   },
   "scripts": {
     "start": "electron .",

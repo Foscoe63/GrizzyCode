@@ -27,6 +27,7 @@ const logger = require('./logger');
 const extras = require('./extras');
 const bgtasks = require('./bgtasks');
 const system = require('./system');
+const shell_ = require('./shell');
 const artifacts = require('./artifacts');
 
 const wins = new Set();
@@ -63,12 +64,15 @@ const focused = () => BrowserWindow.getFocusedWindow() && wins.has(BrowserWindow
 const cmd = (ch, ...a) => { const w = focused(); if (!w) { createMain(); return; } w.show(); w.focus(); w.webContents.send('ui:command', ch, ...a); };
 
 function createMain({ conv } = {}) {
+  const sv = store.getSettings(), saved = shell_.boundsOnScreen(sv.winBounds, screen.getAllDisplays());
   const w = new BrowserWindow({
-    width: 1180, height: 780, minWidth: 720, minHeight: 480, title: 'GrizzyCode', icon: APP_ICON,
+    ...(saved || { width: 1180, height: 780 }), minWidth: 720, minHeight: 480, title: 'GrizzyCode', icon: APP_ICON,
     titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 }, backgroundColor: BG(),
     webPreferences: { preload, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   wins.add(w);
+  shell_.harden(w, { dialog, store, log: console });
+  if (saved && sv.winMax && wins.size === 1) w.maximize();
   if (wins.size > 1) { const [x, y] = [...wins][0].getPosition(); w.setPosition(x + 28, y + 28); }
   w.loadFile(R('index.html'), conv ? { query: { conv } } : undefined);
   w.webContents.on('did-finish-load', () => w.webContents.setZoomLevel(store.getSettings().zoom || 0));
@@ -624,9 +628,21 @@ logger.init();
 // Hardware acceleration must be decided before the app is ready, so read the raw settings file.
 try { if (JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'data', 'settings.json'), 'utf8')).hardwareAccel === false) app.disableHardwareAcceleration(); } catch {}
 artifacts.registerScheme(protocol);
+// grizzycode:// deep links: queued until the first window can take them (cold start), then forwarded to the renderer.
+let pendingLink = null, appReady = false;
+function handleLink(raw) {
+  const l = shell_.parseDeepLink(raw); if (!l) return;
+  if (!appReady) { pendingLink = raw; return; }
+  showMain();
+  const w = focused(), send = () => { if (l.type === 'new') cmd('deepNew', l.text, l.mode); else if (l.type === 'open') cmd('open', l.id); else cmd('settings'); };
+  if (w.webContents.isLoading()) w.webContents.once('did-finish-load', () => setTimeout(send, 150)); else send();
+}
+try { if (app.isPackaged) app.setAsDefaultProtocolClient(shell_.SCHEME); else if (process.defaultApp && process.argv[1]) app.setAsDefaultProtocolClient(shell_.SCHEME, process.execPath, [path.resolve(process.argv[1])]); } catch {}
+app.on('open-url', (e, url) => { e.preventDefault(); handleLink(url); });
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', showMain);
+app.on('second-instance', (_e, argv) => { showMain(); for (const a of argv) if (a.startsWith(shell_.SCHEME + '://')) handleLink(a); });
 app.whenReady().then(() => {
+  shell_.lockSession(session.defaultSession);
   try { if (store.heal()) console.warn('Repaired settings: the saved key did not match the selected endpoint.'); } catch {}
   nativeTheme.themeSource = themes.nativeSource(store.getSettings());
   try { app.dock?.setIcon(nativeImage.createFromPath(APP_ICON)); } catch {}
@@ -639,6 +655,7 @@ app.whenReady().then(() => {
   modsGlue.setup({ ipcMain, store, mcp, models, llm, tools: require('./tools'), logger, app, dialog, Notification, wins, showMain, focused });
   modsGlue.host.startEnabled().catch((e) => console.warn('mods failed to start:', e.message));
   features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); syncTray(); registerShortcut(); createMain();
+  appReady = true; { const l = pendingLink || process.argv.find((a) => a.startsWith(shell_.SCHEME + '://')); pendingLink = null; if (l) handleLink(l); }
   mcp.startAll().catch(() => {});
   const purge = () => { try { dataops.purgeOld(store.getSettings().retentionDays); } catch {} }; purge(); setInterval(purge, 6 * 3600 * 1000);
   housekeeping(); setInterval(housekeeping, 6 * 3600 * 1000);

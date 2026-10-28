@@ -144,3 +144,15 @@ Read from the extracted `app.asar` (`artifactShell.js`, `coworkArtifact.js` and 
 | MCP tool calls restricted to a per-artifact allow-list that the user grows | Same; allow-list stored on the artifact |
 | Frame transport proxying `/api/` fetch and WebSocket over a MessagePort | Not reproduced (no claude.ai API); the `db` bridge covers persistence |
 | Type catalog and templates come from the service | Eight built-in templates (`artifact-templates.js`): dashboard, slides, doc, design, kanban, diagram, assistant, poll |
+
+
+## Window shell (Claude.app 3.1623.4 → GrizzyCode)
+Read from the main chunk `index.chunk-C7NkbHFq.js` and the cowork chunks; static reading only.
+
+| Claude.app | GrizzyCode (`src/main/shell.js`) |
+|---|---|
+| `claude://` deep links: `setAsDefaultProtocolClient`, `open-url` queued until the window exists, window restored and focused | `grizzycode://new?q=&mode=`, `open?id=`, `settings`; queued on cold start, also read from `second-instance` argv. Links only prefill the composer or navigate; they never send a prompt |
+| `render-process-gone` handlers that recover instead of leaving a blank window | Main windows reload after a crash (max 3 per minute, then an error box); `unresponsive` offers Wait / Reload |
+| Session permission request/check handlers, `will-download` cancelled, `will-attach-webview` prevented | Same policy on the default session: only `clipboard-sanitized-write` and `fullscreen` are granted, downloads and webviews blocked |
+| Window layout bounds persisted per display | Size, position and maximized state saved and restored only if on a connected display |
+| Privacy usage strings and URL scheme in `Info.plist` | `build.protocols` and `build.mac.extendInfo` in `package.json` |
