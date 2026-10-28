@@ -1,7 +1,7 @@
 // Sidebar pages: Projects, Artifacts, Scheduled, Dispatch, Customize. Share app.js's globals ($, esc, gc, settings, open, newCode, toast, …).
 const TITLES = { projects: 'Projects', artifacts: 'Artifacts', scheduled: 'Scheduled', dispatch: 'Dispatch', customize: 'Customize' };
 const NAV = { nProjects: 'projects', nArtifacts: 'artifacts', nScheduled: 'scheduled', nDispatch: 'dispatch', nCustomize: 'customize' };
-let pageName = null, projSel = null, schedSel = null, artSel = null, artQuery = '', artFilter = 'all', dispDraft = { prompt: '', cwd: null, mode: 'acceptEdits' };
+let pageName = null, projSel = null, schedSel = null, artSel = null, savedSel = null, artTab = 'saved', artQuery = '', artFilter = 'all', dispDraft = { prompt: '', cwd: null, mode: 'acceptEdits' };
 const P = (sel) => $('page').querySelector(sel);
 const when = (t) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
 const folderName = (f) => (f ? f.split('/').pop() || f : '');
@@ -66,27 +66,74 @@ async function pgProjects() {
 }
 
 // ---------------- Artifacts ----------------
+// Saved artifacts run in their own sandboxed window (no network; bridge to the app). Templates are the built-in starters. "From chats" lists code blocks found in conversations.
+const ART_ICON = { page: '▢', dashboard: '▥', slides: '▭', doc: '☰', design: '✎', tracker: '☑', diagram: '⌬' };
 async function pgArtifacts() {
+  const tab = artTab;
+  const tabs = `<div class="seg" id="aT">${[['saved', 'Saved'], ['templates', 'Templates'], ['chats', 'From chats']].map(([v, l]) => `<button type="button" data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (tab === 'saved') await artSaved(tabs); else if (tab === 'templates') await artTemplates(tabs); else await artChats(tabs);
+  $('page').querySelectorAll('#aT button').forEach((b) => (b.onclick = () => { artTab = b.dataset.v; pgArtifacts(); }));
+}
+async function artSaved(tabs) {
+  const all = await gc.artifacts.saved();
+  const q = artQuery.toLowerCase();
+  const list = all.filter((a) => !q || (a.title + a.type).toLowerCase().includes(q));
+  const sel = list.find((a) => a.id === savedSel) || list[0];
+  let full = null, vers = [];
+  if (sel) { full = await gc.artifacts.get(sel.id); vers = await gc.artifacts.versions(sel.id); }
+  $('page').innerHTML = shell('Artifacts', `<input id="aQ" placeholder="Search artifacts" value="${esc(artQuery)}">${tabs}`,
+    all.length ? `<div class="split"><div class="alist">${list.map((a) => `<div class="rowi ${sel?.id === a.id ? 'on' : ''}" data-id="${esc(a.id)}"><span><b>${ART_ICON[a.type] || '▢'} ${esc(a.title)}</b><br><i>${esc(a.type)} · ${when(a.updatedAt)}</i></span></div>`).join('') || '<p class="hint">No matches.</p>'}</div>
+      <div class="aview">${sel ? `<div class="pg-actions"><b>${esc(sel.title)}</b><span class="grow"></span><button id="sOpen">Open</button><button class="outline" id="sRen">Rename</button><button class="outline" id="sBrowser">Open in browser</button><button class="outline" id="sSave">Export HTML…</button>${sel.convId ? '<button class="outline" id="sConv">Go to chat</button>' : ''}<button class="outline danger" id="sDel">Delete</button></div>
+        <p class="hint">${esc(sel.type)} · ${(sel.bytes / 1024).toFixed(1)} KB · ${sel.versions} earlier version${sel.versions === 1 ? '' : 's'}${sel.mcpTools.length ? ` · allowed tools: ${esc(sel.mcpTools.join(', '))}` : ''}</p>
+        ${vers.length ? `<details><summary>Version history</summary>${vers.map((v) => `<div class="rowi" style="cursor:default"><span>${when(v.at)} · ${esc(v.label || 'update')} · ${(v.bytes / 1024).toFixed(1)} KB</span><button class="outline" data-restore="${v.index}">Restore</button></div>`).join('')}</details>` : ''}
+        <pre class="acode"></pre>` : ''}</div></div>`
+      : '<div class="pg-empty">Nothing saved yet. Ask GrizzyCode to build a dashboard, deck, tracker or diagram — it opens here and in its own window — or start from a template.<br><button id="sTpl" style="margin-top:12px">Browse templates</button></div>');
+  P('#aQ').oninput = (e) => { artQuery = e.target.value; clearTimeout(pgArtifacts.t); pgArtifacts.t = setTimeout(async () => { await pgArtifacts(); const i = P('#aQ'); i.focus(); i.setSelectionRange(1e3, 1e3); }, 200); };
+  P('#sTpl')?.addEventListener('click', () => { artTab = 'templates'; pgArtifacts(); });
+  $('page').querySelectorAll('.alist .rowi').forEach((r) => (r.onclick = () => { savedSel = r.dataset.id; pgArtifacts(); }));
+  if (!sel) return;
+  P('.acode').textContent = full?.html || '';
+  P('#sOpen').onclick = () => gc.artifacts.openSaved(sel.id);
+  P('#sBrowser').onclick = () => gc.artifacts.openInBrowser(sel.id);
+  P('#sSave').onclick = async () => { if (await gc.artifacts.saveHtml(sel.id)) toast('Saved'); };
+  P('#sConv')?.addEventListener('click', () => open(sel.convId));
+  P('#sRen').onclick = () => {
+    const b = P('.pg-actions > b'); const i = document.createElement('input'); i.value = sel.title; i.style.minWidth = '260px'; b.replaceWith(i); i.focus(); i.select();
+    const done = async (ok) => { if (ok && i.value.trim() && i.value.trim() !== sel.title) await gc.artifacts.rename(sel.id, i.value.trim()); pgArtifacts(); };
+    i.onkeydown = (e) => { if (e.key === 'Enter') done(true); else if (e.key === 'Escape') done(false); }; i.onblur = () => done(true);
+  };
+  P('#sDel').onclick = async () => { if (await gc.confirm(`Delete “${sel.title}”?`, 'The page, its saved data and its version history are removed.', 'Delete')) { await gc.artifacts.remove(sel.id); savedSel = null; pgArtifacts(); } };
+  $('page').querySelectorAll('[data-restore]').forEach((b) => (b.onclick = async () => { if (await gc.artifacts.restore(sel.id, +b.dataset.restore)) { toast('Restored'); pgArtifacts(); } }));
+}
+async function artTemplates(tabs) {
+  const { templates, types } = await gc.artifacts.templates();
+  $('page').innerHTML = shell('Artifacts', tabs, `<p class="hint">Built-in starters. “Use” saves a copy and opens it in its own window; ask GrizzyCode in a chat to customize it.</p>
+    <div class="tgrid">${templates.map((t) => `<div class="card3 tcard"><div class="ti">${ART_ICON[t.type] || '▢'}</div><b>${esc(t.title)}</b> <em class="badge">${esc(t.type)}</em><p class="hint">${esc(t.description)}</p><button data-tpl="${esc(t.key)}">Use</button></div>`).join('')}</div>
+    <h3 style="margin-top:20px">Types</h3>${types.map((t) => `<p class="hint"><b>${esc(t.title)}</b> — ${esc(t.description)}</p>`).join('')}`);
+  $('page').querySelectorAll('[data-tpl]').forEach((b) => (b.onclick = async () => { const r = await gc.artifacts.create({ template: b.dataset.tpl }); if (r.error) return toast(r.error); savedSel = r.id; artTab = 'saved'; toast('Created'); pgArtifacts(); }));
+}
+async function artChats(tabs) {
   const all = await gc.artifacts.list();
   const q = artQuery.toLowerCase();
   const list = all.filter((a) => (artFilter === 'all' || (artFilter === 'preview' ? a.preview : !a.preview)) && (!q || (a.name + a.title + a.lang).toLowerCase().includes(q)));
   const sel = list.find((a) => a.id === artSel) || list[0];
-  $('page').innerHTML = shell('Artifacts', `<input id="aQ" placeholder="Search artifacts" value="${esc(artQuery)}"><div class="seg" id="aF">${[['all', 'All'], ['preview', 'Web'], ['code', 'Code']].map(([v, l]) => `<button type="button" data-v="${v}" class="${artFilter === v ? 'on' : ''}">${l}</button>`).join('')}</div>`,
+  $('page').innerHTML = shell('Artifacts', `<input id="aQ" placeholder="Search" value="${esc(artQuery)}"><div class="seg" id="aF">${[['all', 'All'], ['preview', 'Web'], ['code', 'Code']].map(([v, l]) => `<button type="button" data-v="${v}" class="${artFilter === v ? 'on' : ''}">${l}</button>`).join('')}</div>${tabs}`,
     all.length ? `<div class="split"><div class="alist">${list.map((a) => `<div class="rowi ${sel?.id === a.id ? 'on' : ''}" data-id="${esc(a.id)}"><span><b>${esc(a.name)}</b><br><i>${esc(a.title)} · ${a.lines} lines</i></span><em class="badge">${esc(a.lang)}</em></div>`).join('') || '<p class="hint">No matches.</p>'}</div>
-      <div class="aview">${sel ? `<div class="pg-actions"><b>${esc(sel.name)}</b><span class="grow"></span><button class="outline" id="aCopy">Copy</button><button class="outline" id="aSave">Save…</button>${sel.preview ? '<button class="outline" id="aOpen">Open in browser</button>' : ''}<button class="outline" id="aConv">Go to chat</button></div>
-        ${sel.preview ? `<iframe sandbox="" id="aFrame" title="Preview"></iframe>` : ''}<pre class="acode"></pre>` : ''}</div></div>`
-      : '<div class="pg-empty">Code and web pages that GrizzyCode writes in your conversations collect here.<br>Ask it to build something and it will show up.</div>');
+      <div class="aview">${sel ? `<div class="pg-actions"><b>${esc(sel.name)}</b><span class="grow"></span><button class="outline" id="aCopy">Copy</button><button class="outline" id="aSave">Save…</button>${sel.preview && sel.lang === 'html' ? '<button id="aMake">Save as artifact</button>' : ''}${sel.preview ? '<button class="outline" id="aOpen">Open in browser</button>' : ''}<button class="outline" id="aConv">Go to chat</button></div>
+        <pre class="acode"></pre>` : ''}</div></div>`
+      : '<div class="pg-empty">Code blocks and files from your conversations collect here.</div>');
   P('#aQ').oninput = (e) => { artQuery = e.target.value; clearTimeout(pgArtifacts.t); pgArtifacts.t = setTimeout(async () => { await pgArtifacts(); const i = P('#aQ'); i.focus(); i.setSelectionRange(1e3, 1e3); }, 200); };
   $('page').querySelectorAll('#aF button').forEach((b) => (b.onclick = () => { artFilter = b.dataset.v; pgArtifacts(); }));
   $('page').querySelectorAll('.alist .rowi').forEach((r) => (r.onclick = () => { artSel = r.dataset.id; pgArtifacts(); }));
   if (!sel) return;
   P('.acode').textContent = sel.code;
-  if (sel.preview) P('#aFrame').srcdoc = sel.code;
   P('#aCopy').onclick = () => { navigator.clipboard.writeText(sel.code); toast('Copied'); };
   P('#aSave').onclick = async () => { if (await gc.artifacts.export(sel.name.includes('.') ? sel.name : `${sel.name.replace(/\W+/g, '-')}.${sel.lang === 'markdown' ? 'md' : sel.lang}`, sel.code)) toast('Saved'); };
+  P('#aMake')?.addEventListener('click', async () => { const r = await gc.artifacts.create({ title: sel.title, html: sel.code, convId: sel.convId }); if (r.error) return toast(r.error); savedSel = r.id; artTab = 'saved'; pgArtifacts(); });
   P('#aOpen')?.addEventListener('click', () => gc.artifacts.preview(sel.name.includes('.') ? sel.name : `artifact.${sel.lang}`, sel.code));
   P('#aConv').onclick = () => open(sel.convId);
 }
+gc.artifacts.onUpdate(() => { if (pageName === 'artifacts' && artTab === 'saved') pgArtifacts(); });
 
 // ---------------- Scheduled ----------------
 const describe = (s) => (s.every === 'interval' ? `Every ${s.minutes % 60 === 0 && s.minutes >= 60 ? s.minutes / 60 + ' h' : s.minutes + ' min'}` : s.every === 'weekdays' ? `Weekdays at ${s.time}` : `Daily at ${s.time}`) + ` · ${s.mode === 'code' ? 'Code in ' + folderName(s.cwd) : 'Chat'}`;

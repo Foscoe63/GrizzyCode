@@ -35,7 +35,13 @@ app.whenReady().then(async () => {
   // a closed chat still appears on the project page and reopens when clicked
   await run(`__ui.db.convs[0].archived = true; __ui.db.convs[0].title = 'Old thread'`);
   await run(`document.getElementById('nProjects').click()`); await sleep(50);
-  await run(`document.getElementById('nArtifacts').click()`); await sleep(50);
+  // artifacts page: empty state, builtin templates, "Use" saves one and switches to the Saved tab
+  await run(`document.getElementById('nArtifacts').click()`); await sleep(150);
+  t = await text(); assert(/Nothing saved yet/.test(t), 'empty Saved tab explains artifacts');
+  await run(`document.querySelector('#aT [data-v=templates]').click()`); await sleep(150);
+  t = await text(); assert(/Sales dashboard/.test(t) && /Kanban board/.test(t), 'Templates tab lists builtin artifacts');
+  await run(`document.querySelector('[data-tpl=dashboard]').click()`); await sleep(250);
+  t = await text(); assert((await run('__ui.log.some((l) => l[0] === "artifact" && l[1].template === "dashboard")')) && /Sales dashboard/.test(t) && /Open in browser/.test(t), 'using a template saves an artifact and shows it');
   await click('#nProjects'); await sleep(150); await click('.card2'); await sleep(150);
   t = await text();
   assert(/Old thread/.test(t) && /closed/.test(t), 'closed chats are listed on the project page');

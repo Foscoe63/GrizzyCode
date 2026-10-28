@@ -213,6 +213,32 @@ app.whenReady().then(() => srv.listen(0, async () => {
   // artifact libraries resolve from node_modules
   assert(['chart.js/dist/chart.umd.js', 'mermaid/dist/mermaid.min.js', 'gridjs/dist/gridjs.umd.js', 'gridjs/dist/theme/mermaid.min.css'].every((m) => fs.existsSync(path.join(__dirname, '..', 'node_modules', m))), 'artifact libs resolvable');
 
+  // saved artifacts: tool create/edit/update, versions, templates, sandbox rendering
+  {
+    const art = require('../src/main/artifacts');
+    const tpls = art.templates();
+    assert(tpls.length >= 7 && ['dashboard', 'slides', 'doc', 'design', 'kanban', 'diagram', 'assistant', 'poll'].every((k) => tpls.some((t) => t.key === k)), 'builtin artifact templates listed');
+    assert(art.types().length === 7, 'artifact types listed');
+    const names = tools.publicDefs('chat', 'default', {}).map((d) => d.name);
+    assert(names.includes('artifact'), 'artifact tool offered in chat');
+    assert(!tools.publicDefs('chat', 'default', { capArtifacts: false }).some((d) => d.name === 'artifact'), 'artifact tool hidden when the capability is off');
+    for (const t of tpls) { const a = art.create({ template: t.key }); const out = art.render(a); assert(/Content-Security-Policy/.test(out) && /id="gc-base"/.test(out) && !/https?:\/\/cdn/.test(out), `template ${t.key} renders sandboxed with no CDN urls`); art.remove(a.id); }
+    const r = tools.run('artifact', { action: 'create', title: 'T', template: 'dashboard' }, '/tmp', null, null, { convId: 'c1' });
+    const id = /([0-9a-f-]{36})/.exec(r)[1];
+    assert(art.list().some((m) => m.id === id && m.type === 'dashboard' && m.convId === 'c1'), 'artifact created through the tool');
+    assert(/\/lib\/chart\.umd\.js/.test(art.render(art.get(id))), 'chart CDN url served from the sandbox');
+    assert(/new Chart|Chart\.defaults/.test(art.standalone(id)) && !/https:\/\/cdn\.jsdelivr/.test(art.standalone(id).replace(/<script>[\s\S]*?<\/script>/g, '')), 'standalone export inlines libraries');
+    tools.run('artifact', { action: 'edit', id, edits: [{ old_string: 'Sales dashboard</h1>', new_string: 'Revenue</h1>' }] }, '/tmp');
+    assert(art.get(id).html.includes('Revenue</h1>') && art.versions(id).length === 1, 'edit applies and snapshots a version');
+    let err = ''; try { tools.run('artifact', { action: 'edit', id, edits: [{ old_string: 'nope-not-here', new_string: 'x' }] }, '/tmp'); } catch (e) { err = e.message; }
+    assert(/was not found/.test(err), 'edit with a missing string fails and changes nothing');
+    art.restore(id, 0); assert(art.get(id).html.includes('Sales dashboard</h1>'), 'restore brings back an earlier version');
+    let big = ''; try { art.update(id, { html: 'x'.repeat(3 * 1024 * 1024) }); } catch (e) { big = e.message; }
+    assert(/limit/.test(big), 'oversized pages are refused');
+    assert(art.get('../../etc/passwd') === null, 'artifact ids are validated');
+    assert(art.remove(id) && !art.get(id), 'artifact removed');
+  }
+
   // browser sign-in (OpenRouter OAuth + PKCE) against a fake OpenRouter
   const crypto = require('crypto');
   let seenExchange = null;

@@ -36,7 +36,7 @@
 | 🖥️ | **Terminal and diffs** | Built-in terminal pane and a Changes pane for your code sessions. |
 | 🧠 | **Memory** | Facts it remembers across conversations. You control them. |
 | 📁 | **Projects** | Group chats under shared instructions and an optional default folder. Closed chats stay listed on the project page. |
-| 🧪 | **Artifacts** | Code and pages from your chats collected in one view, with charts and diagrams rendered. |
+| 🧪 | **Artifacts** | The model builds dashboards, slide decks, documents, trackers, diagrams and prototypes with its `artifact` tool. Each opens in its own sandboxed window (no network, versioned, exportable) and can use a small `window.cowork` bridge: persistent `db`, `askClaude`, allow-listed MCP tools and scheduled tasks. Eight built-in templates; code blocks from chats are listed too. |
 | ⏰ | **Scheduled tasks** | Run a prompt every N minutes, daily or on weekdays. |
 | 📨 | **Dispatch** | Start a background code session and check on it later. |
 | 🌿 | **Worktrees** | Work on a new git branch in a separate worktree. |

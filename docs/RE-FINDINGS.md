@@ -132,3 +132,15 @@ Not matched on purpose: Anthropic account billing (no API), cloud sync, organiza
 - **Providers**: a registry of built-in providers (override URL / key / models / on-off) plus custom ones; model strings are `<providerId>:<model>` (bare ids use the legacy default endpoint). Keys are stored under the provider id in the encrypted key store; local providers need none.
 - **Mods**: GrizzyCode implements the Claude Code mod engine (`claude-code` module: `register(on, options)`, `$`, `atom/read/update/derive/memberOf`) with one worker thread per mod (`src/main/mods/worker.js`, TS/JSX transpiled with sucrase, `vm` context with no Node). The host (`src/main/mods/host.js`) raises `session.start`, `prompt.submit`, `prompt.compose`, `command.run`, `tool.call`, `turn.start/step/complete`, `ui.render`, `ui.press`, `ui.close` through the mods' hook chains and answers `$.ui/fs/process/session/model/store/state/tool/command/clock/env`. Mod element trees (Box, Text, Button, Svg, Link, Code, Markdown, Input, Select) are drawn in the renderer as the band above the prompt, side panes and message rewrites. The nine "benai" mods load and run unchanged; their `~/.claude/mods/*` state is shared with Claude Code. The vm sandbox keeps mods away from Node/DOM but is not a security boundary: mods run with the user's permissions, which is why each one is switched on explicitly after a warning.
 
+
+## Artifacts (Claude.app 3.1623.4 → GrizzyCode)
+Read from the extracted `app.asar` (`artifactShell.js`, `coworkArtifact.js` and the main chunk `index.chunk-C7NkbHFq.js`); static reading only.
+
+| Claude.app | GrizzyCode |
+|---|---|
+| Typed artifacts (`design`, `slides`; types gated by settings) with uuid, title, createdAt/updatedAt | Stored in `<data>/artifacts/<uuid>.json`: types `page`, `dashboard`, `slides`, `doc`, `design`, `tracker`, `diagram`; versions (last 25) |
+| Own window on a private scheme (`cowork-artifact://`), separate session partition, permission requests/checks denied, all non-scheme requests cancelled, popups denied, navigation locked | `gc-artifact://<uuid>/` on `persist:gc-artifact`: same restrictions, plus a CSP header with `connect-src 'none'`; bundled Chart.js / Mermaid / Grid.js served from `/lib/` |
+| Preload exposes `window.cowork`: `callMcpTool`, `askClaude`, `runScheduledTask`; external links go to the host; every IPC call checks the sender frame | `window.cowork`: same three plus `db`, `listMcpTools`, `saveFile`, `openExternal`; the artifact id is taken from the sender frame's host, never from arguments; first use of the model, each MCP tool and each scheduled task asks the user once |
+| MCP tool calls restricted to a per-artifact allow-list that the user grows | Same; allow-list stored on the artifact |
+| Frame transport proxying `/api/` fetch and WebSocket over a MessagePort | Not reproduced (no claude.ai API); the `db` bridge covers persistence |
+| Type catalog and templates come from the service | Eight built-in templates (`artifact-templates.js`): dashboard, slides, doc, design, kanban, diagram, assistant, poll |

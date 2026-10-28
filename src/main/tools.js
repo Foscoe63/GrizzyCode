@@ -6,6 +6,7 @@ const skills = require('./skills');
 const memory = require('./memory');
 const extras = require('./extras');
 const bg = require('./bgtasks');
+const artifacts = require('./artifacts');
 
 const MAX_OUT = 30000;
 const clip = (s) => (s.length > MAX_OUT ? s.slice(0, MAX_OUT) + `\n…[truncated ${s.length - MAX_OUT} chars]` : s);
@@ -64,6 +65,7 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   if (on('memoryEnabled') && on('memoryAuto')) out.push(memoryTool);
   if (on('capSkills') && skills.list().length) out.push(skillTool);
   if (opts.agentMemory) out.push(noteTool);
+  if (on('capArtifacts')) out.push(artifacts.toolDef());
   return out.map(({ risky, kind, ...t }) => t);
 }
 // 'read' | 'edit' | 'exec'
@@ -110,7 +112,7 @@ async function runRemote(name, input, host, cwd, signal) {
 
 function run(name, input, cwd, signal, ssh, ctx = {}) {
   if (ssh?.host && name === 'bash' && input.background) return Promise.resolve('ERROR: background tasks are not supported in SSH sessions.');
-  if (ssh?.host && !['use_skill', 'save_memory', 'web_fetch', 'task_output', 'task_stop', 'add_followup'].includes(name)) return runRemote(name, input, ssh.host, cwd, signal);
+  if (ssh?.host && !['use_skill', 'save_memory', 'web_fetch', 'task_output', 'task_stop', 'add_followup', 'artifact'].includes(name)) return runRemote(name, input, ssh.host, cwd, signal);
   const abs = (p) => path.resolve(cwd || process.env.HOME, p || '.');
   switch (name) {
     case 'read_file': {
@@ -146,6 +148,7 @@ function run(name, input, cwd, signal, ssh, ctx = {}) {
     }
     case 'task_stop': { const r = bg.stop(input.id); return r ? `Stopping ${r.id} (${r.status}).` : `ERROR: no background task ${input.id}.`; }
     case 'add_followup': { const r = ctx.addFollowup ? ctx.addFollowup(String(input.title || '').slice(0, 120), String(input.detail || '').slice(0, 4000)) : null; return r ? `Added to the follow-up list: ${r.title}` : 'ERROR: could not add a follow-up here.'; }
+    case 'artifact': return artifacts.runTool(input, ctx);
     case 'use_skill': return skills.read(input.id);
     case 'save_memory': { const r = memory.add(input.text, 'model'); return r.error || (r.duplicate ? 'Already remembered.' : 'Saved to memory.'); }
     case 'web_fetch': return webFetch(input.url, signal);

@@ -11,6 +11,7 @@ const access = require('./access');
 const agents = require('./agents');
 const mods = require('./mods/host');
 const acp = require('./acp');
+const artifacts = require('./artifacts');
 const savings = require('./savings');
 const checkpoints = require('./checkpoints');
 const path = require('path');
@@ -46,7 +47,7 @@ function buildSystem(s, conv) {
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   const sk = s.capSkills === false ? [] : skills.list();
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
-  return sys + savings.pinBlock(conv.pinned);
+  return sys + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
 

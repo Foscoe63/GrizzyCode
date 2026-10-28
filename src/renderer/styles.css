@@ -216,6 +216,7 @@ body.paged #termBtn,body.paged #diffBtn{display:none}
 .split{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
 .alist{max-height:calc(100vh - 150px);overflow:auto}
 .aview{min-width:0}#aFrame{width:100%;height:300px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:10px}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}.tcard .ti{font-size:22px;color:var(--clay);margin-bottom:6px}.tcard p{min-height:3.6em}details summary{cursor:pointer;color:var(--text-2);margin:6px 0}
 .acode{background:var(--code);color:var(--code-fg);padding:12px 14px;border-radius:10px;font:12px/1.5 var(--mono);max-height:420px;overflow:auto;white-space:pre-wrap;margin:0}
 .chip-b.on{color:var(--clay);background:var(--hover,rgba(127,127,127,.12))}
 #termHost .xterm-viewport{background-color:transparent!important}

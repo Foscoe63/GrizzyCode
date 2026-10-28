@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, nativeTheme, screen, Notification, powerSaveBlocker, session, powerMonitor, systemPreferences } = require('electron');
+const { app, BrowserWindow, protocol, Menu, Tray, globalShortcut, ipcMain, dialog, nativeImage, shell, nativeTheme, screen, Notification, powerSaveBlocker, session, powerMonitor, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const store = require('./store');
@@ -27,6 +27,7 @@ const logger = require('./logger');
 const extras = require('./extras');
 const bgtasks = require('./bgtasks');
 const system = require('./system');
+const artifacts = require('./artifacts');
 
 const wins = new Set();
 let quick = null, quickReady = null, tray = null, aboutWin = null;
@@ -548,6 +549,18 @@ function ipc() {
   h('artifacts:list', async () => features.listArtifacts());
   h('artifacts:export', async (name, code) => { const r = await dialog.showSaveDialog(focused(), { defaultPath: name }); if (!r.canceled) fs.writeFileSync(r.filePath, code); return !r.canceled; });
   h('artifacts:preview', async (name, code) => { const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gc-art-')); const f = path.join(dir, path.basename(name).replace(/[^\w.-]/g, '_') || 'artifact.html'); fs.writeFileSync(f, localizeLibs(dir, code)); await shell.openPath(f); });
+  // Saved artifacts (the model's `artifact` tool and the gallery): sandboxed windows, versions, builtin templates.
+  h('artifacts:saved', async () => artifacts.list());
+  h('artifacts:get', async (id) => { const a = artifacts.get(id); return a && { id: a.id, title: a.title, type: a.type, html: a.html, updatedAt: a.updatedAt, convId: a.convId, mcpTools: a.mcpTools || [] }; });
+  h('artifacts:create', async (o) => { try { const a = artifacts.create({ title: o?.title, type: o?.type, html: o?.html, template: o?.template, convId: o?.convId }); return { id: a.id }; } catch (e) { return { error: e.message }; } });
+  h('artifacts:open-saved', async (id) => artifacts.open(String(id)));
+  h('artifacts:rename', async (id, title) => { try { artifacts.rename(String(id), String(title)); return true; } catch { return false; } });
+  h('artifacts:remove', async (id) => artifacts.remove(String(id)));
+  h('artifacts:versions', async (id) => artifacts.versions(String(id)));
+  h('artifacts:restore', async (id, i) => { try { artifacts.restore(String(id), Number(i)); return true; } catch { return false; } });
+  h('artifacts:templates', async () => ({ templates: artifacts.templates(), types: artifacts.types() }));
+  h('artifacts:save-html', async (id) => { const a = artifacts.get(String(id)); if (!a) return false; const r = await dialog.showSaveDialog(focused(), { defaultPath: a.title.replace(/[^\w. -]+/g, '_') + '.html' }); if (r.canceled) return false; fs.writeFileSync(r.filePath, artifacts.standalone(a.id)); return true; });
+  h('artifacts:open-browser', async (id) => { const a = artifacts.get(String(id)); if (!a) return false; const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gc-art-')); const f = path.join(dir, 'artifact.html'); fs.writeFileSync(f, artifacts.standalone(a.id)); await shell.openPath(f); return true; });
   h('projects:list', () => store.listProjects());
   h('projects:save', (p) => store.saveProject(p));
   h('projects:delete', (id) => store.deleteProject(id));
@@ -610,6 +623,7 @@ const APP_ICON = path.join(__dirname, '..', 'assets', 'icon.png');
 logger.init();
 // Hardware acceleration must be decided before the app is ready, so read the raw settings file.
 try { if (JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'data', 'settings.json'), 'utf8')).hardwareAccel === false) app.disableHardwareAcceleration(); } catch {}
+artifacts.registerScheme(protocol);
 if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', showMain);
 app.whenReady().then(() => {
@@ -618,6 +632,10 @@ app.whenReady().then(() => {
   try { app.dock?.setIcon(nativeImage.createFromPath(APP_ICON)); } catch {}
   try { skills.seedBundled(); } catch (e) { console.error('seeding bundled skills failed:', e.message); }
   ipc();
+  artifacts.init({ electron: { session, ipcMain, dialog, shell, BrowserWindow, nativeTheme }, onChange: (m, kind) => {
+    for (const w of wins) if (!w.isDestroyed()) w.webContents.send('artifacts:update', m, kind);
+    if (kind === 'create') artifacts.open(m.id); else if (kind === 'update') artifacts.refresh(m.id);
+  } });
   modsGlue.setup({ ipcMain, store, mcp, models, llm, tools: require('./tools'), logger, app, dialog, Notification, wins, showMain, focused });
   modsGlue.host.startEnabled().catch((e) => console.warn('mods failed to start:', e.message));
   features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); syncTray(); registerShortcut(); createMain();

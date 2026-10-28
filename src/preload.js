@@ -110,6 +110,18 @@ contextBridge.exposeInMainWorld('gc', {
     open: inv('artifacts:open'),
     export: inv('artifacts:export'),
     preview: inv('artifacts:preview'),
+    saved: inv('artifacts:saved'),
+    get: inv('artifacts:get'),
+    create: inv('artifacts:create'),
+    openSaved: inv('artifacts:open-saved'),
+    rename: inv('artifacts:rename'),
+    remove: inv('artifacts:remove'),
+    versions: inv('artifacts:versions'),
+    restore: inv('artifacts:restore'),
+    templates: inv('artifacts:templates'),
+    saveHtml: inv('artifacts:save-html'),
+    openInBrowser: inv('artifacts:open-browser'),
+    onUpdate: on('artifacts:update'),
   },
 
   // Buddy window integration (Claude.app buddy_window)

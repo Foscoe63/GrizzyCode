@@ -1,5 +1,5 @@
 // Test-only preload for scripts/ui-check.js: replaces the real `gc` bridge with an in-memory fake (no isolation, so a Proxy can be used).
-const log = []; const db = { projects: [], convs: [] }; let n = 0;
+const log = []; const db = { projects: [], convs: [], arts: [] }; let n = 0;
 const settings = { trustedFolders: [], theme: 'system', permissionMode: 'default', activeAgent: '' };
 const auto = (path) => new Proxy(function () {}, {
   get: (_t, k) => (k === 'then' || typeof k === 'symbol' ? undefined : auto(path + '.' + k)),
@@ -15,6 +15,10 @@ const over = {
   'conv.create': async (o) => { const c = { id: 'c' + ++n, title: 'New conversation', updatedAt: 1, messages: [], ...o }; db.convs.push(c); log.push(['create', o]); return c; },
   'conv.get': async (id) => ({ ...db.convs.find((c) => c.id === id), messages: [] }),
   'conv.update': async (id, patch) => { Object.assign(db.convs.find((c) => c.id === id), patch); log.push(['update', id, patch]); },
+  'artifacts.saved': async () => db.arts, 'artifacts.get': async (id) => { const a = db.arts.find((x) => x.id === id); return a && { ...a, html: '<h1>hi</h1>' }; }, 'artifacts.versions': async () => [],
+  'artifacts.templates': async () => ({ templates: [{ key: 'dashboard', type: 'dashboard', title: 'Sales dashboard', description: 'KPIs' }, { key: 'kanban', type: 'tracker', title: 'Kanban board', description: 'Board' }], types: [{ key: 'page', title: 'Page / app', description: 'A page' }] }),
+  'artifacts.create': async (o) => { const a = { id: 'a' + ++n, title: o.title || 'Sales dashboard', type: 'dashboard', createdAt: 1, updatedAt: 1, bytes: 12, versions: 0, mcpTools: [] }; db.arts.push(a); log.push(['artifact', o]); return { id: a.id }; },
+  'artifacts.onUpdate': () => () => {},
   confirm: async () => true, pickFolder: async () => '/tmp/picked',
 };
 const walk = (path) => new Proxy(function () {}, {
