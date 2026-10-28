@@ -11,6 +11,8 @@ const access = require('./access');
 const agents = require('./agents');
 const mods = require('./mods/host');
 const acp = require('./acp');
+const project = require('./project');
+const hooks = require('./hooks');
 const artifacts = require('./artifacts');
 const savings = require('./savings');
 const checkpoints = require('./checkpoints');
@@ -32,7 +34,7 @@ const ROLE_TEXT = { software: 'software engineering', design: 'design', research
 function buildSystem(s, conv) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
-    sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. Prefer small, verified steps.`;
+    sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. For multi-step work keep a visible task list with todo_write. Prefer glob and grep over shell find/grep to locate code. Prefer small, verified steps.`;
     sys += '\n\nIf asked to build or install a mod for GrizzyCode: put it in ~/.GrizzyCode/mods/<name>/ (same as ~/.grizzycode) and keep its saved data under ~/.grizzycode/mods-data/<name>/. Never use ~/.claude or `claude plugin install` for it; load the mod-authoring skill first.';
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
@@ -47,7 +49,7 @@ function buildSystem(s, conv) {
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   const sk = s.capSkills === false ? [] : skills.list();
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
-  return sys + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
+  return sys + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
 
@@ -143,9 +145,12 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     else if (d !== 'once') throw new Error('User denied this tool call.');
   }
   if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
-  const ctx = { convId, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
+  const hk = !conv.ssh && !mods.isModTool(c.name) ? await hooks.run('PreToolUse', c.name, c.input, conv.cwd, signal) : {};
+  if (hk.block) throw new Error(hk.block);
+  const ctx = { convId, setTodos: (list) => { const l = store.getConversation(convId); l.todos = list; store.saveConversation(l); conv.todos = list; emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
   const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh, ctx)));
   if (!conv.ssh && !/^ERROR/.test(String(out))) agents.noteCall(run, c, conv.cwd);
+  if (!conv.ssh && !mods.isModTool(c.name)) { const post = await hooks.run('PostToolUse', c.name, c.input, conv.cwd, signal, out); if (post.note) return String(out) + '\n\n[hook] ' + post.note; }
   if (s.autoOpenFiles && !conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && !/^ERROR/.test(String(out))) { try { require('electron').shell.openPath(require('path').resolve(conv.cwd || '.', c.input.path)); } catch {} }
   return out;
 }

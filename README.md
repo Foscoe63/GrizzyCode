@@ -218,3 +218,11 @@ MIT. See `package.json`.
 Made with 🐻 for people who live in their editor.
 
 </div>
+
+
+## Coding tools
+- **Project instructions:** `GRIZZY.md`, `AGENTS.md` or `CLAUDE.md` (first found per folder) in the working folder and its parents up to the repository root are added to the system prompt of local code sessions (12 KB each, 24 KB total). Turn off with `projectInstructions: false` in settings.
+- **Task list:** the model keeps a checklist with `todo_write`; it shows as a progress chip in the status bar.
+- **Search and edit:** `glob`; `grep` with `glob`, `ignore_case`, `context`, `output_mode` and `head_limit`; `edit_file` with `replace_all`, atomic multi-`edits`, and a refusal when the file changed since it was last read.
+- **Hooks:** Tools ▸ Open Hooks Config edits `tool-hooks.json` in the data folder: `{"hooks":[{"event":"PreToolUse|PostToolUse","matcher":"write_file|edit_file","command":"...","timeout":30}]}`. The command gets the call as JSON on stdin plus `GC_TOOL`, `GC_FILE`, `GC_CWD`. Exit code 2 blocks a Pre hook (stderr goes to the model) or appends stderr to a Post result. Local sessions only.
+- **web_search:** keyless DuckDuckGo HTML search, enabled with the web capability. It parses the results page, so it can break if that markup changes.

@@ -112,7 +112,7 @@ function userBubble(content) {
   }
 }
 function renderConv(c) {
-  liveOutputs = []; cur = c; live = null; lastHolder = null; showTerm(); modSession(); rsRefresh();
+  liveOutputs = []; cur = c; live = null; lastHolder = null; syncTodos(c.todos); showTerm(); modSession(); rsRefresh();
   $('msgs').innerHTML = '';
   $('title').textContent = c.title;
   if (typeof hidePage === 'function') hidePage();
@@ -566,6 +566,7 @@ gc.agent.onEvent((ev) => {
       const holder = live?.el || bubble('assistant'); live = null; lastHolder = holder;
       holder.appendChild(toolBox(ev.name, ev.input, null, ev.id));
     }
+  } else if (ev.type === 'todos') { if (cur?.id === ev.convId) { cur.todos = ev.todos; syncTodos(ev.todos); }
   } else if (ev.type === 'tool_result') {
     const d = document.querySelector(`details[data-id="${CSS.escape(ev.id)}"]`);
     if (d) { d.querySelector('pre').textContent += '\n\n' + ev.output; if (/^ERROR/.test(ev.output)) d.classList.add('err'); }

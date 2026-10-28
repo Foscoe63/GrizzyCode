@@ -92,6 +92,7 @@
     <select id="modeSel" title="Permission mode"></select>
     <button type="button" id="effortChip" class="chip-b" title="Reasoning effort" hidden></button>
     <button type="button" id="fastChip" class="chip-b" title="Fast mode: use the fast model from Settings" hidden>⚡ Fast</button>
+    <button type="button" id="todoChip" class="chip-b" title="Task list" hidden></button>
     <button type="button" id="tasksChip" class="chip-b" title="Background tasks" hidden></button>
     <button type="button" id="followChip" class="chip-b" title="Follow-up tasks Claude noted" hidden></button>
     <span class="spacer"></span>
@@ -100,6 +101,7 @@
 <div id="ctx" hidden></div>
 <div id="palette" hidden><div class="pal-box"><input id="palInput" placeholder="Type a command, session or setting…" spellcheck="false" autocomplete="off"><div id="palList" role="listbox"></div></div></div>
 <div id="tasksPanel" class="fpanel" hidden></div>
+<div id="todoPanel" class="fpanel" hidden></div>
 <div id="followPanel" class="fpanel" hidden></div>
 <div id="sidePanel" class="fpanel" hidden><div class="fp-head"><b>Side question</b><span class="hint">Not added to the session</span><span class="grow"></span><button type="button" class="fp-x" id="sideClose" title="Close">✕</button></div><div id="sideLog"></div><form id="sideForm"><input id="sideInput" placeholder="Ask something about this session…" autocomplete="off"></form></div>
 <div id="toast" hidden></div>

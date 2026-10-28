@@ -202,8 +202,20 @@ async function askSide(q) {
 $('sideForm').onsubmit = (e) => { e.preventDefault(); const q = $('sideInput').value.trim(); $('sideInput').value = ''; askSide(q); };
 $('sideClose').onclick = closePanels;
 
-function closePanels() { for (const id of ['tasksPanel', 'followPanel', 'sidePanel']) $(id).hidden = true; }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ['tasksPanel', 'followPanel', 'sidePanel'].some((id) => !$(id).hidden)) closePanels(); });
+// Task list the model keeps with todo_write: a chip with progress and a panel listing the items.
+function syncTodos(list) {
+  const b = $('todoChip'), l = Array.isArray(list) ? list : []; b.hidden = !l.length;
+  const done = l.filter((t) => t.status === 'completed').length; b.textContent = `☑ ${done}/${l.length}`; b.classList.toggle('on', done < l.length);
+  if (!$('todoPanel').hidden) renderTodos(l);
+}
+function renderTodos(l = cur?.todos || []) {
+  const p = $('todoPanel'); p.innerHTML = '<div class="fp-head"><b>Task list</b><span class="grow"></span><button type="button" class="fp-x" id="tdX" title="Close">✕</button></div>';
+  p.querySelector('#tdX').onclick = closePanels;
+  for (const t of l) { const r = document.createElement('div'); r.className = 'fp-row'; r.innerHTML = `<div class="t"><span>${t.status === 'completed' ? '☑' : t.status === 'in_progress' ? '▶' : '☐'}</span><b style="${t.status === 'completed' ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(t.content)}</b></div>`; p.append(r); }
+}
+$('todoChip').onclick = (e) => { e.stopPropagation(); const open = $('todoPanel').hidden; closePanels(); if (open) { $('todoPanel').hidden = false; renderTodos(); } };
+function closePanels() { for (const id of ['tasksPanel', 'followPanel', 'sidePanel', 'todoPanel']) $(id).hidden = true; }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ['tasksPanel', 'followPanel', 'sidePanel', 'todoPanel'].some((id) => !$(id).hidden)) closePanels(); });
 
 function syncPower() {
   const e = cur?.effort || (typeof currentAgent === 'function' && currentAgent()?.effort) || 'off'; // the picked agent's own effort applies until the user sets one

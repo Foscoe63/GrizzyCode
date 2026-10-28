@@ -1206,6 +1206,42 @@ export const register: Register = (on, options) => {
     list = await mcp.signOut('gmail'); assert(revoked && list.filter((x) => x.builtin).every((x) => x.auth.state === 'required' && x.status === 'stopped') && google.client().clientId === 'cid', 'google: sign-out revokes the token, keeps the client, disconnects all five');
     gsrv.close();
   }
+  // coding tools: project instructions, glob, grep options, edit_file variants, staleness, todos, hooks
+  {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-coding-')); fs.mkdirSync(path.join(d, 'src', 'deep'), { recursive: true }); fs.mkdirSync(path.join(d, 'node_modules', 'x'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'Alpha\nbeta\nALPHA two\n'); fs.writeFileSync(path.join(d, 'src', 'deep', 'b.tsx'), 'alpha\n'); fs.writeFileSync(path.join(d, 'node_modules', 'x', 'c.ts'), 'alpha\n'); fs.writeFileSync(path.join(d, 'r.md'), 'alpha');
+    const run = (n, i, ctx = { convId: 'c1' }) => tools.run(n, i, d, undefined, undefined, ctx);
+    const g = await run('glob', { pattern: '**/*.{ts,tsx}' }); assert(g.includes('src/a.ts') && g.includes('src/deep/b.tsx') && !g.includes('node_modules'), 'glob: braces, ** and skipped folders');
+    assert((await run('glob', { pattern: '*.md' })).trim() === 'r.md' && /No files/.test(await run('glob', { pattern: '*.zzz' })), 'glob: bare pattern matches anywhere');
+    assert((await run('grep', { pattern: 'alpha', path: 'src', output_mode: 'files', ignore_case: true })).split('\n').filter(Boolean).length === 2, 'grep: files mode + ignore_case');
+    assert(!(await run('grep', { pattern: 'alpha', path: 'src', glob: '*.tsx' })).includes('a.ts') && /a\.ts:1/.test(await run('grep', { pattern: 'ALPHA', path: 'src', output_mode: 'count' })) , 'grep: glob and count');
+    assert((await run('grep', { pattern: 'beta', path: 'src/a.ts', context: 1 })).split('\n').length >= 3, 'grep: context lines');
+    await run('read_file', { path: 'src/a.ts' });
+    await run('edit_file', { path: 'src/a.ts', old_string: 'beta', new_string: 'B' });
+    let err = ''; try { await run('edit_file', { path: 'src/a.ts', old_string: 'A', new_string: 'x' }); } catch (e) { err = e.message; }
+    assert(/matches \d+ times/.test(err), 'edit_file: ambiguous match rejected');
+    await run('write_file', { path: 'm.txt', content: 'x x x\ny\n' });
+    await run('edit_file', { path: 'm.txt', old_string: 'x', new_string: 'z', replace_all: true }); assert(fs.readFileSync(path.join(d, 'm.txt'), 'utf8') === 'z z z\ny\n', 'edit_file: replace_all');
+    err = ''; try { await run('edit_file', { path: 'm.txt', edits: [{ old_string: 'y', new_string: 'Y' }, { old_string: 'nope', new_string: 'q' }] }); } catch (e) { err = e.message; }
+    assert(/edit 2/.test(err) && fs.readFileSync(path.join(d, 'm.txt'), 'utf8') === 'z z z\ny\n', 'edit_file: multi-edit is atomic');
+    await run('edit_file', { path: 'm.txt', edits: [{ old_string: 'y', new_string: 'Y' }, { old_string: 'z z z', new_string: 'Q' }] }); assert(fs.readFileSync(path.join(d, 'm.txt'), 'utf8') === 'Q\nY\n', 'edit_file: multi-edit applies in order');
+    await run('read_file', { path: 'm.txt' }); fs.writeFileSync(path.join(d, 'm.txt'), 'outside\n'); const fut = new Date(Date.now() + 5000); fs.utimesSync(path.join(d, 'm.txt'), fut, fut);
+    err = ''; try { await run('edit_file', { path: 'm.txt', old_string: 'outside', new_string: 'in' }); } catch (e) { err = e.message; } assert(/changed since you last read/.test(err), 'edit_file: stale read is refused');
+    let got = null; assert(/1\/2 done/.test(await run('todo_write', { todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }] }, { convId: 'c1', setTodos: (l) => { got = l; } })) && got.length === 2, 'todo_write stores the list');
+    const names = (m, perm, caps) => tools.publicDefs(m, perm, caps).map((t) => t.name);
+    assert(names('code', 'default', {}).includes('todo_write') && names('code', 'default', {}).includes('glob') && !names('code', 'default', {}).includes('web_search') && names('code', 'default', { capWeb: true }).includes('web_search') && !names('code', 'plan', { capWeb: true }).includes('web_search'), 'tool gating: glob/todo always, web_search needs capWeb');
+    // project instructions
+    const proj = require('../src/main/project'); fs.writeFileSync(path.join(d, 'AGENTS.md'), 'Use tabs.'); fs.writeFileSync(path.join(d, 'CLAUDE.md', ), 'ignored when AGENTS.md exists');
+    const pb = proj.promptBlock({}, { mode: 'code', cwd: path.join(d, 'src') }); assert(pb.includes('Use tabs.') && !pb.includes('ignored when') && proj.promptBlock({ projectInstructions: false }, { mode: 'code', cwd: d }) === '' && proj.promptBlock({}, { mode: 'chat', cwd: d }) === '' && proj.promptBlock({}, { mode: 'code', cwd: d, ssh: { host: 'h' } }) === '', 'project instructions: found, gated');
+    // hooks
+    const hk = require('../src/main/hooks'); fs.writeFileSync(hk.file(), JSON.stringify({ hooks: [
+      { event: 'PreToolUse', matcher: 'write_file', command: 'echo "no writes here" >&2; exit 2' },
+      { event: 'PostToolUse', matcher: 'edit_file|write_file', command: 'cat >/dev/null; echo "lint: $GC_TOOL" >&2; exit 2' },
+      { event: 'PreToolUse', matcher: 'bash', command: 'exit 1' }] }));
+    const pre = await hk.run('PreToolUse', 'write_file', { path: 'x' }, d), post = await hk.run('PostToolUse', 'edit_file', { path: 'x' }, d, undefined, 'out'), none = await hk.run('PreToolUse', 'bash', {}, d);
+    assert(/no writes here/.test(pre.block || '') && /lint: edit_file/.test(post.note || '') && !none.block && !(await hk.run('PreToolUse', 'read_file', {}, d)).block, 'hooks: exit 2 blocks/annotates, other exits ignored');
+    fs.rmSync(hk.file()); fs.rmSync(d, { recursive: true, force: true });
+  }
   // window shell: deep links, bounds restore, permission policy
   {
     const sh = require('../src/main/shell');

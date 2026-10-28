@@ -28,6 +28,7 @@ const extras = require('./extras');
 const bgtasks = require('./bgtasks');
 const system = require('./system');
 const shell_ = require('./shell');
+const hooks = require('./hooks');
 const artifacts = require('./artifacts');
 
 const wins = new Set();
@@ -265,6 +266,7 @@ function buildMenu() {
     { label: 'Tools', submenu: [
       { label: 'Open MCP Config', click: () => shell.openPath(mcp.configPath()) },
       { label: 'Reload MCP Servers', click: () => mcp.startAll() },
+      { label: 'Open Hooks Config', click: () => { const f = hooks.file(); if (!fs.existsSync(f)) { try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify({ hooks: [] }, null, 2) + '\n'); } catch {} } shell.openPath(f); } },
       { label: 'Open Skills Folder', click: () => shell.openPath(skills.dir()) } ] },
     { role: 'windowMenu' },
     { role: 'help', submenu: [{ label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', click: () => cmd('shortcuts') }] },
