@@ -43,6 +43,9 @@
 | 🌍 | **SSH sessions** | Run a code session's file and shell tools on a remote host. |
 | 🎨 | **Design systems** | Colors, fonts and guidelines the model follows when it builds interfaces. |
 | 🌐 | **Browser tools** | Let code sessions drive a real browser through the Playwright connector. |
+| 🪟 | **Windows and layout** | Side Chat, stacked Split View, resizable sidebars, a full-width status bar, and window size restored between launches. |
+| 🎨 | **Themes** | Settings → Appearance has built-in themes plus light and dark modes. |
+| 🔗 | **Deep links** | `grizzycode://` links open GrizzyCode; it registers itself as the handler in the packaged app. |
 | 📈 | **Usage and billing** | Token usage across Chat and Code by model (7, 30 or 90 days) and estimated spend on this Mac. No subscription, no fees. |
 
 ## 🚀 Quick start
@@ -112,6 +115,7 @@ Deleting a project keeps its chats; they only lose the project instructions.
 | | | |
 |---|---|---|
 | 📂 | **Folders** | Each session works in a folder you pick. Trusted folders skip the trust prompt; pinned folders appear in the Code sidebar. Tool approvals still follow the permission mode. |
+| 🏠 | **Environments** | The New session screen lists your pinned and trusted folders, three at a time with a scrollbar beyond that. Hover a row and click ✕ to remove it from the list (the folder itself is untouched). |
 | 🌿 | **Worktrees** | Branches are named `prefix + task` (Settings → Claude Code) in a worktree folder you choose. |
 | 🌍 | **SSH** | Connect to `user@host` or a config alias; file and shell tools run there with your system `ssh`. |
 | 📥 | **Import** | Bring in Claude Code CLI session transcripts from `~/.claude/projects` as GrizzyCode code sessions. |
@@ -195,7 +199,7 @@ npm run check                     # backend tests plus the headless Projects pag
 npx electron scripts/check.js     # backend only (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, Google connectors, skills, mods, token savers)
 npx electron scripts/ui-check.js  # drives the Projects page against a fake bridge
 npx electron scripts/shot.js out  # render the real UI to PNGs (add `dark` for dark mode)
-npm run dist                      # build the signed DMG and zip into dist/
+npm run dist                      # build the signed DMG and zip into dist/ (arm64; notarization is skipped unless configured)
 ```
 
 📁 **Layout**
@@ -209,6 +213,13 @@ scripts/         tests (check.js, ui-check.js) and screenshots
 docs/            reverse-engineering notes (RE-FINDINGS.md)
 ```
 
+## 🧱 Coding tools
+- **Project instructions:** `GRIZZY.md`, `AGENTS.md` or `CLAUDE.md` (first found per folder) in the working folder and its parents up to the repository root are added to the system prompt of local code sessions (12 KB each, 24 KB total). Turn off with `projectInstructions: false` in settings.
+- **Task list:** the model keeps a checklist with `todo_write`; it shows as a progress chip in the status bar.
+- **Search and edit:** `glob`; `grep` with `glob`, `ignore_case`, `context`, `output_mode` and `head_limit`; `edit_file` with `replace_all`, atomic multi-`edits`, and a refusal when the file changed since it was last read.
+- **Hooks:** Tools ▸ Open Hooks Config edits `tool-hooks.json` in the data folder: `{"hooks":[{"event":"PreToolUse|PostToolUse","matcher":"write_file|edit_file","command":"...","timeout":30}]}`. The command gets the call as JSON on stdin plus `GC_TOOL`, `GC_FILE`, `GC_CWD`. Exit code 2 blocks a Pre hook (stderr goes to the model) or appends stderr to a Post result. Local sessions only.
+- **web_search:** keyless DuckDuckGo HTML search, enabled with the web capability. It parses the results page, so it can break if that markup changes.
+
 ## 📄 License
 
 MIT. See `package.json`.
@@ -219,10 +230,3 @@ Made with 🐻 for people who live in their editor.
 
 </div>
 
-
-## Coding tools
-- **Project instructions:** `GRIZZY.md`, `AGENTS.md` or `CLAUDE.md` (first found per folder) in the working folder and its parents up to the repository root are added to the system prompt of local code sessions (12 KB each, 24 KB total). Turn off with `projectInstructions: false` in settings.
-- **Task list:** the model keeps a checklist with `todo_write`; it shows as a progress chip in the status bar.
-- **Search and edit:** `glob`; `grep` with `glob`, `ignore_case`, `context`, `output_mode` and `head_limit`; `edit_file` with `replace_all`, atomic multi-`edits`, and a refusal when the file changed since it was last read.
-- **Hooks:** Tools ▸ Open Hooks Config edits `tool-hooks.json` in the data folder: `{"hooks":[{"event":"PreToolUse|PostToolUse","matcher":"write_file|edit_file","command":"...","timeout":30}]}`. The command gets the call as JSON on stdin plus `GC_TOOL`, `GC_FILE`, `GC_CWD`. Exit code 2 blocks a Pre hook (stderr goes to the model) or appends stderr to a Post result. Local sessions only.
-- **web_search:** keyless DuckDuckGo HTML search, enabled with the web capability. It parses the results page, so it can break if that markup changes.
