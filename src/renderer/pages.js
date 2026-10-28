@@ -70,9 +70,35 @@ async function pgProjects() {
 const ART_ICON = { page: '▢', dashboard: '▥', slides: '▭', doc: '☰', design: '✎', tracker: '☑', diagram: '⌬' };
 async function pgArtifacts() {
   const tab = artTab;
-  const tabs = `<div class="seg" id="aT">${[['saved', 'Saved'], ['templates', 'Templates'], ['chats', 'From chats']].map(([v, l]) => `<button type="button" data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const tabs = `<div class="seg" id="aT">${[['saved', 'Saved'], ['templates', 'Templates'], ['chats', 'From chats']].map(([v, l]) => `<button type="button" data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div><button id="aNew">+ New artifact</button>`;
   if (tab === 'saved') await artSaved(tabs); else if (tab === 'templates') await artTemplates(tabs); else await artChats(tabs);
   $('page').querySelectorAll('#aT button').forEach((b) => (b.onclick = () => { artTab = b.dataset.v; pgArtifacts(); }));
+  P('#aNew').onclick = newArtifactDialog;
+}
+const BLANK_HTML = (t) => `<!doctype html>\n<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${t.replace(/[<&]/g, '')}</title>\n<style>body{font:16px system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:32px}</style></head>\n<body><h1>${t.replace(/[<&]/g, '')}</h1><p>Start here. Ask GrizzyCode in a chat to build this out.</p></body></html>`;
+async function newArtifactDialog() {
+  const { templates, types } = await gc.artifacts.templates();
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:50';
+  d.innerHTML = `<div class="card3" style="width:480px;max-width:90vw;padding:20px;display:flex;flex-direction:column;gap:10px"><h3 style="margin:0">New artifact</h3>
+    <input id="nTitle" placeholder="Title"><select id="nType">${types.map((t) => `<option value="${esc(t.key)}">${esc(t.title)}</option>`).join('')}</select>
+    <select id="nTpl"><option value="">Blank page</option>${templates.map((t) => `<option value="${esc(t.key)}">Template: ${esc(t.title)}</option>`).join('')}</select>
+    <textarea id="nHtml" rows="6" placeholder="…or paste HTML (optional)" style="font-family:monospace"></textarea>
+    <label class="hint">…or import an .html file <input id="nFile" type="file" accept=".html,.htm,text/html"></label>
+    <div class="pg-actions"><span class="grow"></span><button class="outline" id="nCancel">Cancel</button><button id="nOk">Create</button></div></div>`;
+  document.body.appendChild(d);
+  const q = (s) => d.querySelector(s);
+  q('#nTitle').focus();
+  q('#nFile').onchange = async (e) => { const f = e.target.files[0]; if (!f) return; q('#nHtml').value = await f.text(); if (!q('#nTitle').value) q('#nTitle').value = f.name.replace(/\.html?$/i, ''); };
+  q('#nTpl').onchange = (e) => { const t = templates.find((x) => x.key === e.target.value); if (t) q('#nType').value = t.type; };
+  q('#nCancel').onclick = () => d.remove();
+  d.onclick = (e) => { if (e.target === d) d.remove(); };
+  q('#nOk').onclick = async () => {
+    const title = q('#nTitle').value.trim() || 'Untitled artifact', html = q('#nHtml').value.trim(), template = q('#nTpl').value;
+    const r = await gc.artifacts.create(html ? { title, type: q('#nType').value, html } : template ? { title, template } : { title, type: q('#nType').value, html: BLANK_HTML(title) });
+    if (r.error) return toast(r.error);
+    d.remove(); savedSel = r.id; artTab = 'saved'; toast('Created'); pgArtifacts();
+  };
 }
 async function artSaved(tabs) {
   const all = await gc.artifacts.saved();
