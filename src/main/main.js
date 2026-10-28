@@ -63,6 +63,29 @@ const emit = (ev) => { try { track(ev); } catch {} for (const w of wins) if (!w.
 const focused = () => BrowserWindow.getFocusedWindow() && wins.has(BrowserWindow.getFocusedWindow()) ? BrowserWindow.getFocusedWindow() : [...wins][0];
 const cmd = (ch, ...a) => { const w = focused(); if (!w) { createMain(); return; } w.show(); w.focus(); w.webContents.send('ui:command', ch, ...a); };
 
+// Split View: tile the focused window and a new one (halves left/right, or top/bottom); Close Split puts the partner back.
+function splitWindow(convId, vertical) {
+  const w = focused(); if (!w) return;
+  const d = screen.getDisplayMatching(w.getBounds()).workArea;
+  if (w.isFullScreen()) w.setFullScreen(false); if (w.isMaximized()) w.unmaximize();
+  const pre = w.getBounds(), h1 = Math.floor((vertical ? d.height : d.width) / 2);
+  const A = vertical ? { x: d.x, y: d.y, width: d.width, height: h1 } : { x: d.x, y: d.y, width: h1, height: d.height };
+  const B = vertical ? { x: d.x, y: d.y + h1, width: d.width, height: d.height - h1 } : { x: d.x + h1, y: d.y, width: d.width - h1, height: d.height };
+  w.setBounds(A);
+  const n = createMain({ conv: convId }); n.setBounds(B);
+  splitPairs.set(n, { partner: w, pre });
+}
+const splitPairs = new WeakMap();
+function closeSplit() {
+  const w = focused(), pair = w && splitPairs.get(w); if (!pair) return;
+  if (!pair.partner.isDestroyed()) { pair.partner.setBounds(pair.pre); pair.partner.focus(); }
+  w.close();
+}
+function cycleWindow(dir) {
+  const list = [...wins].filter((x) => !x.isDestroyed()); if (list.length < 2) return;
+  const i = list.indexOf(focused()); list[(i + dir + list.length) % list.length].focus();
+}
+
 function createMain({ conv } = {}) {
   const sv = store.getSettings(), saved = shell_.boundsOnScreen(sv.winBounds, screen.getAllDisplays());
   const w = new BrowserWindow({
@@ -221,7 +244,15 @@ function buildMenu() {
       { label: 'Search…', accelerator: 'CmdOrCtrl+K', click: () => cmd('search') },
       { type: 'separator' },
       { label: 'Previous Session', accelerator: 'CmdOrCtrl+Shift+[', click: () => cmd('prev') },
-      { label: 'Next Session', accelerator: 'CmdOrCtrl+Shift+]', click: () => cmd('next') } ] },
+      { label: 'Next Session', accelerator: 'CmdOrCtrl+Shift+]', click: () => cmd('next') },
+      { type: 'separator' },
+      { label: 'Side Chat', accelerator: 'CmdOrCtrl+;', click: () => cmd('side') },
+      { label: 'Split View', submenu: [
+        { label: 'Open Session Side by Side', accelerator: 'Ctrl+CmdOrCtrl+\\', click: () => cmd('split', false) },
+        { label: 'Open Session Stacked', accelerator: 'Ctrl+CmdOrCtrl+-', click: () => cmd('split', true) },
+        { label: 'Focus Next Window', accelerator: 'Ctrl+]', click: () => cycleWindow(1) },
+        { label: 'Focus Previous Window', accelerator: 'Ctrl+[', click: () => cycleWindow(-1) },
+        { label: 'Close Split Window', accelerator: 'Ctrl+CmdOrCtrl+W', click: closeSplit } ] } ] },
     { label: 'View', submenu: [
       { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => cmd('sidebar') },
       { label: 'Toggle Terminal', accelerator: 'Ctrl+`', click: () => cmd('terminal') },
@@ -521,13 +552,7 @@ function ipc() {
   h('tasks:stop', (id) => bgtasks.stop(id));
   h('tasks:clear', (id) => { bgtasks.clearFinished(id); return bgtasks.list(id); });
   h('files:search', (cwd, q) => extras.searchFiles(cwd, q));
-  h('window:split', (convId) => {
-    const w = focused(); if (!w) return;
-    const d = screen.getDisplayMatching(w.getBounds()).workArea, half = Math.floor(d.width / 2);
-    if (w.isFullScreen()) w.setFullScreen(false); if (w.isMaximized()) w.unmaximize();
-    w.setBounds({ x: d.x, y: d.y, width: half, height: d.height });
-    const n = createMain({ conv: convId }); n.setBounds({ x: d.x + half, y: d.y, width: d.width - half, height: d.height });
-  });
+  h('window:split', (convId, vertical) => splitWindow(convId, !!vertical));
 
   // === OS integration: scheduled notifications, dock, memory pressure, tray status, permissions, event log ===
   const sched = system.scheduler((title, body, id) => { if (!Notification.isSupported()) return; const n = new Notification({ title, body, silent: !store.getSettings().notifySound }); n.on('click', () => showMain()); n.show(); });

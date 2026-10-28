@@ -247,7 +247,7 @@ async function buildPalette() {
     act('Reopen closed session', reopen, '⇧⌘T'), act('Open settings', openSettings, '⌘,'),
     act('Toggle sidebar', () => setSidebar(!document.body.classList.contains('nosidebar'))), act('Toggle terminal', () => toggle('term'), '⌃`'), act('Toggle changes pane', () => toggle('diff'), '⇧⌘D'),
     act('Find in conversation', () => { $('findbar').hidden = false; $('findInput').focus(); }, '⌘F'),
-    act('Rewind to last message', rewindLast), act('Ask a side question', () => openSide()), act('Open session side by side', () => cur && gc.splitWindow(cur.id)),
+    act('Rewind to last message', rewindLast), act('Ask a side question', () => openSide()), act('Open session side by side', () => cur && gc.splitWindow(cur.id)), act('Open session stacked', () => cur && gc.splitWindow(cur.id, true)),
     act('Open session in new window', () => cur && gc.newWindow(cur.id)), act('Toggle fast mode', toggleFast),
     ...EFFORTS.map((v) => act(`Extended thinking (effort): ${v}`, () => setEffort(v))),
     act('Export conversation as Markdown', () => cur && gc.conv.export(cur.id)),

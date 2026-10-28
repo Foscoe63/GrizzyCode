@@ -99,7 +99,7 @@ Menus re-read from the 3.1623.4 main chunk (`index.chunk-uXhgx7My.js`): Command 
 | Menus | Sidebar ⌘B, Close Pane ⌘\, Edit ▸ Find (⌘G / ⇧⌘G), Dev Tools ⌥⌘I |
 | Platform | Electron 44.9.3 (same as Claude.app 44.9.0 line) |
 
-Still not matched: Split View, Files/Preview/Side Chat panes, Command Palette, Open File, `claude://`-style deep links, usage strings in `Info.plist`, Electron fuses (not checked), workers, Cowork, computer use, simulator, DXT registry. The `ensureSwiftAddon` / "Claude.app parity" handlers in `src/main/main.js` and `src/preload.js` are stubs that return empty values; they do not provide the features their names suggest.
+Still not matched (Split View and Side Chat were added later, see below): Files/Preview panes, Command Palette, Open File, `claude://`-style deep links, usage strings in `Info.plist`, Electron fuses (not checked), workers, Cowork, computer use, simulator, DXT registry. The `ensureSwiftAddon` / "Claude.app parity" handlers in `src/main/main.js` and `src/preload.js` are stubs that return empty values; they do not provide the features their names suggest.
 
 ## Sign-in
 Claude.app signs in with Anthropic's own claude.ai OAuth client. GrizzyCode does not reuse it (that would impersonate Claude.app), so browser sign-in is: OpenRouter OAuth authorization-code + PKCE S256 through a one-shot `http://localhost:<port>/callback` loopback (state-checked, code exchanged for a per-user key), and for Anthropic, opening the Console keys page and using a key copied to the clipboard (detected on request, masked in the UI, clipboard cleared after saving).
@@ -156,3 +156,6 @@ Read from the main chunk `index.chunk-C7NkbHFq.js` and the cowork chunks; static
 | Session permission request/check handlers, `will-download` cancelled, `will-attach-webview` prevented | Same policy on the default session: only `clipboard-sanitized-write` and `fullscreen` are granted, downloads and webviews blocked |
 | Window layout bounds persisted per display | Size, position and maximized state saved and restored only if on a connected display |
 | Privacy usage strings and URL scheme in `Info.plist` | `build.protocols` and `build.mac.extendInfo` in `package.json` |
+
+### Split View and Side Chat menus
+Menu structure taken from the 3.1623.4 main chunk. Side Chat (⌘;) opens the existing side-question panel. Split View tiles two windows on the display: side by side (⌃⌘\), stacked (⌃⌘-), focus next/previous window (⌃] / ⌃[), and Close Split Window (⌃⌘W) which restores the partner's previous bounds. Claude's split is in-window panes; GrizzyCode's is two native windows.

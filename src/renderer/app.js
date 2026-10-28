@@ -670,7 +670,7 @@ $('nImport').onclick = async () => { await openSettings(); showTab('code'); };
 $('nShortcuts').onclick = () => showShortcuts();
 $('search').addEventListener('input', refreshList);
 const SC = [['New', '⌘N'], ['New session in current mode', '⇧⌘N'], ['New session in new window', '⌥⌘N'], ['Reopen closed session', '⇧⌘T'], ['Close session', '⌘W'],
-  ['Search', '⌘K'], ['Find in conversation / next / previous', '⌘F / ⌘G / ⇧⌘G'], ['Close pane', '⌘\\'], ['Previous / next session', '⇧⌘[ / ⇧⌘]'], ['Back / forward', '⌘[ / ⌘]'], ['Toggle sidebar', '⌘B'],
+  ['Search', '⌘K'], ['Find in conversation / next / previous', '⌘F / ⌘G / ⇧⌘G'], ['Close pane', '⌘\\'], ['Side chat', '⌘;'], ['Split view side by side / stacked', '⌃⌘\\ / ⌃⌘-'], ['Next / previous window', '⌃] / ⌃['], ['Close split window', '⌃⌘W'], ['Previous / next session', '⇧⌘[ / ⇧⌘]'], ['Back / forward', '⌘[ / ⌘]'], ['Toggle sidebar', '⌘B'],
   ['Toggle terminal', '⌃`'], ['Toggle changes', '⇧⌘D'], ['Zoom in / out / reset', '⌘= / ⌘- / ⌘0'], ['Quick Entry', settings.quickShortcut || 'Alt+Space'], ['Settings', '⌘,'], ['Stop generating', 'Esc']];
 gc.onCommand(async (c, arg, arg2) => {
   if (c === 'new') { setView(arg === 'code' ? 'code' : 'chat', false); $('search').value = ''; goHome(); $('input').focus(); }
@@ -680,6 +680,8 @@ gc.onCommand(async (c, arg, arg2) => {
   else if (c === 'palette') openPalette();
   else if (c === 'find') { $('findbar').hidden = false; $('findInput').focus(); $('findInput').select(); }
   else if (c === 'rside') toggleRs();
+  else if (c === 'side') openSide();
+  else if (c === 'split') cur && gc.splitWindow(cur.id, !!arg);
   else if (c === 'findNext') { if (!$('findbar').hidden) doFind(arg !== false); else { $('findbar').hidden = false; $('findInput').focus(); } }
   else if (c === 'closePane') { for (const n of ['term', 'diff']) if (document.body.classList.contains(n)) { toggle(n); break; } }
   else if (c === 'search') { document.body.classList.contains('nosidebar') && setSidebar(false); $('search').focus(); $('search').select(); }
