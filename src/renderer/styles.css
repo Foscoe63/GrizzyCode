@@ -17,7 +17,7 @@
 }}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.55 var(--font);-webkit-font-smoothing:antialiased}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:var(--fs,13px)/1.55 var(--font);-webkit-font-smoothing:antialiased}
 body{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
 .drag{-webkit-app-region:drag}button,input,textarea,select,.nodrag{-webkit-app-region:no-drag}
 button,input,textarea,select{font:inherit;color:inherit}
@@ -391,3 +391,23 @@ img.avatar{width:26px;height:26px;border-radius:7px;background:none!important;ob
 .editrow{display:flex;gap:8px;justify-content:flex-end}
 
 .pg-how{margin-top:28px;border:1px solid var(--line);background:var(--bg-raised);border-radius:14px;padding:14px 18px;max-width:640px}.pg-how h3{margin:0 0 6px}.pg-how ol{margin:0 0 8px;padding-left:20px;color:var(--text-2);line-height:1.7}
+
+/* appearance settings */
+html[data-textsize=small]{--fs:12px}html[data-textsize=large]{--fs:14.5px}html[data-textsize=xlarge]{--fs:16px}
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:10px 0 4px}
+.theme-grid .th{padding:0;border:2px solid var(--line);border-radius:10px;overflow:hidden;text-align:left;background:var(--bg-raised);color:var(--text)}
+.theme-grid .th:hover{border-color:var(--line-strong);background:var(--bg-raised)}
+.theme-grid .th.on{border-color:var(--clay)}
+.th .pv{display:flex;height:64px}
+.th .pv .sd{width:28%}
+.th .pv .mn{flex:1;padding:8px 8px;display:flex;flex-direction:column;gap:5px;justify-content:center}
+.th .pv .mn i{display:block;height:5px;border-radius:3px}
+.th .pv .mn .ac{width:34px;height:9px;border-radius:5px}
+.th .nm{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 9px;font-size:12px;border-top:1px solid var(--line)}
+.th .nm small{color:var(--text-3);font-size:10.5px}
+.accent-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 0 4px}
+.accent-row .ac{width:26px;height:26px;border-radius:50%;padding:0;border:2px solid transparent;box-shadow:inset 0 0 0 2px var(--bg)}
+.accent-row .ac.on{border-color:var(--text)}
+.accent-row .ac.auto{width:auto;border-radius:13px;padding:0 11px;border:1px solid var(--line);box-shadow:none}
+.accent-row .ac.auto.on{border-color:var(--text)}
+.accent-row input[type=color]{width:30px;height:26px;padding:1px;border-radius:7px;cursor:pointer}

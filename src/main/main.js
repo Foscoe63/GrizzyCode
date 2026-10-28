@@ -18,6 +18,7 @@ const modsGlue = require('./mods/glue');
 const savings = require('./savings');
 const memory = require('./memory');
 const designsystems = require('./designsystems');
+const themes = require('./themes');
 const plugins = require('./plugins');
 const extensions = require('./extensions');
 const market = require('./market');
@@ -262,7 +263,7 @@ function ipc() {
     const { out, bad } = clean(p);
     const s = store.saveSettings(out); let shortcutOk;
     if ('quickShortcut' in out) shortcutOk = registerShortcut();
-    if ('theme' in out) nativeTheme.themeSource = out.theme;
+    if ('theme' in out || 'colorTheme' in out) nativeTheme.themeSource = themes.nativeSource(s);
     if ('runInTray' in out) syncTray();
     if ('launchAtLogin' in out) { try { app.setLoginItemSettings({ openAtLogin: !!out.launchAtLogin }); } catch {} }
     if ('retentionDays' in out) dataops.purgeOld(out.retentionDays);
@@ -572,7 +573,9 @@ function ipc() {
 
   // === Claude.app parity: Appearance ===
   h('appearance:theme', async () => store.getSettings().theme || 'system');
-  h('appearance:setTheme', async (theme) => { store.saveSettings({ theme }); nativeTheme.themeSource = theme; return true; });
+  h('appearance:setTheme', async (theme) => { const s = store.saveSettings({ theme }); nativeTheme.themeSource = themes.nativeSource(s); return true; });
+  h('themes:list', async () => ({ themes: themes.THEMES, accents: themes.ACCENTS, accentVars: Object.fromEntries([...themes.ACCENTS.map((a) => a.color), ...themes.THEMES.map((t) => t.accent)].map((c) => [c, themes.accentVars(c)])) }));
+  h('themes:accentVars', async (c) => (themes.accentColor(c) ? themes.accentVars(themes.accentColor(c)) : null));
   h('appearance:colorScheme', async () => nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
 
   // === Push-channel emitters (parity with Claude.app's 238 renderer listeners) ===
@@ -611,7 +614,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', showMain);
 app.whenReady().then(() => {
   try { if (store.heal()) console.warn('Repaired settings: the saved key did not match the selected endpoint.'); } catch {}
-  nativeTheme.themeSource = store.getSettings().theme || 'system';
+  nativeTheme.themeSource = themes.nativeSource(store.getSettings());
   try { app.dock?.setIcon(nativeImage.createFromPath(APP_ICON)); } catch {}
   try { skills.seedBundled(); } catch (e) { console.error('seeding bundled skills failed:', e.message); }
   ipc();

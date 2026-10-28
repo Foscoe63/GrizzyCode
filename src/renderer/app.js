@@ -703,7 +703,7 @@ $('scClose').onclick = () => $('shortcuts').close();
 function showTab(t) {
   document.querySelectorAll('#settings .rail button').forEach((x) => x.classList.toggle('on', x.dataset.tab === t));
   document.querySelectorAll('[data-pane]').forEach((p) => (p.hidden = p.dataset.pane !== t));
-  if (t === 'capabilities') renderSavings();
+  if (t === 'appearance') applyAppearance(); if (t === 'capabilities') renderSavings();
   if (t === 'account') { renderAccount(); if (!anPoll && $('anOpen').dataset.armed) startAnPoll(); }
   else if (t === 'mods') renderMods2(); else if (t === 'providers') renderProviders(); else if (t === 'billing') renderBilling(); else if (t === 'memory') renderMemory(); else if (t === 'agents') renderAgents(); else if (t === 'extensions') renderExtensions(); else if (t === 'browser') renderBrowser(); else if (t === 'plugins') renderPlugins(); else if (t === 'design') renderDesign(); else if (t === 'system') renderSystem(); else if (t === 'usage') renderUsage();
 }
@@ -1009,7 +1009,7 @@ async function commit(patch, msg) {
   syncComposer(); refreshList(); loadCatalog(false); return settings;
 }
 const bind = (id, ev, fn) => $(id).addEventListener(ev, fn);
-bind('sTheme', 'change', () => commit({ theme: $('sTheme').value }));
+bind('sTheme', 'change', async () => { await commit({ theme: $('sTheme').value }); applyAppearance(); });
 bind('sMode', 'change', () => commit({ permissionMode: $('sMode').value }));
 bind('sShortcut', 'change', () => commit({ quickShortcut: $('sShortcut').value.trim() || 'Alt+Space' }, 'Shortcut updated'));
 bind('sProvider', 'change', () => commit({ provider: $('sProvider').value }));
@@ -1045,12 +1045,52 @@ async function commitField(el) {
   afterSetting(k);
 }
 function afterSetting(k) {
-  if (k === 'font') applyFont(settings.font); else if (k === 'termFontSize') { for (const v of termViews.values()) { v.term.options.fontSize = settings.termFontSize; try { v.fit.fit(); } catch {} } }
+  if (k === 'font') applyFont(settings.font); else if (k === 'textSize') applyAppearance(); else if (k === 'termFontSize') { for (const v of termViews.values()) { v.term.options.fontSize = settings.termFontSize; try { v.fit.fit(); } catch {} } }
   else if (['profileName', 'profileEmail', 'displayName'].includes(k)) renderProfile(); else if (k === 'capArtifacts') applyCaps(); else if (k === 'allowBypass') { syncComposer(); } else if (k === 'devMode') $('devOnly').hidden = !settings.devMode; else if (k === 'promptSuggestions' && !settings.promptSuggestions) clearSuggest();
   else if (k === 'hardwareAccel') $('hwRestart').hidden = false; else if (k === 'launchAtLogin') renderSystem(); else if (k === 'worktreeDir') updateWtNote();
 }
 document.querySelectorAll('#settings [data-s]').forEach((el) => el.addEventListener('change', () => commitField(el)));
 function applyFont(f) { document.documentElement.dataset.font = f && f !== 'default' ? f : ''; }
+// ---------- appearance: themes + accent ----------
+let themeData = null, themeVarKeys = [];
+const ACCENT_KEYS = ['--clay', '--clay-em', '--on-brand'];
+async function applyAppearance() {
+  if (!themeData) themeData = await gc.themes.list();
+  const root = document.documentElement, th = themeData.themes.find((t) => t.id === settings.colorTheme) || themeData.themes[0];
+  for (const k of [...themeVarKeys, ...ACCENT_KEYS]) root.style.removeProperty(k);
+  themeVarKeys = Object.keys(th.vars);
+  for (const [k, v] of Object.entries(th.vars)) root.style.setProperty(k, v);
+  const a = settings.accent || 'theme'; let av = null;
+  if (a === 'theme') av = th.id === 'default' ? null : themeData.accentVars[th.accent];
+  else av = themeData.accentVars[themeData.accents.find((x) => x.id === a)?.color] || await gc.themes.accentVars(a);
+  if (av) for (const [k, v] of Object.entries(av)) root.style.setProperty(k, v);
+  root.dataset.textsize = settings.textSize && settings.textSize !== 'default' ? settings.textSize : '';
+  root.dataset.colortheme = th.id;
+  for (const v of termViews.values()) { try { v.term.options.theme = termTheme(); } catch {} }
+  if (!$('settings').hidden) renderAppearance();
+}
+function renderAppearance() {
+  if (!themeData) return;
+  const cur = settings.colorTheme || 'default', th = themeData.themes.find((t) => t.id === cur) || themeData.themes[0];
+  $('sTheme').value = settings.theme; syncSeg(); $('sTextSize').value = settings.textSize || 'default'; $('sFont').value = settings.font || 'default'; syncSeg();
+  document.querySelectorAll('.seg[data-for=sTheme] button').forEach((b) => (b.disabled = !!th.mode));
+  $('modeNote').textContent = th.mode ? `${th.name} is always ${th.mode}; pick Default to choose the mode.` : 'Light, dark, or follow the system.';
+  const g = $('themeGrid'); g.innerHTML = '';
+  for (const t of themeData.themes) {
+    const v = t.id === 'default' ? { '--bg': '#f9f9f7', '--bg-side': '#f0efec', '--text-3': '#898781', '--line': '#e1e0d9' } : t.vars, b = document.createElement('button');
+    b.type = 'button'; b.className = 'th' + (t.id === cur ? ' on' : ''); b.title = t.name;
+    b.innerHTML = `<div class="pv" style="background:${v['--bg']}"><div class="sd" style="background:${v['--bg-side']}"></div><div class="mn"><i style="width:80%;background:${v['--text-3']}"></i><i style="width:55%;background:${v['--line']}"></i><i class="ac" style="background:${t.accent}"></i></div></div><div class="nm"><span>${esc(t.name)}</span><small>${t.mode || 'auto'}</small></div>`;
+    b.onclick = async () => { await commit({ colorTheme: t.id }); await applyAppearance(); };
+    g.appendChild(b);
+  }
+  const row = $('accentRow'); row.innerHTML = ''; const a = settings.accent || 'theme';
+  const add = (cls, label, color, val) => { const x = document.createElement('button'); x.type = 'button'; x.className = 'ac ' + cls + (a === val ? ' on' : ''); x.title = label; if (color) x.style.background = color; else x.textContent = label; x.onclick = async () => { await commit({ accent: val }); await applyAppearance(); }; row.appendChild(x); };
+  add('auto', 'Theme', '', 'theme');
+  for (const x of themeData.accents) add('', x.name, x.color, x.id);
+  const pick = document.createElement('input'); pick.type = 'color'; pick.title = 'Custom color'; pick.value = /^#[0-9a-f]{6}$/i.test(a) ? a : (themeData.accents.find((x) => x.id === a)?.color || th.accent);
+  pick.onchange = async () => { await commit({ accent: pick.value }); await applyAppearance(); };
+  row.appendChild(pick);
+}
 function applyCaps() { $('nArtifacts').hidden = settings.capArtifacts === false; }
 document.querySelectorAll('#settings [data-goto]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); showTab(a.dataset.goto); }));
 document.querySelectorAll('#settings [data-open]').forEach((b) => (b.onclick = () => gc.openUrl(b.dataset.open)));
@@ -1728,7 +1768,7 @@ $('rsMore').onclick = () => toggleRs(false);
   settings = await gc.settings.get();
   homeFolder = settings.pinnedFolders?.[0] || settings.trustedFolders?.[0] || null;
   if (settings.rsOpen) { $('rside').hidden = false; $('rsBtn').classList.add('on'); }
-  applyFont(settings.font); applyCaps(); loadPluginCmds(); loadProviders(); gc.mods.info().then((i) => { modInfo = i; scheduleModRender(); });
+  applyFont(settings.font); applyAppearance(); applyCaps(); loadPluginCmds(); loadProviders(); gc.mods.info().then((i) => { modInfo = i; scheduleModRender(); });
   document.body.classList.toggle('nosidebar', !!settings.sidebarHidden);
   setView(viewMode, false);
   const q = new URLSearchParams(location.search).get('conv');

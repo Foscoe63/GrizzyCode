@@ -41,7 +41,7 @@ const DEFAULTS = {
   model: 'claude-sonnet-5-5',
   systemPrompt: 'You are GrizzyCode, a helpful, concise assistant.',
   quickShortcut: 'Alt+Space',
-  theme: 'system',
+  theme: 'system', colorTheme: 'default', accent: 'theme', textSize: 'default',
   permissionMode: 'default', // default | acceptEdits | plan | bypassPermissions
   models: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'],
   trustedFolders: [],

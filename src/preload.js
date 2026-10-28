@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('gc', {
   providers: { list: inv('providers:list'), save: inv('providers:save'), remove: inv('providers:remove'), models: inv('providers:models'), test: inv('providers:test') },
   memory: { list: inv('memory:list'), add: inv('memory:add'), update: inv('memory:update'), remove: inv('memory:remove'), clear: inv('memory:clear') },
   agents: { list: inv('agents:list'), save: inv('agents:save'), remove: inv('agents:remove'), schema: inv('agents:schema'), notes: inv('agents:notes'), forgetNote: inv('agents:forgetNote'), clearNotes: inv('agents:clearNotes') },
+  themes: { list: inv('themes:list'), accentVars: inv('themes:accentVars') },
   designSystems: { list: inv('ds:list'), save: inv('ds:save'), remove: inv('ds:remove'), import: inv('ds:import') },
   plugins: { list: inv('plugins:list'), commands: inv('plugins:commands'), pick: inv('plugins:pick'), install: inv('plugins:install'), remove: inv('plugins:remove') },
   market: { plugins: inv('market:plugins'), skills: inv('market:skills'), connectors: inv('market:connectors'), connectorFields: inv('market:connectorFields'), installPlugin: inv('market:installPlugin'), installSkill: inv('market:installSkill'), installConnector: inv('market:installConnector') },

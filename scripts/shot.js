@@ -18,6 +18,7 @@ app.whenReady().then(async () => {
   h('schedules:list', () => [{ id: 's1', name: 'Morning summary', prompt: 'x', mode: 'chat', every: 'weekdays', time: '09:00', minutes: 60, enabled: true, nextRun: now + 3.6e6, lastRun: now - 8.6e7, lastStatus: 'ok', lastConvId: 'x' }]);
   h('dispatch:list', () => [{ id: 'd1', prompt: 'Add unit tests for the auth module', cwd: '/tmp/api', permissionMode: 'acceptEdits', convId: 'x', status: 'running', createdAt: now - 6e4 }, { id: 'd2', prompt: 'Update the README', cwd: '/tmp/api', permissionMode: 'plan', convId: 'x', status: 'done', createdAt: now - 9e6 }]);
   h('mcp:status', () => []);
+  { const th = require('../src/main/themes'); h('themes:list', () => ({ themes: th.THEMES, accents: th.ACCENTS, accentVars: Object.fromEntries([...th.ACCENTS.map((a) => a.color), ...th.THEMES.map((t) => t.accent)].map((c) => [c, th.accentVars(c)])) })); h('themes:accentVars', (c) => (th.accentColor(c) ? th.accentVars(th.accentColor(c)) : null)); }
   nativeTheme.themeSource = dark ? 'dark' : 'light';
   const w0 = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-')); require('child_process').execSync('git init -q && echo hi > a.js && git add -A && git -c user.email=a@b -c user.name=t commit -qm i && echo "const x = 2;" >> a.js', { cwd: w0 });
   store.saveSettings({ trustedFolders: [w0], pinnedFolders: [w0] });
@@ -44,8 +45,11 @@ app.whenReady().then(async () => {
   await snap('code-home');
   await js(`document.getElementById('viewChat').click()`); await snap('chat-home');
   await js(`document.getElementById('openSettings').click();document.querySelector('#settings [data-tab=general]').click()`); await snap('settings');
+  await js(`document.querySelector('#settings [data-tab=appearance]').click()`); await wait(300); await snap('settings-appearance');
+  await js(`document.querySelector('#themeGrid .th:nth-child(10)').click()`); await wait(500); await snap('settings-appearance-nord');
+  await js(`document.querySelector('#themeGrid .th:nth-child(1)').click()`); await wait(300);
   await js(`document.querySelector('#settings [data-tab=provider]').click()`); await snap('settings-provider');
-  await js(`document.querySelector('#settings [data-tab=general] ').click();document.querySelector('#settings .seg[data-for=sTheme] [data-v=light]').click();document.querySelector('#settings .seg[data-for=sMode] [data-v=plan]').click();const t=document.getElementById('sTray');t.checked=false;t.dispatchEvent(new Event('change'));document.querySelector('#settings [data-tab=provider]').click();const m=document.getElementById('sMaxTok');m.value='999999';m.dispatchEvent(new Event('change'));const b=document.getElementById('sBase');b.value=' http://x.test ';b.dispatchEvent(new Event('change'))`);
+  await js(`document.querySelector('#settings [data-tab=general] ').click();document.querySelector('#settings [data-tab=appearance]').click();document.querySelector('#settings .seg[data-for=sTheme] [data-v=light]').click();document.querySelector('#settings [data-tab=general]').click();document.querySelector('#settings .seg[data-for=sMode] [data-v=plan]').click();const t=document.getElementById('sTray');t.checked=false;t.dispatchEvent(new Event('change'));document.querySelector('#settings [data-tab=provider]').click();const m=document.getElementById('sMaxTok');m.value='999999';m.dispatchEvent(new Event('change'));const b=document.getElementById('sBase');b.value=' http://x.test ';b.dispatchEvent(new Event('change'))`);
   await wait(400); { const g = store.getSettings(); console.log('AUTOSAVE', JSON.stringify([g.theme, g.permissionMode, g.runInTray, g.maxTokens, g.baseUrl])); store.saveSettings({ theme: 'system', permissionMode: 'default', runInTray: true, maxTokens: 8192, baseUrl: '' }); }
   await js(`document.getElementById('sCancel').click()`);
   for (const [id, name] of [['nProjects', 'projects'], ['nArtifacts', 'artifacts'], ['nScheduled', 'scheduled'], ['nDispatch', 'dispatch'], ['nCustomize', 'customize']]) { await js(`document.getElementById('${id}').click()`); await wait(400); await snap('page-' + name); }

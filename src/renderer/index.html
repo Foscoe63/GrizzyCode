@@ -113,6 +113,7 @@
     <input id="setSearch" placeholder="Search" class="nodrag">
     <div class="rg">Settings</div>
     <button data-tab="general" class="on"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 2v1.500M8 12.500V14M2 8h1.500M12.500 8H14M3.800 3.800l1 1M11.200 11.200l1 1M12.200 3.800l-1 1M4.800 11.200l-1 1"/></svg>General</button>
+    <button data-tab="appearance"><svg viewBox="0 0 16 16"><path d="M8 2.500a5.500 5.500 0 1 0 0 11c1 0 1.500-.7 1.200-1.500-.3-.9.2-1.700 1.200-1.700H12A1.500 1.500 0 0 0 13.500 9 5.500 5.500 0 0 0 8 2.500z"/><circle cx="5.500" cy="7" r=".6"/><circle cx="8" cy="5.500" r=".6"/><circle cx="10.500" cy="7" r=".6"/></svg>Appearance</button>
     <button data-tab="account"><svg viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.500"/><path d="M3 13.500c.8-2.400 2.600-3.500 5-3.500s4.200 1.100 5 3.500"/></svg>Account</button>
     <button data-tab="providers"><svg viewBox="0 0 16 16"><path d="M8 2.500 13.500 5.500v5L8 13.500 2.500 10.500v-5zM2.500 5.500 8 8.500l5.500-3M8 8.500v5"/></svg>Providers</button>
     <button data-tab="privacy"><svg viewBox="0 0 16 16"><rect x="3.500" y="7" width="9" height="6.500" rx="1.500"/><path d="M5.500 7V5.500a2.500 2.500 0 0 1 5 0V7"/></svg>Privacy</button>
@@ -143,19 +144,32 @@
       <h3>Profile</h3>
       <label>What should GrizzyCode call you? <input data-s="displayName" placeholder="Your name" maxlength="60" autocomplete="off"></label>
       <label>Personal preferences <textarea data-s="preferences" rows="3" maxlength="2000" placeholder="Tone, formatting, background — added to every conversation"></textarea></label>
-      <h3>Appearance</h3>
-      <div class="row"><div><b>Color mode</b><p>Light, dark, or follow the system.</p></div>
-        <div class="seg" data-for="sTheme"><button type="button" data-v="system">System</button><button type="button" data-v="light">Light</button><button type="button" data-v="dark">Dark</button></div></div>
-      <select id="sTheme" hidden><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
-      <div class="row"><div><b>Font</b><p>Typeface for messages and the interface.</p></div>
-        <div class="seg" data-for="sFont"><button type="button" data-v="default">Default</button><button type="button" data-v="sans">Sans</button><button type="button" data-v="serif">Serif</button><button type="button" data-v="mono">Mono</button></div></div>
-      <select id="sFont" data-s="font" hidden><option value="default">Default</option><option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-      <div class="row"><div><b>Interface zoom</b><p id="zoomNote">Scale the whole window.</p></div>
-        <div class="seg"><button type="button" id="zOut">−</button><button type="button" id="zReset">100%</button><button type="button" id="zIn">+</button></div></div>
       <h3>Notifications</h3>
       <div class="row"><div><b>Desktop notifications</b><p>Get a notification when a task finishes or needs your input while you’re in another app.</p></div><input type="checkbox" class="switch" data-s="notifications"></div>
       <div class="row"><div><b>Notification sound</b><p>Play the system sound with notifications.</p></div><input type="checkbox" class="switch" data-s="notifySound"></div>
       <div class="pg-actions"><button class="outline" id="notifTest" type="button">Send a test notification</button><span class="hint" id="notifMsg"></span></div>
+    </section>
+
+    <section data-pane="appearance" hidden><h2>Appearance</h2>
+      <h3>Color mode</h3>
+      <div class="row"><div><b>Mode</b><p id="modeNote">Light, dark, or follow the system.</p></div>
+        <div class="seg" data-for="sTheme"><button type="button" data-v="system">System</button><button type="button" data-v="light">Light</button><button type="button" data-v="dark">Dark</button></div></div>
+      <select id="sTheme" hidden><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+      <h3>Theme</h3>
+      <p class="hint">Pick a built-in theme. Light and dark themes set the color mode themselves; Default follows the mode above.</p>
+      <div id="themeGrid" class="theme-grid"></div>
+      <h3>Accent color</h3>
+      <div class="row"><div><b>Accent</b><p>Buttons, links and highlights. “Theme” uses the theme’s own color.</p></div></div>
+      <div id="accentRow" class="accent-row"></div>
+      <h3>Text</h3>
+      <div class="row"><div><b>Font</b><p>Typeface for messages and the interface.</p></div>
+        <div class="seg" data-for="sFont"><button type="button" data-v="default">Default</button><button type="button" data-v="sans">Sans</button><button type="button" data-v="serif">Serif</button><button type="button" data-v="mono">Mono</button></div></div>
+      <select id="sFont" data-s="font" hidden><option value="default">Default</option><option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
+      <div class="row"><div><b>Text size</b><p>Base size of interface and message text.</p></div>
+        <div class="seg" data-for="sTextSize"><button type="button" data-v="small">Small</button><button type="button" data-v="default">Default</button><button type="button" data-v="large">Large</button><button type="button" data-v="xlarge">Larger</button></div></div>
+      <select id="sTextSize" data-s="textSize" hidden><option value="small">Small</option><option value="default">Default</option><option value="large">Large</option><option value="xlarge">Larger</option></select>
+      <div class="row"><div><b>Interface zoom</b><p id="zoomNote">Scale the whole window.</p></div>
+        <div class="seg"><button type="button" id="zOut">−</button><button type="button" id="zReset">100%</button><button type="button" id="zIn">+</button></div></div>
     </section>
 
     <section data-pane="account" hidden><h2>Account</h2>
