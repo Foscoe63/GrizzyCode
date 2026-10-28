@@ -17,6 +17,11 @@
 }}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+/* slim, track-less scrollbars: a 10px gutter holding a 4px-feeling rounded thumb */
+::-webkit-scrollbar{width:10px;height:10px;background:transparent}
+::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:10px;border:3px solid transparent;background-clip:content-box;min-height:32px;min-width:32px}
+::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:var(--fs,13px)/1.55 var(--font);-webkit-font-smoothing:antialiased}
 body{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
 .drag{-webkit-app-region:drag}button,input,textarea,select,.nodrag{-webkit-app-region:no-drag}
@@ -106,9 +111,12 @@ body.home #home{display:flex}body.home #msgs{display:none}
 #empty .mark{font-size:34px;color:var(--clay);display:inline-block;margin-right:12px;vertical-align:middle}
 #empty h1{display:inline;font:400 32px/1.2 var(--serif);vertical-align:middle}#empty p{color:var(--text-2);margin:8px 0 0}
 #envCard{pointer-events:auto;width:320px;border:1px solid var(--line);border-radius:14px;background:var(--bg-raised);text-align:left;overflow:hidden}
+#envList{max-height:114px;overflow-y:auto}
 #envList div{padding:9px 14px;cursor:pointer;display:flex;gap:10px;align-items:center;color:var(--text);overflow:hidden;white-space:nowrap}
-#envList div span{overflow:hidden;text-overflow:ellipsis}#envList div svg{color:var(--text-2)}
+#envList div span{overflow:hidden;text-overflow:ellipsis;flex:1}#envList div svg{color:var(--text-2)}
 #envList div:hover,#envList div.on{background:var(--hover)}
+#envList div .env-del{flex:none;opacity:0;padding:0;border:none;background:none;color:var(--text-2);cursor:pointer;font-size:15px;line-height:1;margin-left:auto}
+#envList div:hover .env-del{opacity:1}#envList div .env-del:hover{color:var(--text)}
 #envChoose{display:block;width:100%;text-align:left;border-top:1px solid var(--line);border-radius:0;padding:9px 14px;color:var(--text-2)}
 #envList:empty{display:none}
 body.home.chatview .col{justify-content:center}body.home.chatview #home{flex:none;padding:0}
@@ -251,7 +259,6 @@ body.paged #termBtn,body.paged #diffBtn{display:none}
 .mi{display:flex;align-items:baseline;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer}.mi.sel{background:var(--active)}
 .mn{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}.mid{font:11px var(--mono);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1 1 0;min-width:0}.ck{margin-left:auto;color:var(--clay)}
 #modelFoot{padding:6px 10px;border-top:1px solid var(--line)}
-#modelList{scrollbar-color:var(--line-strong) transparent}
 
 /* context ring + popover */
 #ctxWrap{position:relative;display:inline-flex}

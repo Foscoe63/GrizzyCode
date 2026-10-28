@@ -153,12 +153,21 @@ function syncHome() {
 }
 function renderEnv() {
   const l = $('envList'); l.innerHTML = '';
-  const fs = [...new Set([...(settings.pinnedFolders || []), ...(settings.trustedFolders || [])])].slice(0, 5);
+  const fs = [...new Set([...(settings.pinnedFolders || []), ...(settings.trustedFolders || [])])];
   for (const f of fs) {
     const d = document.createElement('div'); d.title = f; if (f === homeFolder) d.className = 'on';
-    d.innerHTML = `${ICON.laptop}<span>${esc(f.split('/').pop() || f)}</span>`;
-    d.onclick = () => { homeFolder = f; syncHome(); $('input').focus(); }; l.appendChild(d);
+    d.innerHTML = `${ICON.laptop}<span>${esc(f.split('/').pop() || f)}</span><button class="env-del" title="Remove" type="button">✕</button>`;
+    d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeFolder = f; syncHome(); $('input').focus(); };
+    d.querySelector('.env-del').onclick = async (e) => { e.stopPropagation(); await removeEnv(f); };
+    l.appendChild(d);
   }
+}
+async function removeEnv(f) {
+  const pinned = (settings.pinnedFolders || []).filter((x) => x !== f);
+  const trusted = (settings.trustedFolders || []).filter((x) => x !== f);
+  settings = await gc.settings.set({ pinnedFolders: pinned, trustedFolders: trusted });
+  if (homeFolder === f) homeFolder = pinned[0] || trusted[0] || null;
+  renderEnv(); refreshList();
 }
 const ICON = { laptop: '<svg viewBox="0 0 16 16"><rect x="3" y="3.5" width="10" height="7" rx="1"/><path d="M2 12.5h12"/></svg>' };
 function goHome() {
