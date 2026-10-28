@@ -27,6 +27,7 @@ function cleanSettings(p) {
     else if (k === 'outputStyle') { if (['default', 'concise', 'explanatory', 'learning', 'custom'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'customStyle') out[k] = String(v).slice(0, 4000); else if (k === 'fastModel') out[k] = String(v).trim().slice(0, 120);
     else if (k === 'newTaskPrompt') out[k] = String(v).slice(0, 2000);
+    else if (k === 'sideW' || k === 'rsW' || k === 'diffW') { const n = Math.round(Number(v)); if (n === 0 || (n >= 200 && n <= 800)) out[k] = n; else bad.push(k); }
     else if (k === 'font') { if (['default', 'sans', 'serif', 'mono'].includes(v)) out[k] = v; else bad.push(k); }
     else if (k === 'colorTheme') { if (themes.isTheme(v)) out[k] = v; else bad.push(k); }
     else if (k === 'accent') { if (themes.isAccent(v)) out[k] = String(v).toLowerCase(); else bad.push(k); }

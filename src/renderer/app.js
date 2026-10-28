@@ -1763,9 +1763,27 @@ document.querySelectorAll('#rsTabs .rt[data-t]').forEach((b) => (b.onclick = () 
 }));
 $('rsMore').onclick = () => toggleRs(false);
 
+// ---------- resizable sidebars ----------
+function makeResizable(handle, { cssVar, key, def, min, max, fromRight }) {
+  const root = document.documentElement, el = handle.parentElement;
+  const set = (w) => { root.style.setProperty(cssVar, Math.round(Math.max(min, Math.min(max, w))) + 'px'); window.dispatchEvent(new Event('resize')); };
+  if (settings[key]) set(settings[key]);
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); handle.setPointerCapture(e.pointerId); handle.classList.add('on'); document.body.classList.add('rzing');
+    const x0 = e.clientX, w0 = el.getBoundingClientRect().width;
+    const move = (m) => set(w0 + (fromRight ? x0 - m.clientX : m.clientX - x0));
+    const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up); handle.classList.remove('on'); document.body.classList.remove('rzing'); gc.settings.set({ [key]: Math.round(parseFloat(root.style.getPropertyValue(cssVar)) || def) }); };
+    handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
+  });
+  handle.addEventListener('dblclick', () => { root.style.removeProperty(cssVar); window.dispatchEvent(new Event('resize')); gc.settings.set({ [key]: 0 }); });
+}
+
 // ---------- boot ----------
 (async () => {
   settings = await gc.settings.get();
+  makeResizable($('rzSide'), { cssVar: '--side-w', key: 'sideW', def: 280, min: 200, max: 520 });
+  makeResizable($('rzRs'), { cssVar: '--rs-w', key: 'rsW', def: 300, min: 240, max: 640, fromRight: true });
+  makeResizable($('rzDiff'), { cssVar: '--diff-w', key: 'diffW', def: 420, min: 280, max: 800, fromRight: true });
   homeFolder = settings.pinnedFolders?.[0] || settings.trustedFolders?.[0] || null;
   if (settings.rsOpen) { $('rside').hidden = false; $('rsBtn').classList.add('on'); }
   applyFont(settings.font); applyAppearance(); applyCaps(); loadPluginCmds(); loadProviders(); gc.mods.info().then((i) => { modInfo = i; scheduleModRender(); });

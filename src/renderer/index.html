@@ -4,11 +4,6 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
 <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css"><link rel="stylesheet" href="styles.css"></head>
 <body>
-<div id="tb" class="nodrag">
-  <button id="sideBtn" class="ib" title="Toggle sidebar (⌘B)"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg></button>
-  <button id="backBtn" class="ib" title="Back (⌘[)"><svg viewBox="0 0 16 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg></button>
-  <button id="fwdBtn" class="ib" title="Forward (⌘])"><svg viewBox="0 0 16 16"><path d="M6.5 3.5 11 8l-4.5 4.5"/></svg></button>
-</div>
 <aside id="side">
   <div class="top drag">
     <span class="grow"></span>
@@ -38,6 +33,7 @@
     <span class="grow"></span>
     <button id="openSettings" class="ib" title="Settings (⌘,)"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 1.500v2M8 12.500v2M1.500 8h2M12.500 8h2M3.400 3.400l1.400 1.400M11.200 11.200l1.400 1.400M3.400 12.600l1.400-1.400M11.200 4.800l1.400-1.400"/></svg></button>
   </div>
+  <div class="rz nodrag" id="rzSide" title="Drag to resize · double-click to reset"></div>
 </aside>
 <main>
   <header class="drag">
@@ -83,10 +79,10 @@
       </form>
     </div>
     <aside id="modPane" hidden><div class="mp-tabs" id="mpTabs"></div><div class="mp-body" id="mpBody"></div></aside>
-      <aside id="rside" hidden>
+      <aside id="rside" hidden><div class="rz rz-l nodrag" id="rzRs" title="Drag to resize · double-click to reset"></div>
         <div id="rsTabs"><button class="rt on" data-t="overview" title="Overview"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.500 6h5M5.500 8.500h5M5.500 11h3"/></svg></button><button class="rt" data-t="terminal" title="Terminal"><svg viewBox="0 0 16 16"><path d="m3.500 5 3 3-3 3M8 11.500h4.500"/></svg></button><button class="rt" data-t="changes" title="Changes"><svg viewBox="0 0 16 16"><rect x="3" y="2.500" width="10" height="11" rx="1.500"/><path d="M8 5.500v5M5.500 8h5"/></svg></button><button class="rt" data-t="files" title="Files"><svg viewBox="0 0 16 16"><path d="M2.500 4.500h4l1 1.500h6v6.500h-11z"/></svg></button><span class="spacer"></span><button class="rt" id="rsMore" title="More"><svg viewBox="0 0 16 16"><path d="M8 3.500h.01M8 8h.01M8 12.500h.01"/></svg></button></div>
         <div id="rsBody"></div></aside>
-      <aside id="diffPane"><div id="diffHead"><span id="diffTitle">Changes</span><span class="spacer"></span><button id="diffRefresh" title="Refresh">↻</button><button id="diffClose" class="fp-x" title="Close (⇧⌘D)">✕</button></div><div id="diffFiles"></div><div id="diffBody"></div></aside>
+      <aside id="diffPane"><div class="rz rz-l nodrag" id="rzDiff" title="Drag to resize · double-click to reset"></div><div id="diffHead"><span id="diffTitle">Changes</span><span class="spacer"></span><button id="diffRefresh" title="Refresh">↻</button><button id="diffClose" class="fp-x" title="Close (⇧⌘D)">✕</button></div><div id="diffFiles"></div><div id="diffBody"></div></aside>
   </div>
 </main>
   <div id="statusbar">
@@ -475,6 +471,11 @@
 <div id="sshMsg" style="margin-top:10px;font-size:12.5px;color:var(--text-2)"></div>
 <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="sshLocal" class="outline">Use this computer</button><button id="sshCancel" class="outline">Cancel</button><button id="sshOk" class="outline">Connect</button></div></div></dialog>
 <dialog id="shortcuts"><div class="body" style="padding:20px 24px"><h2>Keyboard shortcuts</h2><div class="sc" id="scList"></div><div class="foot" style="padding:14px 0 0"><button id="scClose" class="outline">Close</button></div></div></dialog>
+<div id="tb" class="nodrag">
+  <button id="sideBtn" class="ib" title="Toggle sidebar (⌘B)"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg></button>
+  <button id="backBtn" class="ib" title="Back (⌘[)"><svg viewBox="0 0 16 16"><path d="M9.5 3.5 5 8l4.5 4.5"/></svg></button>
+  <button id="fwdBtn" class="ib" title="Forward (⌘])"><svg viewBox="0 0 16 16"><path d="M6.5 3.5 11 8l-4.5 4.5"/></svg></button>
+</div>
 <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="app.js"></script>
