@@ -425,3 +425,9 @@ html[data-textsize=small]{--fs:12px}html[data-textsize=large]{--fs:14.5px}html[d
 .rz.rz-l{right:auto;left:-3px}
 .rz:hover,body.rzing .rz.on{background:linear-gradient(90deg,transparent 2px,var(--clay) 2px,var(--clay) 4px,transparent 4px);opacity:.7}
 body.rzing{cursor:col-resize;user-select:none}body.rzing #side{transition:none}
+
+/* a message that is only tool steps reads as a tight list instead of separate bubbles */
+.msg.assistant:has(> .b:empty){display:none}
+.msg.assistant:has(> .b > details.tool:only-child){margin-bottom:4px}
+.msg.assistant:has(> .b > details.tool:only-child) .tool{margin:0}
+.msg.assistant:has(> .b > details.tool:only-child) .acts{display:none}

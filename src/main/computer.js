@@ -64,10 +64,16 @@ async function requestAccess(convId, apps, reason) {
 }
 // An action may only run while a granted app is in front; `need` is the least tier the action requires.
 async function confirmTyping(convId, app, what) {
-  const set = typed.get(convId) || new Set(); if (set.has(app.toLowerCase())) return;
+  const set = typed.get(convId) || new Set(); if (set.has(app.toLowerCase())) return false;
   const ok = approver ? await approver([app], 'type: ' + what) : (await require('electron').dialog.showMessageBox({ type: 'warning', message: `Let the agent type and press keys in ${app}?`, detail: `It wants to: ${what.slice(0, 300)}\n\nYou are asked once per app for this session.`, buttons: ['Allow', 'Deny'], defaultId: 1, cancelId: 1 })).response === 0;
   if (!ok) throw new Error('The user did not allow typing in ' + app + '.');
-  set.add(app.toLowerCase()); typed.set(convId, set);
+  set.add(app.toLowerCase()); typed.set(convId, set); return true;
+}
+// The approval dialog takes focus, so bring the app back and check again before any key is sent.
+async function afterDialog(convId, shown, app, need) {
+  if (!shown) return app;
+  if (!approver) { await osa(`tell application "${app.replace(/["\\]/g, '')}" to activate`); await new Promise((r) => setTimeout(r, 600)); }
+  return gate(convId, need);
 }
 async function gate(convId, need) {
   const front = await frontmost(); const t = tierOf(front);
@@ -146,7 +152,7 @@ async function run(input, ctx = {}, signal) {
       case 'frontmost': { const f = await frontmost(); return `${f} (${granted(convId).has(f.toLowerCase()) ? 'granted' : 'not granted'})`; }
       case 'open_app': {
         const n = String(input.app || '').trim(); if (!n || tierOf(n) === 'none' || !granted(convId).has(n.toLowerCase())) throw new Error(`"${n}" has not been granted. Use request_access first.`);
-        await sh('open', ['-a', n]); await new Promise((r) => setTimeout(r, 900)); return `Opened ${n}. Frontmost: ${await frontmost()}.`;
+        await sh('open', ['-a', n]); await osa(`tell application "${n.replace(/["\\]/g, '')}" to activate`).catch(() => {}); await new Promise((r) => setTimeout(r, 900)); return `Opened ${n}. Frontmost: ${await frontmost()}.`;
       }
       case 'screenshot': return await screenshot(convId);
       case 'wait': { await new Promise((r) => setTimeout(r, num(input.seconds ?? 1, 0, 10, 'seconds') * 1000)); return 'Waited.'; }
@@ -158,9 +164,9 @@ async function run(input, ctx = {}, signal) {
       }
       case 'type': {
         const text = String(input.text ?? ''); if (!text || text.length > 2000) throw new Error('text must be 1 to 2000 characters.');
-        const front = await gate(convId, 'full'); await confirmTyping(convId, front, `type "${text.slice(0, 200)}"`); await osa(`tell application "System Events" to keystroke ${asString(text)}`); return `Typed ${text.length} characters in ${front}.`;
+        let front = await gate(convId, 'full'); front = await afterDialog(convId, await confirmTyping(convId, front, `type "${text.slice(0, 200)}"`), front, 'full'); await osa(`tell application "System Events" to keystroke ${asString(text)}`); return `Typed ${text.length} characters in ${front}.`;
       }
-      case 'key': { const script = keyScript(input.combo); const front = await gate(convId, 'full'); await confirmTyping(convId, front, `press ${input.combo}`); await osa(script); return `Pressed ${input.combo} in ${front}.`; }
+      case 'key': { const script = keyScript(input.combo); let front = await gate(convId, 'full'); front = await afterDialog(convId, await confirmTyping(convId, front, `press ${input.combo}`), front, 'full'); await osa(script); return `Pressed ${input.combo} in ${front}.`; }
       case 'scroll': {
         const front = await gate(convId, 'click'); const p = await pt(convId, input.x ?? 0, input.y ?? 0); const n = Math.round(num(input.amount ?? 5, 1, 50, 'amount'));
         const d = { up: [n, 0], down: [-n, 0], left: [0, n], right: [0, -n] }[input.direction]; if (!d) throw new Error('direction must be up, down, left or right.');
@@ -172,4 +178,4 @@ async function run(input, ctx = {}, signal) {
 }
 const forget = (convId) => { grants.delete(convId); typed.delete(convId); shots.delete(convId); view.delete(convId); };
 
-module.exports = { toolDef, run, takeShot, forget, tierOf, keyScript, mouseScript, hitTest, frontWindow, __test: { grants, typed, confirmTyping, setWindows: (f) => { winImpl = f; }, view, pt, setApprover: (f) => { approver = f; }, requestAccess, gate: (c, n) => gate(c, n), setFront: (f) => { frontImpl = f; } } };
+module.exports = { toolDef, run, takeShot, forget, tierOf, keyScript, mouseScript, hitTest, frontWindow, __test: { grants, typed, confirmTyping, afterDialog, setWindows: (f) => { winImpl = f; }, view, pt, setApprover: (f) => { approver = f; }, requestAccess, gate: (c, n) => gate(c, n), setFront: (f) => { frontImpl = f; } } };

@@ -1293,6 +1293,10 @@ export const register: Register = (on, options) => {
     assert(cu.frontWindow([ml, nw], 'notes') === nw && !cu.frontWindow([{ ...nw, layer: 25 }], 'Notes'), 'computer use: finds only a normal window of the app');
     let asked = 0; T.setApprover(async () => { asked++; return true; }); front = 'Notes'; await T.confirmTyping('c4', 'Notes', 'x'); await T.confirmTyping('c4', 'Notes', 'y'); assert(asked === 1, 'computer use: typing is confirmed once per app');
     T.setApprover(async () => false); pe = ''; try { await T.confirmTyping('c5', 'Notes', 'x'); } catch (e) { pe = e.message; } assert(/did not allow/.test(pe), 'computer use: a refused typing request stops the action');
+    { let asked2 = 0; T.setApprover(async () => { asked2++; return true; }); front = 'Notes'; await T.requestAccess('c6', ['Notes']); const shown = await T.confirmTyping('c6', 'Notes', 'x'); const again = await T.confirmTyping('c6', 'Notes', 'y');
+      assert(shown === true && again === false, 'computer use: confirmTyping says whether a dialog took focus');
+      front = 'GrizzyCode'; let ge2 = ''; try { await T.afterDialog('c6', true, 'Notes', 'full'); } catch (e) { ge2 = e.message; } assert(/not been granted/.test(ge2), 'computer use: keys are not sent if the dialog left another app in front');
+      front = 'Notes'; assert(await T.afterDialog('c6', true, 'Notes', 'full') === 'Notes' && await T.afterDialog('c6', false, 'Notes', 'full') === 'Notes', 'computer use: keys go ahead once the granted app is back in front'); }
     T.setWindows(null);
     T.setFront(null); T.setApprover(null);
   }

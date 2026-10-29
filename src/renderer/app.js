@@ -91,11 +91,16 @@ function editReply(b) {
     const c = await gc.conv.get(id); renderConv(c);
   };
 }
-const KIND = { read_file: 'read', list_dir: 'read', grep: 'read', write_file: 'edit', edit_file: 'edit', bash: 'run', delegate_agent: 'agent', message_agent: 'agent' };
+const KIND = { computer: 'computer', read_file: 'read', list_dir: 'read', grep: 'read', write_file: 'edit', edit_file: 'edit', bash: 'run', delegate_agent: 'agent', message_agent: 'agent' };
+// "click (120, 80)", "type "Hello…"", "request_access TextEdit": what a computer-use step did, in a few words.
+function computerBrief(i) {
+  const bits = [i.action, i.x != null ? `(${Math.round(i.x)}, ${Math.round(i.y ?? 0)})` : '', i.text ? `"${String(i.text).slice(0, 40)}"` : '', i.combo, i.direction, i.app, (i.apps || []).join(', ')];
+  return bits.filter(Boolean).join(' ');
+}
 function toolBox(name, input, output, id) {
   const d = document.createElement('details'); d.className = 'tool'; if (id) d.dataset.id = id;
   const s = document.createElement('summary');
-  const brief = input.command || input.path || input.pattern || input.agent || input.id || '';
+  const brief = input.command || input.path || input.pattern || input.agent || input.id || (name === 'computer' ? computerBrief(input) : '');
   s.innerHTML = `<span class="kind">${esc(KIND[name] || (name.startsWith('mcp__') ? 'mcp' : 'tool'))}</span><span>${esc(name.replace(/^mcp__/, '').replace('__', ' · '))} ${esc(String(brief).slice(0, 90))}</span>`;
   const pre = document.createElement('pre');
   pre.textContent = JSON.stringify(input, null, 2) + (output != null ? '\n\n' + output : '');
@@ -123,7 +128,7 @@ function renderConv(c) {
     if (m.role === 'user') { if (typeof m.content === 'string' || m.content.some((b) => b.type !== 'tool_result')) userBubble(m.content); continue; }
     const b = bubble('assistant');
     for (const blk of m.content) {
-      if (blk.type === 'text') { const d = document.createElement('div'); setMd(d, blk.text); b.appendChild(d); }
+      if (blk.type === 'text') { if (!blk.text.trim()) continue; const d = document.createElement('div'); setMd(d, blk.text); b.appendChild(d); }
       else if (blk.type === 'tool_use') b.appendChild(toolBox(blk.name, blk.input, results[blk.id], blk.id));
     }
   }
@@ -572,6 +577,7 @@ gc.agent.onEvent((ev) => {
       let sub = parent.querySelector(':scope > .subs'); if (!sub) { sub = document.createElement('div'); sub.className = 'subs'; parent.appendChild(sub); }
       const box = toolBox(ev.name, ev.input, null, ev.id); box.querySelector('summary').insertAdjacentHTML('afterbegin', `<span class="kind">${esc(ev.agent || 'agent')}</span>`); sub.appendChild(box);
     } else {
+      if (live && !live.text.trim()) { live.el.parentElement?.remove(); live = null; } // a text bubble that stayed blank
       const holder = live?.el || bubble('assistant'); live = null; lastHolder = holder;
       holder.appendChild(toolBox(ev.name, ev.input, null, ev.id));
     }
