@@ -61,7 +61,7 @@ contextBridge.exposeInMainWorld('gc', {
   onCommand: on('ui:command'),
   projects: { list: inv('projects:list'), save: inv('projects:save'), remove: inv('projects:delete'), chats: inv('projects:chats') },
   schedules: { list: inv('schedules:list'), save: inv('schedules:save'), remove: inv('schedules:delete'), run: inv('schedules:run') },
-  cowork: { tasks: inv('cowork:tasks'), start: inv('cowork:start'), stop: inv('cowork:stop'), remove: inv('cowork:remove'), spaces: inv('cowork:spaces'), saveSpace: inv('cowork:saveSpace'), removeSpace: inv('cowork:removeSpace'), cleanup: inv('cowork:cleanup'), reveal: inv('cowork:reveal') },
+  cowork: { tasks: inv('cowork:tasks'), start: inv('cowork:start'), stop: inv('cowork:stop'), remove: inv('cowork:remove'), spaces: inv('cowork:spaces'), saveSpace: inv('cowork:saveSpace'), removeSpace: inv('cowork:removeSpace'), cleanup: inv('cowork:cleanup'), reveal: inv('cowork:reveal'), branch: inv('cowork:branch'), files: inv('cowork:files'), preview: inv('cowork:preview'), openFile: inv('cowork:openFile'), toArtifact: inv('cowork:toArtifact'), memory: inv('cowork:memory'), memAdd: inv('cowork:memAdd'), memRemove: inv('cowork:memRemove'), plugins: inv('cowork:plugins'), setPlugin: inv('cowork:setPlugin'), export: inv('cowork:export'), deleteAll: inv('cowork:deleteAll'), setEgress: inv('cowork:setEgress'), setPolicy: inv('cowork:setPolicy') },
   dispatch: { list: inv('dispatch:list'), start: inv('dispatch:start'), stop: inv('dispatch:stop'), remove: inv('dispatch:delete') },
   onFeatures: on('features:update'),
 

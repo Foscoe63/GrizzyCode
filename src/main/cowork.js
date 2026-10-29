@@ -13,6 +13,27 @@ const file = (n) => path.join(store.root(), 'cowork-' + n + '.json');
 const read = (n) => { try { return JSON.parse(fs.readFileSync(file(n), 'utf8')); } catch { return []; } };
 const write = (n, v) => { fs.mkdirSync(store.root(), { recursive: true }); fs.writeFileSync(file(n), JSON.stringify(v, null, 2)); broadcast('features:update', 'cowork'); };
 const MODES = ['acceptEdits', 'plan', 'default'];
+const cfg = () => store.getSettings();
+
+// ---- Policy: org-style limits kept in settings. They bind Cowork tasks started from the app, not what you can edit on this Mac ----
+const policy = () => ({ enabled: true, allowedFolders: [], ...(cfg().coworkPolicy || {}) });
+function checkPolicy(folder) {
+  const p = policy();
+  if (!p.enabled) throw new Error('Cowork is turned off by policy on this computer.');
+  if (folder && p.allowedFolders.length && !p.allowedFolders.some((f) => folder === f || folder.startsWith(f.replace(/\/$/, '') + '/'))) throw new Error('Policy only allows Cowork in: ' + p.allowedFolders.join(', '));
+}
+
+// ---- Egress: web_fetch / web_search in Cowork tasks follow coworkEgress ({ mode: all | allowlist | none, hosts }) ----
+// Covers the web tools only. A shell command such as curl is not filtered; use "Ask first" to review those.
+function egressCheck(conv, name, input) {
+  if (!conv?.cowork || (name !== 'web_fetch' && name !== 'web_search')) return null;
+  const e = { mode: 'all', hosts: [], ...(cfg().coworkEgress || {}) };
+  if (e.mode === 'all') return null;
+  if (e.mode === 'none') return 'Network access is off for Cowork tasks (Cowork → Network).';
+  if (name === 'web_search') return 'Web search is off for Cowork tasks because the network is limited to an allow-list.';
+  let host; try { host = new URL(input.url).hostname.toLowerCase(); } catch { return 'That is not a valid URL.'; }
+  return e.hosts.some((h) => host === h || host.endsWith('.' + h)) ? null : `${host} is not on the Cowork allow-list (Cowork → Network).`;
+}
 
 // ---- Spaces ----
 const listSpaces = () => read('spaces');
@@ -43,11 +64,102 @@ function cleanup(days) {
   return n;
 }
 
+// ---- Cowork memory: separate from GrizzyCode's chat memory; only Cowork tasks see it ----
+const memList = () => read('memory');
+function memAdd(text) {
+  text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 600); if (!text) throw new Error('Nothing to remember.');
+  const l = read('memory'); if (!l.some((m) => m.text.toLowerCase() === text.toLowerCase())) l.push({ id: crypto.randomUUID(), text, createdAt: Date.now() });
+  write('memory', l.slice(-100)); return l;
+}
+const memRemove = (id) => write('memory', read('memory').filter((m) => m.id !== id));
+
+// ---- Plugins: installed plugins can be switched on for Cowork; their skills and commands are then named in the task prompt ----
+function pluginList() {
+  const on = new Set(cfg().coworkPlugins || []);
+  return require('./plugins').list().map((p) => ({ name: p.name, description: p.description || '', skills: p.skills || [], commands: p.commands || [], enabled: on.has(p.name) }));
+}
+function setPlugin(name, enabled) {
+  const on = new Set(cfg().coworkPlugins || []); enabled ? on.add(name) : on.delete(name);
+  store.saveSettings({ coworkPlugins: [...on] }); broadcast('features:update', 'cowork'); return pluginList();
+}
+
+function setEgress(o) {
+  const mode = ['all', 'allowlist', 'none'].includes(o?.mode) ? o.mode : 'all';
+  const hosts = [...new Set((o?.hosts || []).map((h) => String(h).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[\/:].*$/, '').replace(/^\*\./, '')).filter((h) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(h)))].slice(0, 100);
+  store.saveSettings({ coworkEgress: { mode, hosts } }); return { mode, hosts };
+}
+function setPolicy(o) {
+  const allowedFolders = (o?.allowedFolders || []).map(String).filter((f) => path.isAbsolute(f)).slice(0, 50);
+  const p = { enabled: o?.enabled !== false, allowedFolders }; store.saveSettings({ coworkPolicy: p }); return p;
+}
+
+// ---- Files: list and read what a task produced (confined to the task's folder) ----
+const taskOf = (id) => read('tasks').find((t) => t.id === id);
+const SKIP = new Set(['node_modules', '.git', '.DS_Store']);
+function files(id) {
+  const t = taskOf(id); if (!t) return []; const out = [];
+  (function walk(d, depth) {
+    let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      if (SKIP.has(e.name) || e.name.startsWith('.')) continue; const f = path.join(d, e.name);
+      if (e.isDirectory()) { if (depth < 4) walk(f, depth + 1); } else if (e.isFile()) { try { const st = fs.statSync(f); out.push({ rel: path.relative(t.cwd, f), size: st.size, mtime: st.mtimeMs }); } catch {} }
+    }
+  })(t.cwd, 0);
+  return out.sort((a, b) => b.mtime - a.mtime).slice(0, 300);
+}
+const IMG = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+const TEXT = /\.(txt|md|markdown|json|csv|tsv|log|yaml|yml|xml|js|ts|py|sh|css|toml|ini|rtf)$/i;
+function resolveIn(t, rel) {
+  const f = path.resolve(t.cwd, String(rel)); if (f !== t.cwd && !f.startsWith(t.cwd + path.sep)) throw new Error('That file is outside the task folder.');
+  if (!fs.statSync(f).isFile()) throw new Error('Not a file.'); return f;
+}
+function preview(id, rel) {
+  const t = taskOf(id); if (!t) throw new Error('Task not found.'); const f = resolveIn(t, rel); const ext = path.extname(f).slice(1).toLowerCase(); const size = fs.statSync(f).size;
+  if (IMG[ext]) return size > 6e6 ? { kind: 'none', note: 'Image is too large to preview.' } : { kind: 'image', src: `data:${IMG[ext]};base64,` + fs.readFileSync(f).toString('base64') };
+  if (ext === 'html' || ext === 'htm') return { kind: 'html', text: fs.readFileSync(f, 'utf8').slice(0, 400000) };
+  if (ext === 'csv' || ext === 'tsv') return { kind: 'table', text: fs.readFileSync(f, 'utf8').slice(0, 200000), sep: ext === 'tsv' ? '\t' : ',' };
+  if (ext === 'md' || ext === 'markdown') return { kind: 'markdown', text: fs.readFileSync(f, 'utf8').slice(0, 200000) };
+  if (TEXT.test(f) || size < 20000 && !fs.readFileSync(f).includes(0)) return { kind: 'text', text: fs.readFileSync(f, 'utf8').slice(0, 200000) };
+  return { kind: 'none', note: `${ext.toUpperCase() || 'This'} files open in their own app.` };
+}
+const absFile = (id, rel) => { const t = taskOf(id); return t ? resolveIn(t, rel) : null; };
+// Saves an HTML file a task made as a GrizzyCode artifact (its own sandboxed window).
+function toArtifact(id, rel) {
+  const t = taskOf(id); if (!t) throw new Error('Task not found.'); const f = resolveIn(t, rel);
+  if (!/\.html?$/i.test(f)) throw new Error('Only HTML files can become artifacts.');
+  return require('./artifacts').create({ title: path.basename(f).replace(/\.html?$/i, ''), type: 'page', html: fs.readFileSync(f, 'utf8'), convId: t.convId });
+}
+
+// ---- Branch: a copy of a task's session (and, for a scratch workspace, its files) that you can take a different way ----
+function branch(id) {
+  const t = taskOf(id); if (!t) throw new Error('Task not found.'); checkPolicy(t.scratch ? null : t.cwd);
+  const src = store.getConversation(t.convId); const cwd = t.scratch ? createScratch() : t.cwd;
+  if (t.scratch) fs.cpSync(t.cwd, cwd, { recursive: true });
+  const c = store.newConversation({ mode: 'code', cwd, permissionMode: t.permissionMode });
+  Object.assign(c, { cowork: { ...src.cowork }, messages: JSON.parse(JSON.stringify(src.messages)), title: ('Branch: ' + src.title).slice(0, 60) }); store.saveConversation(c);
+  const n = { ...t, id: crypto.randomUUID(), cwd, convId: c.id, status: 'done', createdAt: Date.now(), finishedAt: Date.now(), error: '', prompt: 'Branch of: ' + t.prompt };
+  const l = read('tasks'); l.push(n); write('tasks', l); return n;
+}
+
+// ---- Data controls ----
+function exportData() {
+  return { exportedAt: new Date().toISOString(), spaces: read('spaces'), memory: read('memory'), policy: policy(),
+    tasks: read('tasks').map((t) => ({ ...t, conversation: (() => { try { return store.getConversation(t.convId); } catch { return null; } })() })) };
+}
+// Deletes Cowork tasks, their sessions, Spaces, memory and scratch workspaces. Folders you granted are not touched.
+function deleteAll() {
+  for (const t of read('tasks')) { try { agent.stop(t.convId); } catch {} store.deleteConversation(t.convId); }
+  write('tasks', []); write('spaces', []); write('memory', []);
+  try { fs.rmSync(dir('cowork-scratch'), { recursive: true, force: true }); } catch {}
+  return true;
+}
+
 // ---- Tasks ----
 const listTasks = () => read('tasks').sort((a, b) => b.createdAt - a.createdAt);
 function setTask(id, patch) { const l = read('tasks'); const t = l.find((x) => x.id === id); if (t) { Object.assign(t, patch); write('tasks', l); } }
 function start({ prompt, folder, spaceId, permissionMode }) {
   prompt = String(prompt || '').trim(); if (!prompt) throw new Error('Describe the task first.');
+  checkPolicy(folder);
   const space = spaceId ? read('spaces').find((s) => s.id === spaceId) : null;
   if (spaceId && !space) throw new Error('That Space no longer exists.');
   if (folder && !fs.statSync(folder).isDirectory()) throw new Error('That folder does not exist.');
@@ -80,6 +192,9 @@ function promptBlock(conv) {
   if (!conv?.cowork) return '';
   const sp = conv.cowork.spaceId && read('spaces').find((s) => s.id === conv.cowork.spaceId);
   let out = `\n\nThis is a Cowork task: general knowledge work for the user (documents, research, spreadsheets, organizing files), not a software project. Your working folder is ${conv.cwd}${conv.cowork.scratch ? ', a scratch workspace made for this task: write deliverables there and tell the user the file names' : ''}. Work autonomously, keep the user informed with short progress notes, and finish with a summary of what you produced and where it is.`;
+  const mem = read('memory').slice(-40); if (mem.length) out += '\n\nWhat you remember about the user from past Cowork tasks:\n' + mem.map((m) => '- ' + m.text).join('\n');
+  const pl = pluginList().filter((x) => x.enabled); if (pl.length) out += '\n\nPlugins switched on for Cowork:\n' + pl.map((x) => `- ${x.name}: ${x.description}${x.skills.length ? ' (skills: ' + x.skills.join(', ') + ')' : ''}${x.commands.length ? ' (commands: ' + x.commands.join(', ') + ')' : ''}`).join('\n');
+  out += '\nFor documents, spreadsheets, slides and PDFs, load the matching skill (docx, xlsx, pptx, pdf) with use_skill first.';
   if (sp) {
     out += `\n\nSpace "${sp.name}":`;
     if (sp.instructions.trim()) out += `\nInstructions: ${sp.instructions.trim()}`;
@@ -89,4 +204,4 @@ function promptBlock(conv) {
   return out;
 }
 
-module.exports = { init, listSpaces, saveSpace, removeSpace, listTasks, start, stop, remove, cleanup, promptBlock, createScratch };
+module.exports = { setEgress, setPolicy, egressCheck, policy, memList, memAdd, memRemove, pluginList, setPlugin, files, preview, absFile, toArtifact, branch, exportData, deleteAll, init, listSpaces, saveSpace, removeSpace, listTasks, start, stop, remove, cleanup, promptBlock, createScratch };

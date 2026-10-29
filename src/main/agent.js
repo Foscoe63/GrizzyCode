@@ -138,6 +138,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
   if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
+  { const blocked = require('./cowork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});

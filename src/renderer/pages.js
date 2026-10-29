@@ -241,12 +241,17 @@ async function pgDispatch() {
 }
 
 // ---------------- Cowork ----------------
+let cwTab = 'tasks', cwTask = null, cwFile = null;
 let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits' }, cwEditing = false;
 async function pgCowork() {
+  if (cwTask) return pgCwTask();
+  const tabs = `<div class="seg" id="cwTabs">${[['tasks', 'Tasks'], ['network', 'Network'], ['memory', 'Memory'], ['plugins', 'Plugins'], ['data', 'Data & policy']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const bindTabs = () => $('page').querySelectorAll('#cwTabs button').forEach((b) => (b.onclick = () => { cwTab = b.dataset.v; pgCowork(); }));
+  if (cwTab !== 'tasks') { await ({ network: cwNetwork, memory: cwMemory, plugins: cwPlugins, data: cwData }[cwTab])(tabs); bindTabs(); return; }
   const [tasks, spaces] = await Promise.all([gc.cowork.tasks(), gc.cowork.spaces()]);
   const keep = $('page').querySelector('#cText')?.value; if (keep != null) cwDraft.prompt = keep;
   const spName = (id) => spaces.find((s) => s.id === id)?.name;
-  $('page').innerHTML = shell('Cowork', '<button class="outline" id="cNewSpace">New Space</button>', `
+  $('page').innerHTML = shell('Cowork', '<button class="outline" id="cNewSpace">New Space</button>', `${tabs}
     <div class="card3"><textarea id="cText" rows="3" placeholder="What should Claude work on? Reports, research, spreadsheets, file organizing…">${esc(cwDraft.prompt)}</textarea>
       <div class="inl"><button class="chip-b" id="cDir">${esc(cwDraft.folder ? folderName(cwDraft.folder) : 'Scratch workspace')}</button>${cwDraft.folder ? '<button class="outline" id="cScratch">Use scratch</button>' : ''}
         <select id="cSpace"><option value="">No Space</option>${spaces.map((s) => `<option value="${s.id}" ${s.id === cwDraft.spaceId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
@@ -255,10 +260,11 @@ async function pgCowork() {
     ${spaces.length ? `<h3>Spaces</h3>${spaces.map((s) => `<div class="task" data-sp="${s.id}"><div class="grow"><b>${esc(s.name)}</b><p>${s.folders.length} folder${s.folders.length === 1 ? '' : 's'} · ${s.links.length} link${s.links.length === 1 ? '' : 's'}${s.instructions ? ' · instructions' : ''}</p></div><button class="outline sp-use">Use</button><button class="outline sp-edit">Edit</button></div>`).join('')}` : ''}
     <h3>Tasks</h3>${tasks.length ? tasks.map((t) => `<div class="task" data-id="${t.id}"><span class="pill ${t.status}">${PILL[t.status] || t.status}</span>
       <div class="grow"><b>${esc(t.prompt.slice(0, 90))}</b><p>${esc(t.scratch ? 'Scratch workspace' : folderName(t.cwd))}${spName(t.spaceId) ? ' · ' + esc(spName(t.spaceId)) : ''} · ${when(t.createdAt)}</p>${t.error ? `<i class="err">${esc(t.error)}</i>` : ''}</div>
-      <button class="outline t-files">Show files</button><button class="outline t-open">Open</button>${t.status === 'running' ? '<button class="outline t-stop">Stop</button>' : '<button class="outline t-del">Remove</button>'}</div>`).join('') : '<p class="hint">No Cowork tasks yet.</p>'}
+      <button class="outline t-files">Files</button><button class="outline t-branch">Branch</button><button class="outline t-open">Open</button>${t.status === 'running' ? '<button class="outline t-stop">Stop</button>' : '<button class="outline t-del">Remove</button>'}</div>`).join('') : '<p class="hint">No Cowork tasks yet.</p>'}
     <h3>Cleanup</h3><div class="inl"><span class="hint">Delete scratch workspaces older than</span>
       <select id="cRet">${[[0, 'never'], [7, '7 days'], [30, '30 days'], [90, '90 days']].map(([v, l]) => `<option value="${v}" ${(settings.coworkRetentionDays ?? 30) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="outline" id="cClean">Clean up now</button></div>`);
+  bindTabs();
   P('#cDir').onclick = async () => { cwDraft.prompt = P('#cText').value; const f = await gc.pickFolder(); if (f) cwDraft.folder = f; pgCowork(); };
   P('#cScratch')?.addEventListener('click', () => { cwDraft.prompt = P('#cText').value; cwDraft.folder = null; pgCowork(); });
   P('#cSpace').onchange = (e) => { cwDraft.spaceId = e.target.value; };
@@ -282,7 +288,8 @@ async function pgCowork() {
   $('page').querySelectorAll('.task[data-id]').forEach((row) => {
     const t = tasks.find((x) => x.id === row.dataset.id);
     row.querySelector('.t-open').onclick = () => open(t.convId);
-    row.querySelector('.t-files').onclick = () => gc.cowork.reveal(t.id).then((ok) => ok || toast('The folder is gone'));
+    row.querySelector('.t-files').onclick = () => { cwTask = t; cwFile = null; pgCowork(); };
+    row.querySelector('.t-branch').onclick = async () => { const r = await gc.cowork.branch(t.id); if (r?.error) return toast(r.error); toast('Branched. Open it to take a different path'); pgCowork(); refreshList(); };
     row.querySelector('.t-stop')?.addEventListener('click', async () => { await gc.cowork.stop(t.id); pgCowork(); });
     row.querySelector('.t-del')?.addEventListener('click', async () => { await gc.cowork.remove(t.id); pgCowork(); });
   });
@@ -305,6 +312,72 @@ function cwSpaceForm(s = {}) {
     const r = await gc.cowork.saveSpace({ id: s.id, name: P('#spName').value, instructions: P('#spIns').value, folders: lines('#spFolders'), links: lines('#spLinks') });
     if (r?.error) return toast(r.error); done();
   };
+}
+
+const kb = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+async function pgCwTask() {
+  const t = cwTask, list = await gc.cowork.files(t.id);
+  $('page').innerHTML = shell('Task files', '<button class="outline" id="fBack">Back</button>', `<p class="hint">${esc(t.prompt.slice(0, 120))}<br>${esc(t.cwd)}</p>
+    <div class="inl" style="align-items:flex-start;gap:14px"><div style="width:300px;flex:none;max-height:60vh;overflow:auto">${list.length ? list.map((f) => `<div class="task f-row ${f.rel === cwFile ? 'on' : ''}" data-rel="${esc(f.rel)}"><div class="grow"><b>${esc(f.rel)}</b><p>${kb(f.size)} · ${when(f.mtime)}</p></div></div>`).join('') : '<p class="hint">No files yet.</p>'}</div>
+    <div class="grow" id="fView"><p class="hint">Pick a file to preview it.</p></div></div>
+    <div class="inl"><button class="outline" id="fReveal">Show in Finder</button></div>`);
+  P('#fBack').onclick = () => { cwTask = null; pgCowork(); };
+  P('#fReveal').onclick = () => gc.cowork.reveal(t.id).then((ok) => ok || toast('The folder is gone'));
+  const show = async (rel) => {
+    cwFile = rel; $('page').querySelectorAll('.f-row').forEach((r) => r.classList.toggle('on', r.dataset.rel === rel));
+    const v = P('#fView'), r = await gc.cowork.preview(t.id, rel);
+    const bar = `<div class="inl"><b class="grow">${esc(rel)}</b><button class="outline" id="vOpen">Open</button>${/\.html?$/i.test(rel) ? '<button class="outline" id="vArt">Save as artifact</button>' : ''}</div>`;
+    let body = '';
+    if (r.error) body = `<p class="err">${esc(r.error)}</p>`;
+    else if (r.kind === 'image') body = `<img src="${r.src}" style="max-width:100%;border-radius:8px">`;
+    else if (r.kind === 'html') body = '<iframe sandbox="" style="width:100%;height:55vh;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>';
+    else if (r.kind === 'table') { const rows = r.text.split(/\r?\n/).filter(Boolean).slice(0, 200).map((l) => l.split(r.sep)); body = `<div style="overflow:auto;max-height:55vh"><table>${rows.map((c, i) => `<tr>${c.map((x) => `<${i ? 'td' : 'th'}>${esc(x.replace(/^"|"$/g, ''))}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table></div>`; }
+    else if (r.kind === 'markdown' || r.kind === 'text') body = `<pre style="white-space:pre-wrap;max-height:55vh;overflow:auto">${esc(r.text)}</pre>`;
+    else body = `<p class="hint">${esc(r.note || 'No preview.')}</p>`;
+    v.innerHTML = bar + body;
+    if (r.kind === 'html') v.querySelector('iframe').srcdoc = r.text;
+    v.querySelector('#vOpen').onclick = async () => { if (!(await gc.cowork.openFile(t.id, rel))) toast('Could not open that file'); };
+    v.querySelector('#vArt')?.addEventListener('click', async () => { const a = await gc.cowork.toArtifact(t.id, rel); toast(a?.error || 'Saved to Artifacts'); });
+  };
+  $('page').querySelectorAll('.f-row').forEach((r) => (r.onclick = () => show(r.dataset.rel)));
+  if (cwFile) show(cwFile);
+}
+async function cwNetwork(tabs) {
+  const e = { mode: 'all', hosts: [], ...(settings.coworkEgress || {}) };
+  $('page').innerHTML = shell('Cowork', '', `${tabs}<div class="card3"><b>Network access for web_fetch and web_search</b>
+    <div class="seg" id="nMode">${[['all', 'Any public site'], ['allowlist', 'Allow-list'], ['none', 'Off']].map(([v, l]) => `<button type="button" data-v="${v}" class="${e.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <textarea id="nHosts" rows="5" placeholder="One host per line, for example example.com (subdomains included)" ${e.mode === 'allowlist' ? '' : 'disabled'}>${esc(e.hosts.join('\n'))}</textarea>
+    <p class="hint">Applies to Cowork tasks only. Shell commands such as curl are not filtered; use Ask first to review them.</p>
+    <div class="inl"><span class="grow"></span><button class="primary" id="nSave">Save</button></div></div>`);
+  let mode = e.mode;
+  $('page').querySelectorAll('#nMode button').forEach((b) => (b.onclick = () => { mode = b.dataset.v; $('page').querySelectorAll('#nMode button').forEach((x) => x.classList.toggle('on', x === b)); P('#nHosts').disabled = mode !== 'allowlist'; }));
+  P('#nSave').onclick = async () => { const r = await gc.cowork.setEgress({ mode, hosts: P('#nHosts').value.split(/\r?\n/) }); settings.coworkEgress = r; toast('Saved'); pgCowork(); };
+}
+async function cwMemory(tabs) {
+  const l = await gc.cowork.memory();
+  $('page').innerHTML = shell('Cowork', '', `${tabs}<p class="hint">Facts only Cowork tasks see. Separate from chat memory.</p>
+    <div class="card3"><div class="inl"><input id="mText" class="grow" placeholder="Something Cowork should remember"><button class="primary" id="mAdd">Add</button></div></div>
+    ${l.length ? l.map((m) => `<div class="task" data-id="${m.id}"><div class="grow">${esc(m.text)}</div><button class="outline m-del">Delete</button></div>`).join('') : '<p class="hint">Nothing remembered yet.</p>'}`);
+  P('#mAdd').onclick = async () => { const r = await gc.cowork.memAdd(P('#mText').value); if (r?.error) return toast(r.error); pgCowork(); };
+  $('page').querySelectorAll('.m-del').forEach((b) => (b.onclick = async () => { await gc.cowork.memRemove(b.closest('.task').dataset.id); pgCowork(); }));
+}
+async function cwPlugins(tabs) {
+  const l = await gc.cowork.plugins();
+  $('page').innerHTML = shell('Cowork', '', `${tabs}<p class="hint">Plugins installed under Customize. Switch on the ones Cowork tasks should use.</p>
+    ${l.length ? l.map((p) => `<div class="task" data-n="${esc(p.name)}"><div class="grow"><b>${esc(p.name)}</b><p>${esc(p.description)} ${p.skills.length ? '· ' + p.skills.length + ' skills' : ''} ${p.commands.length ? '· ' + p.commands.length + ' commands' : ''}</p></div><label><input type="checkbox" ${p.enabled ? 'checked' : ''}> Use in Cowork</label></div>`).join('') : '<p class="hint">No plugins installed.</p>'}`);
+  $('page').querySelectorAll('.task input').forEach((i) => (i.onchange = async () => { await gc.cowork.setPlugin(i.closest('.task').dataset.n, i.checked); toast(i.checked ? 'Plugin on' : 'Plugin off'); }));
+}
+async function cwData(tabs) {
+  const pol = { enabled: true, allowedFolders: [], ...(settings.coworkPolicy || {}) };
+  $('page').innerHTML = shell('Cowork', '', `${tabs}<div class="card3"><b>Policy on this computer</b>
+    <label><input type="checkbox" id="pOn" ${pol.enabled ? 'checked' : ''}> Cowork is allowed</label>
+    <textarea id="pDirs" rows="3" placeholder="Only allow these folders (one absolute path per line). Empty means any folder.">${esc(pol.allowedFolders.join('\n'))}</textarea>
+    <div class="inl"><span class="grow"></span><button class="primary" id="pSave">Save policy</button></div></div>
+    <h3>Your data</h3><div class="inl"><button class="outline" id="dExp">Export Cowork data…</button><button class="outline" id="dDel">Delete all Cowork data…</button></div>
+    <p class="hint">Export includes tasks, sessions, Spaces and memory. Delete removes them and scratch workspaces. Folders you granted are not touched.</p>`);
+  P('#pSave').onclick = async () => { const r = await gc.cowork.setPolicy({ enabled: P('#pOn').checked, allowedFolders: P('#pDirs').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) }); settings.coworkPolicy = r; toast('Policy saved'); };
+  P('#dExp').onclick = async () => { if (await gc.cowork.export()) toast('Exported'); };
+  P('#dDel').onclick = async () => { if (await gc.confirm('Delete all Cowork data?', 'Tasks, their sessions, Spaces, memory and scratch workspaces are permanently deleted from this computer.', 'Delete')) { await gc.cowork.deleteAll(); toast('Deleted'); pgCowork(); refreshList(); } };
 }
 
 // ---------------- Customize ----------------
