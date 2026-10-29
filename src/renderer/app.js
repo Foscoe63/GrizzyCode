@@ -418,7 +418,7 @@ function renderModelList() {
 function markModel(scroll) { modelRows.forEach((r, i) => r.classList.toggle('sel', i === modelSel)); if (scroll) modelRows[modelSel]?.scrollIntoView({ block: 'nearest' }); }
 async function pickModel(v) {
   closeModelMenu();
-  if (cur) cur = await gc.conv.update(cur.id, { model: v }); else settings = await gc.settings.set({ model: v });
+  if (cur) cur = await gc.conv.update(cur.id, { model: v, modelPinned: true }); else settings = await gc.settings.set({ model: v }); // a pick on the prompt overrides agent models for this session
   syncModelLabel();
 }
 function closeModelMenu() { $('modelMenu').hidden = true; $('modelBtn').classList.remove('on'); }
@@ -1245,7 +1245,7 @@ async function pickAgent(id) {
   closeAgentMenu(); const a = agentById(id); if (!a) return;
   settings = await gc.settings.set({ activeAgent: id });
   if (cur) cur = await gc.conv.update(cur.id, { agentId: id });
-  if (a.model) { if (cur) cur = await gc.conv.update(cur.id, { model: a.model }); else settings = await gc.settings.set({ model: a.model }); syncComposer(); }
+  if (a.model) { if (cur) cur = await gc.conv.update(cur.id, { model: a.model, modelPinned: false }); else settings = await gc.settings.set({ model: a.model }); syncComposer(); }
   if (a.permissionMode && viewMode === 'code') {
     if (cur) cur = await gc.conv.update(cur.id, { permissionMode: a.permissionMode }); else settings = await gc.settings.set({ permissionMode: a.permissionMode });
     syncComposer();

@@ -232,7 +232,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   const where = { parentId: parentCallId, agent: sub.name, agentId: sub.id };
   const sc = Object.create(root);               // reads mode/cwd/allow live from the conversation; the agent's own overrides sit on top
   sc.agentId = '';                              // the persona is added from the agent's own definition below
-  const model = (sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
+  const model = (!root.modelPinned && sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
   let last = '', finished = false, lists = [];
   const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = agents.guardState(sub.def), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
   gs.followUp = sub.messages.length > 1;
