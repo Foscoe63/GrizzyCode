@@ -4,7 +4,7 @@
 
 # 🐻 GrizzyCode
 
-**A desktop AI assistant for your Mac: chat, a code agent, MCP tools, skills, mods and quick entry.**
+**A desktop AI assistant for your Mac: chat, a code agent, GrizzyWork tasks, computer use, MCP tools, skills, mods and quick entry.**
 
 ![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
@@ -12,7 +12,7 @@
 ![License](https://img.shields.io/badge/license-MIT-2EA44F)
 ![MCP](https://img.shields.io/badge/MCP-ready-FF6B35)
 
-[✨ Features](#-features) · [🚀 Quick start](#-quick-start) · [🔌 Providers](#-providers) · [🧩 Mods](#-mods) · [💸 Token savers](#-token-savers) · [🛠️ Development](#️-development)
+[✨ Features](#-features) · [🚀 Quick start](#-quick-start) · [🗂️ GrizzyWork](#️-grizzywork) · [🖱️ Computer use](#️-computer-use) · [🔌 Providers](#-providers) · [🧩 Mods](#-mods) · [💸 Token savers](#-token-savers) · [🛠️ Development](#️-development)
 
 </div>
 
@@ -37,7 +37,7 @@
 | 🧠 | **Memory** | Facts it remembers across conversations. You control them. |
 | 📁 | **Projects** | Group chats under shared instructions and an optional default folder. Closed chats stay listed on the project page. |
 | 🧪 | **Artifacts** | The model builds dashboards, slide decks, documents, trackers, diagrams and prototypes with its `artifact` tool. Each opens in its own sandboxed window (no network, versioned, exportable) and can use a small `window.cowork` bridge: persistent `db`, `askClaude`, allow-listed MCP tools and scheduled tasks. Eight built-in templates; code blocks from chats are listed too. |
-| 🤝 | **GrizzyWork** | Non-code task sessions (documents, spreadsheets, slides, research) in a folder you grant or a scratch workspace. Spaces, branch a task, rewind it, a file previewer, separate GrizzyWork memory and plugins, a network allow-list for web tools, policy, export and delete. |
+| 🗂️ | **GrizzyWork** | Non-code task sessions (documents, spreadsheets, slides, research) in a folder you grant or a scratch workspace. Spaces, branch a task, rewind it, a file previewer, separate GrizzyWork memory and plugins, a network allow-list for web tools, policy, export and delete. |
 | ⏰ | **Scheduled tasks** | Run a prompt every N minutes, daily or on weekdays. |
 | 📨 | **Dispatch** | Start a background code session and check on it later. |
 | 🌿 | **Worktrees** | Work on a new git branch in a separate worktree. |
@@ -124,6 +124,34 @@ Deleting a project keeps its chats; they only lose the project instructions.
 | 🔁 | **Max steps** | A cap on model turns per message stops a runaway loop. |
 | ⏰ | **Scheduled** and 📨 **Dispatch** | Unattended runs deny anything the permission mode wouldn't already allow. |
 
+## 🗂️ GrizzyWork
+
+Sidebar → **GrizzyWork**. The same agent as Code sessions, pointed at knowledge work: documents, spreadsheets, slides, PDFs, research and file organizing. It loads the bundled `docx`, `xlsx`, `pptx` and `pdf` skills for those, and builds dashboards or trackers as artifacts.
+
+| | | |
+|---|---|---|
+| 📂 | **Workspace** | Each task gets a **scratch workspace** (`~/.GrizzyCode/data/grizzywork-scratch/scratch-YYYY-MM-DD-xxxxxx`) or a folder you grant (asked once). Scratch folders older than 7, 30 or 90 days are deleted; granted folders are never touched. |
+| 🧭 | **Spaces** | A name, instructions, folders and links that every task in the Space follows. |
+| 🔐 | **Permissions** | Accept edits, Ask first or Plan only. There is no VM; the permission mode is the boundary. |
+| 🌿 | **Branch** | Copies a task's session (and, for a scratch workspace, its files) so you can take it a different way. Open a task and use rewind to go back inside it. |
+| 👀 | **Files** | Lists what a task produced and previews images, HTML (sandboxed), CSV tables, Markdown and text. Other files open in their own app. HTML files can be saved as artifacts, and the task's own artifacts are listed too. |
+| 🧠 | **Memory and plugins** | A separate memory list only GrizzyWork tasks see, and a switch per installed plugin for use in GrizzyWork. |
+| 🌐 | **Network** | Any public site, an allow-list or off, for `web_fetch` and `web_search` in GrizzyWork tasks. Shell commands such as `curl` are not filtered. |
+| 🛡️ | **Policy and data** | Turn GrizzyWork off or limit it to certain folders (a local setting, not an organization policy). Export tasks, sessions, Spaces and memory to JSON, or delete all of it. |
+
+## 🖱️ Computer use
+
+Off by default: Settings → Capabilities → **Control other Mac apps**. macOS only, Code sessions only (not Chat, delegated agents or SSH), and use an API model for it. It is not confirmed that sessions run by the Grizzy (Claude Code CLI) agent get this tool.
+
+- 🔑 **Permissions:** Settings → System lists Accessibility and Screen Recording. Allow both; Screen Recording usually needs a restart of the app.
+- ✅ **Approval per app:** the agent calls `request_access` and a dialog lists each app and what it may do. Grants last for that session.
+- 🪟 **One window at a time:** a screenshot shows only the granted app's front window. A click must land inside that window, must not be covered by another one, and is refused if the window moved since the screenshot.
+- 🚦 **Tiers:** browsers are look-only (use the browser tools), terminals and editors are click-only (no typing), everything else has full control. GrizzyCode never controls itself.
+- ⌨️ **Typing:** typing and key presses ask once per app per session. `cmd+q`, `cmd+w` and lock-screen shortcuts are refused.
+- 🧯 **Limits:** screen content is treated as untrusted data, but no model is immune to text on screen. Review each approval.
+
+Actions: `request_access`, `open_app`, `screenshot`, `click`, `double_click`, `right_click`, `move`, `type`, `key`, `scroll`, `wait`, `frontmost`. Only the newest screenshot stays in the session history.
+
 ## 🤝 Agents that work together
 
 Settings → Capabilities → **Agents**.
@@ -197,8 +225,8 @@ Settings → Capabilities → **Token savers**. Figures are estimates (about 4 c
 
 ```bash
 npm start                         # launch
-npm run check                     # backend tests plus the headless Projects page test
-npx electron scripts/check.js     # backend only (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, Google connectors, skills, mods, token savers)
+npm run check                     # backend tests (including GrizzyWork and computer use) plus the headless page tests
+npx electron scripts/check.js     # backend only (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, Google connectors, skills, mods, token savers, GrizzyWork, computer use)
 npx electron scripts/ui-check.js  # drives the Projects page against a fake bridge
 npx electron scripts/shot.js out  # render the real UI to PNGs (add `dark` for dark mode)
 npm run dist                      # build the signed DMG and zip into dist/ (arm64; notarization is skipped unless configured)
