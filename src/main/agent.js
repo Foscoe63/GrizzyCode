@@ -121,6 +121,12 @@ async function compactNow(convId) {
   return r.compacted ? { ok: true, ...r } : { error: `Nothing to compact: ${r.skipped}.` };
 }
 
+// Why a tool is missing: file, shell and web tools exist only in Code mode, so an agent's own tool list cannot add them in a chat.
+const FILE_TOOLS = ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file', 'bash'];
+const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
+  ? `The tool ${name} is not available: file and shell tools only exist in a Code-mode conversation (open a folder in Code), and an agent's own tool list cannot add them to a chat.`
+  : `The tool ${name} is not enabled. It can be turned on in Settings → Capabilities (or the agent's access limits may exclude it).`);
+
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
 // `lists` are the access limits that apply (the conversation's agent; a delegated agent adds its own on top).
 async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))], run = null) {
@@ -137,7 +143,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
-  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
+  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode));
   { const blocked = require('./grizzywork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
@@ -195,7 +201,7 @@ function roster(s, depth, convId) {
 // Always resolves to a string, so a failed or cancelled agent shows up as that call's result instead of an unhandled rejection.
 function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, caller = 'the main agent') {
   return (async () => {
-    if (!toolDefs.some((t) => t.name === c.name)) throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
+    if (!toolDefs.some((t) => t.name === c.name)) throw new Error(notEnabled(c.name, root.mode));
     const reg = registry(convId);
     let sub;
     if (c.name === 'delegate_agent') {
