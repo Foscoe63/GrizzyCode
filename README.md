@@ -8,7 +8,7 @@
 
 ![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
-![Version](https://img.shields.io/badge/version-0.7.0-8A2BE2)
+![Version](https://img.shields.io/badge/version-0.8.0-8A2BE2)
 ![License](https://img.shields.io/badge/license-MIT-2EA44F)
 ![MCP](https://img.shields.io/badge/MCP-ready-FF6B35)
 
