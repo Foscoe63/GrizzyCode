@@ -1,5 +1,5 @@
-// Cowork: task sessions for work that is not code. A task runs in a granted folder or a fresh scratch workspace,
-// optionally inside a Space (shared instructions, folders and links). Modeled on Claude.app's Cowork (scratch-YYYY-MM-DD-xxxxxx
+// GrizzyWork: task sessions for work that is not code. A task runs in a granted folder or a fresh scratch workspace,
+// optionally inside a Space (shared instructions, folders and links). Modeled on Claude.app's GrizzyWork (scratch-YYYY-MM-DD-xxxxxx
 // workspaces, Spaces, session retention); there is no VM, so the agent's normal permission modes are the boundary.
 const fs = require('fs');
 const path = require('path');
@@ -9,30 +9,30 @@ const agent = require('./agent');
 
 let emit = () => {}, broadcast = () => {};
 const dir = (n) => path.join(store.root(), n);
-const file = (n) => path.join(store.root(), 'cowork-' + n + '.json');
+const file = (n) => path.join(store.root(), 'grizzywork-' + n + '.json');
 const read = (n) => { try { return JSON.parse(fs.readFileSync(file(n), 'utf8')); } catch { return []; } };
-const write = (n, v) => { fs.mkdirSync(store.root(), { recursive: true }); fs.writeFileSync(file(n), JSON.stringify(v, null, 2)); broadcast('features:update', 'cowork'); };
+const write = (n, v) => { fs.mkdirSync(store.root(), { recursive: true }); fs.writeFileSync(file(n), JSON.stringify(v, null, 2)); broadcast('features:update', 'grizzywork'); };
 const MODES = ['acceptEdits', 'plan', 'default'];
 const cfg = () => store.getSettings();
 
-// ---- Policy: org-style limits kept in settings. They bind Cowork tasks started from the app, not what you can edit on this Mac ----
-const policy = () => ({ enabled: true, allowedFolders: [], ...(cfg().coworkPolicy || {}) });
+// ---- Policy: org-style limits kept in settings. They bind GrizzyWork tasks started from the app, not what you can edit on this Mac ----
+const policy = () => ({ enabled: true, allowedFolders: [], ...(cfg().grizzyworkPolicy || {}) });
 function checkPolicy(folder) {
   const p = policy();
-  if (!p.enabled) throw new Error('Cowork is turned off by policy on this computer.');
-  if (folder && p.allowedFolders.length && !p.allowedFolders.some((f) => folder === f || folder.startsWith(f.replace(/\/$/, '') + '/'))) throw new Error('Policy only allows Cowork in: ' + p.allowedFolders.join(', '));
+  if (!p.enabled) throw new Error('GrizzyWork is turned off by policy on this computer.');
+  if (folder && p.allowedFolders.length && !p.allowedFolders.some((f) => folder === f || folder.startsWith(f.replace(/\/$/, '') + '/'))) throw new Error('Policy only allows GrizzyWork in: ' + p.allowedFolders.join(', '));
 }
 
-// ---- Egress: web_fetch / web_search in Cowork tasks follow coworkEgress ({ mode: all | allowlist | none, hosts }) ----
+// ---- Egress: web_fetch / web_search in GrizzyWork tasks follow grizzyworkEgress ({ mode: all | allowlist | none, hosts }) ----
 // Covers the web tools only. A shell command such as curl is not filtered; use "Ask first" to review those.
 function egressCheck(conv, name, input) {
-  if (!conv?.cowork || (name !== 'web_fetch' && name !== 'web_search')) return null;
-  const e = { mode: 'all', hosts: [], ...(cfg().coworkEgress || {}) };
+  if (!conv?.grizzywork || (name !== 'web_fetch' && name !== 'web_search')) return null;
+  const e = { mode: 'all', hosts: [], ...(cfg().grizzyworkEgress || {}) };
   if (e.mode === 'all') return null;
-  if (e.mode === 'none') return 'Network access is off for Cowork tasks (Cowork → Network).';
-  if (name === 'web_search') return 'Web search is off for Cowork tasks because the network is limited to an allow-list.';
+  if (e.mode === 'none') return 'Network access is off for GrizzyWork tasks (GrizzyWork → Network).';
+  if (name === 'web_search') return 'Web search is off for GrizzyWork tasks because the network is limited to an allow-list.';
   let host; try { host = new URL(input.url).hostname.toLowerCase(); } catch { return 'That is not a valid URL.'; }
-  return e.hosts.some((h) => host === h || host.endsWith('.' + h)) ? null : `${host} is not on the Cowork allow-list (Cowork → Network).`;
+  return e.hosts.some((h) => host === h || host.endsWith('.' + h)) ? null : `${host} is not on the GrizzyWork allow-list (GrizzyWork → Network).`;
 }
 
 // ---- Spaces ----
@@ -51,20 +51,20 @@ const removeSpace = (id) => write('spaces', read('spaces').filter((s) => s.id !=
 // ---- Scratch workspaces ----
 function createScratch() {
   const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
-  const p = path.join(dir('cowork-scratch'), `scratch-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${crypto.randomBytes(3).toString('hex')}`);
+  const p = path.join(dir('grizzywork-scratch'), `scratch-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${crypto.randomBytes(3).toString('hex')}`);
   fs.mkdirSync(p, { recursive: true }); return p;
 }
 // Deletes scratch workspaces of tasks that are not running and are older than `days` (0 = keep forever). Granted folders are never touched.
 function cleanup(days) {
   days = Number(days) || 0; if (!days) return 0;
   const keep = new Set(read('tasks').filter((t) => t.status === 'running' || Date.now() - t.createdAt < days * 864e5).map((t) => t.cwd));
-  let n = 0; const base = dir('cowork-scratch');
+  let n = 0; const base = dir('grizzywork-scratch');
   let names = []; try { names = fs.readdirSync(base); } catch {}
   for (const nm of names) { const p = path.join(base, nm); if (keep.has(p)) continue; try { fs.rmSync(p, { recursive: true, force: true }); n++; } catch {} }
   return n;
 }
 
-// ---- Cowork memory: separate from GrizzyCode's chat memory; only Cowork tasks see it ----
+// ---- GrizzyWork memory: separate from GrizzyCode's chat memory; only GrizzyWork tasks see it ----
 const memList = () => read('memory');
 function memAdd(text) {
   text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 600); if (!text) throw new Error('Nothing to remember.');
@@ -73,24 +73,24 @@ function memAdd(text) {
 }
 const memRemove = (id) => write('memory', read('memory').filter((m) => m.id !== id));
 
-// ---- Plugins: installed plugins can be switched on for Cowork; their skills and commands are then named in the task prompt ----
+// ---- Plugins: installed plugins can be switched on for GrizzyWork; their skills and commands are then named in the task prompt ----
 function pluginList() {
-  const on = new Set(cfg().coworkPlugins || []);
+  const on = new Set(cfg().grizzyworkPlugins || []);
   return require('./plugins').list().map((p) => ({ name: p.name, description: p.description || '', skills: p.skills || [], commands: p.commands || [], enabled: on.has(p.name) }));
 }
 function setPlugin(name, enabled) {
-  const on = new Set(cfg().coworkPlugins || []); enabled ? on.add(name) : on.delete(name);
-  store.saveSettings({ coworkPlugins: [...on] }); broadcast('features:update', 'cowork'); return pluginList();
+  const on = new Set(cfg().grizzyworkPlugins || []); enabled ? on.add(name) : on.delete(name);
+  store.saveSettings({ grizzyworkPlugins: [...on] }); broadcast('features:update', 'grizzywork'); return pluginList();
 }
 
 function setEgress(o) {
   const mode = ['all', 'allowlist', 'none'].includes(o?.mode) ? o.mode : 'all';
   const hosts = [...new Set((o?.hosts || []).map((h) => String(h).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/[\/:].*$/, '').replace(/^\*\./, '')).filter((h) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(h)))].slice(0, 100);
-  store.saveSettings({ coworkEgress: { mode, hosts } }); return { mode, hosts };
+  store.saveSettings({ grizzyworkEgress: { mode, hosts } }); return { mode, hosts };
 }
 function setPolicy(o) {
   const allowedFolders = (o?.allowedFolders || []).map(String).filter((f) => path.isAbsolute(f)).slice(0, 50);
-  const p = { enabled: o?.enabled !== false, allowedFolders }; store.saveSettings({ coworkPolicy: p }); return p;
+  const p = { enabled: o?.enabled !== false, allowedFolders }; store.saveSettings({ grizzyworkPolicy: p }); return p;
 }
 
 // ---- Files: list and read what a task produced (confined to the task's folder) ----
@@ -136,7 +136,7 @@ function branch(id) {
   const src = store.getConversation(t.convId); const cwd = t.scratch ? createScratch() : t.cwd;
   if (t.scratch) fs.cpSync(t.cwd, cwd, { recursive: true });
   const c = store.newConversation({ mode: 'code', cwd, permissionMode: t.permissionMode });
-  Object.assign(c, { cowork: { ...src.cowork }, messages: JSON.parse(JSON.stringify(src.messages)), title: ('Branch: ' + src.title).slice(0, 60) }); store.saveConversation(c);
+  Object.assign(c, { grizzywork: { ...src.grizzywork }, messages: JSON.parse(JSON.stringify(src.messages)), title: ('Branch: ' + src.title).slice(0, 60) }); store.saveConversation(c);
   const n = { ...t, id: crypto.randomUUID(), cwd, convId: c.id, status: 'done', createdAt: Date.now(), finishedAt: Date.now(), error: '', prompt: 'Branch of: ' + t.prompt };
   const l = read('tasks'); l.push(n); write('tasks', l); return n;
 }
@@ -146,11 +146,11 @@ function exportData() {
   return { exportedAt: new Date().toISOString(), spaces: read('spaces'), memory: read('memory'), policy: policy(),
     tasks: read('tasks').map((t) => ({ ...t, conversation: (() => { try { return store.getConversation(t.convId); } catch { return null; } })() })) };
 }
-// Deletes Cowork tasks, their sessions, Spaces, memory and scratch workspaces. Folders you granted are not touched.
+// Deletes GrizzyWork tasks, their sessions, Spaces, memory and scratch workspaces. Folders you granted are not touched.
 function deleteAll() {
   for (const t of read('tasks')) { try { agent.stop(t.convId); } catch {} store.deleteConversation(t.convId); }
   write('tasks', []); write('spaces', []); write('memory', []);
-  try { fs.rmSync(dir('cowork-scratch'), { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(dir('grizzywork-scratch'), { recursive: true, force: true }); } catch {}
   return true;
 }
 
@@ -166,7 +166,7 @@ function start({ prompt, folder, spaceId, permissionMode }) {
   const cwd = folder || createScratch();
   const pm = MODES.includes(permissionMode) ? permissionMode : 'acceptEdits';
   const c = store.newConversation({ mode: 'code', cwd, permissionMode: pm });
-  c.cowork = { spaceId: space?.id || null, scratch: !folder }; store.saveConversation(c);
+  c.grizzywork = { spaceId: space?.id || null, scratch: !folder }; store.saveConversation(c);
   const t = { id: crypto.randomUUID(), prompt, cwd, scratch: !folder, spaceId: space?.id || null, permissionMode: pm, convId: c.id, status: 'running', createdAt: Date.now(), finishedAt: 0, error: '' };
   const l = read('tasks'); l.push(t); write('tasks', l);
   agent.send(c.id, prompt, (ev) => {
@@ -184,16 +184,16 @@ function init(o) {
   const l = read('tasks'); let dirty = false;
   for (const t of l) if (t.status === 'running' && !agent.isRunning(t.convId)) { t.status = 'interrupted'; dirty = true; }
   if (dirty) write('tasks', l);
-  cleanup(store.getSettings().coworkRetentionDays);
+  cleanup(store.getSettings().grizzyworkRetentionDays);
 }
 
-// System prompt text for a Cowork conversation: what this mode is for, plus the Space's context.
+// System prompt text for a GrizzyWork conversation: what this mode is for, plus the Space's context.
 function promptBlock(conv) {
-  if (!conv?.cowork) return '';
-  const sp = conv.cowork.spaceId && read('spaces').find((s) => s.id === conv.cowork.spaceId);
-  let out = `\n\nThis is a Cowork task: general knowledge work for the user (documents, research, spreadsheets, organizing files), not a software project. Your working folder is ${conv.cwd}${conv.cowork.scratch ? ', a scratch workspace made for this task: write deliverables there and tell the user the file names' : ''}. Work autonomously, keep the user informed with short progress notes, and finish with a summary of what you produced and where it is.`;
-  const mem = read('memory').slice(-40); if (mem.length) out += '\n\nWhat you remember about the user from past Cowork tasks:\n' + mem.map((m) => '- ' + m.text).join('\n');
-  const pl = pluginList().filter((x) => x.enabled); if (pl.length) out += '\n\nPlugins switched on for Cowork:\n' + pl.map((x) => `- ${x.name}: ${x.description}${x.skills.length ? ' (skills: ' + x.skills.join(', ') + ')' : ''}${x.commands.length ? ' (commands: ' + x.commands.join(', ') + ')' : ''}`).join('\n');
+  if (!conv?.grizzywork) return '';
+  const sp = conv.grizzywork.spaceId && read('spaces').find((s) => s.id === conv.grizzywork.spaceId);
+  let out = `\n\nThis is a GrizzyWork task: general knowledge work for the user (documents, research, spreadsheets, organizing files), not a software project. Your working folder is ${conv.cwd}${conv.grizzywork.scratch ? ', a scratch workspace made for this task: write deliverables there and tell the user the file names' : ''}. Work autonomously, keep the user informed with short progress notes, and finish with a summary of what you produced and where it is.`;
+  const mem = read('memory').slice(-40); if (mem.length) out += '\n\nWhat you remember about the user from past GrizzyWork tasks:\n' + mem.map((m) => '- ' + m.text).join('\n');
+  const pl = pluginList().filter((x) => x.enabled); if (pl.length) out += '\n\nPlugins switched on for GrizzyWork:\n' + pl.map((x) => `- ${x.name}: ${x.description}${x.skills.length ? ' (skills: ' + x.skills.join(', ') + ')' : ''}${x.commands.length ? ' (commands: ' + x.commands.join(', ') + ')' : ''}`).join('\n');
   out += '\nFor documents, spreadsheets, slides and PDFs, load the matching skill (docx, xlsx, pptx, pdf) with use_skill first.';
   if (sp) {
     out += `\n\nSpace "${sp.name}":`;

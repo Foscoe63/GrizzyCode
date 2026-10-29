@@ -1254,22 +1254,22 @@ export const register: Register = (on, options) => {
     sh.lockSession(fake); assert(req[0] === false && req[1] === true, 'permissions denied except clipboard write');
   }
   {
-    const cw = require('../src/main/cowork'); const fsx = require('fs'), osx = require('os'), pth = require('path');
-    store.saveSettings({ coworkEgress: { mode: 'allowlist', hosts: ['example.com'] }, coworkPolicy: { enabled: true, allowedFolders: [] } });
-    const cv = { cowork: {} };
-    assert(!cw.egressCheck(cv, 'web_fetch', { url: 'https://docs.example.com/a' }) && cw.egressCheck(cv, 'web_fetch', { url: 'https://evil.com/' }) && cw.egressCheck(cv, 'web_search', { query: 'x' }) && !cw.egressCheck({}, 'web_fetch', { url: 'https://evil.com/' }), 'cowork egress allow-list');
-    cw.setEgress({ mode: 'none', hosts: [] }); assert(cw.egressCheck(cv, 'web_fetch', { url: 'https://example.com' }), 'cowork egress off blocks all');
+    const cw = require('../src/main/grizzywork'); const fsx = require('fs'), osx = require('os'), pth = require('path');
+    store.saveSettings({ grizzyworkEgress: { mode: 'allowlist', hosts: ['example.com'] }, grizzyworkPolicy: { enabled: true, allowedFolders: [] } });
+    const cv = { grizzywork: {} };
+    assert(!cw.egressCheck(cv, 'web_fetch', { url: 'https://docs.example.com/a' }) && cw.egressCheck(cv, 'web_fetch', { url: 'https://evil.com/' }) && cw.egressCheck(cv, 'web_search', { query: 'x' }) && !cw.egressCheck({}, 'web_fetch', { url: 'https://evil.com/' }), 'grizzywork egress allow-list');
+    cw.setEgress({ mode: 'none', hosts: [] }); assert(cw.egressCheck(cv, 'web_fetch', { url: 'https://example.com' }), 'grizzywork egress off blocks all');
     cw.setEgress({ mode: 'all', hosts: [] });
     cw.setPolicy({ enabled: true, allowedFolders: [osx.tmpdir() + '/only-here'] }); let pe = ''; try { cw.start({ prompt: 'x', folder: osx.homedir() }); } catch (e) { pe = e.message; }
-    assert(/Policy only allows/.test(pe), 'cowork policy limits folders'); cw.setPolicy({ enabled: false }); pe = ''; try { cw.start({ prompt: 'x' }); } catch (e) { pe = e.message; }
-    assert(/turned off/.test(pe), 'cowork policy can turn it off'); cw.setPolicy({ enabled: true, allowedFolders: [] });
-    cw.memAdd('likes short reports'); assert(cw.memList().some((m) => m.text === 'likes short reports') && /short reports/.test(cw.promptBlock({ cowork: {}, cwd: '/x' })), 'cowork memory reaches the prompt'); cw.memList().forEach((m) => cw.memRemove(m.id));
+    assert(/Policy only allows/.test(pe), 'grizzywork policy limits folders'); cw.setPolicy({ enabled: false }); pe = ''; try { cw.start({ prompt: 'x' }); } catch (e) { pe = e.message; }
+    assert(/turned off/.test(pe), 'grizzywork policy can turn it off'); cw.setPolicy({ enabled: true, allowedFolders: [] });
+    cw.memAdd('likes short reports'); assert(cw.memList().some((m) => m.text === 'likes short reports') && /short reports/.test(cw.promptBlock({ grizzywork: {}, cwd: '/x' })), 'grizzywork memory reaches the prompt'); cw.memList().forEach((m) => cw.memRemove(m.id));
     const sc = cw.createScratch(); fsx.writeFileSync(pth.join(sc, 'a.md'), '# hi'); fsx.writeFileSync(pth.join(sc, 'p.html'), '<h1>x</h1>');
-    let tk = []; try { tk = JSON.parse(fsx.readFileSync(pth.join(store.root(), 'cowork-tasks.json'), 'utf8')); } catch {} tk.push({ id: 'T1', cwd: sc, scratch: true, convId: 'none', prompt: 't', status: 'done', createdAt: Date.now() }); fsx.writeFileSync(pth.join(store.root(), 'cowork-tasks.json'), JSON.stringify(tk));
-    assert(cw.files('T1').length === 2 && cw.preview('T1', 'a.md').kind === 'markdown' && cw.preview('T1', 'p.html').kind === 'html', 'cowork lists and previews task files');
-    let esc = ''; try { cw.preview('T1', '../../etc/hosts'); } catch (e) { esc = e.message; } assert(/outside/.test(esc), 'cowork preview is confined to the task folder');
-    const ex = cw.exportData(); assert(ex.tasks.some((t) => t.id === 'T1'), 'cowork export has tasks');
-    cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'cowork delete removes tasks and scratch workspaces');
+    let tk = []; try { tk = JSON.parse(fsx.readFileSync(pth.join(store.root(), 'grizzywork-tasks.json'), 'utf8')); } catch {} tk.push({ id: 'T1', cwd: sc, scratch: true, convId: 'none', prompt: 't', status: 'done', createdAt: Date.now() }); fsx.writeFileSync(pth.join(store.root(), 'grizzywork-tasks.json'), JSON.stringify(tk));
+    assert(cw.files('T1').length === 2 && cw.preview('T1', 'a.md').kind === 'markdown' && cw.preview('T1', 'p.html').kind === 'html', 'grizzywork lists and previews task files');
+    let esc = ''; try { cw.preview('T1', '../../etc/hosts'); } catch (e) { esc = e.message; } assert(/outside/.test(esc), 'grizzywork preview is confined to the task folder');
+    const ex = cw.exportData(); assert(ex.tasks.some((t) => t.id === 'T1'), 'grizzywork export has tasks');
+    cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'grizzywork delete removes tasks and scratch workspaces');
   }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();

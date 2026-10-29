@@ -49,7 +49,7 @@ function buildSystem(s, conv) {
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   const sk = s.capSkills === false ? [] : skills.list();
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
-  return sys + require('./cowork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
+  return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
 
@@ -138,7 +138,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
   if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(`The tool ${c.name} is not enabled. It can be turned on in Settings → Capabilities.`);
-  { const blocked = require('./cowork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
+  { const blocked = require('./grizzywork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});

@@ -46,7 +46,7 @@ const DEFAULTS = {
   models: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'],
   trustedFolders: [],
   pinnedFolders: [],
-  coworkRetentionDays: 30, coworkEgress: { mode: 'all', hosts: [] }, coworkPlugins: [], coworkPolicy: { enabled: true, allowedFolders: [] },
+  grizzyworkRetentionDays: 30, grizzyworkEgress: { mode: 'all', hosts: [] }, grizzyworkPlugins: [], grizzyworkPolicy: { enabled: true, allowedFolders: [] },
   runInTray: true,
   zoom: 0,
   sidebarHidden: false,
