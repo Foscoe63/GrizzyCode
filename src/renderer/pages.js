@@ -316,11 +316,13 @@ function cwSpaceForm(s = {}) {
 
 const kb = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
 async function pgCwTask() {
-  const t = cwTask, list = await gc.cowork.files(t.id);
+  const t = cwTask, [list, allArts] = await Promise.all([gc.cowork.files(t.id), gc.artifacts.saved()]); const arts = allArts.filter((x) => x.convId === t.convId);
   $('page').innerHTML = shell('Task files', '<button class="outline" id="fBack">Back</button>', `<p class="hint">${esc(t.prompt.slice(0, 120))}<br>${esc(t.cwd)}</p>
     <div class="inl" style="align-items:flex-start;gap:14px"><div style="width:300px;flex:none;max-height:60vh;overflow:auto">${list.length ? list.map((f) => `<div class="task f-row ${f.rel === cwFile ? 'on' : ''}" data-rel="${esc(f.rel)}"><div class="grow"><b>${esc(f.rel)}</b><p>${kb(f.size)} · ${when(f.mtime)}</p></div></div>`).join('') : '<p class="hint">No files yet.</p>'}</div>
     <div class="grow" id="fView"><p class="hint">Pick a file to preview it.</p></div></div>
+    <h3>Artifacts</h3>${arts.length ? arts.map((x) => `<div class="task" data-art="${x.id}"><div class="grow"><b>${esc(x.title)}</b><p>${esc(x.type)} · ${x.versions + 1} version${x.versions ? 's' : ''} · ${when(x.updatedAt)}</p></div><button class="outline a-open">Open</button></div>`).join('') : '<p class="hint">This task has not made any artifacts.</p>'}
     <div class="inl"><button class="outline" id="fReveal">Show in Finder</button></div>`);
+  $('page').querySelectorAll('[data-art]').forEach((r) => (r.querySelector('.a-open').onclick = () => gc.artifacts.openSaved(r.dataset.art)));
   P('#fBack').onclick = () => { cwTask = null; pgCowork(); };
   P('#fReveal').onclick = () => gc.cowork.reveal(t.id).then((ok) => ok || toast('The folder is gone'));
   const show = async (rel) => {
