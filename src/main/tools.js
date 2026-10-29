@@ -7,6 +7,7 @@ const memory = require('./memory');
 const extras = require('./extras');
 const bg = require('./bgtasks');
 const artifacts = require('./artifacts');
+const computer = require('./computer');
 
 const MAX_OUT = 30000;
 const clip = (s) => (s.length > MAX_OUT ? s.slice(0, MAX_OUT) + `\n…[truncated ${s.length - MAX_OUT} chars]` : s);
@@ -72,10 +73,11 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   if (on('capSkills') && skills.list().length) out.push(skillTool);
   if (opts.agentMemory) out.push(noteTool);
   if (on('capArtifacts')) out.push(artifacts.toolDef());
+  if (on('capComputer', false) && process.platform === 'darwin' && mode === 'code' && permissionMode !== 'plan' && !opts.sub && !opts.depth && !opts.ssh) out.push(computer.toolDef());
   return out.map(({ risky, kind, ...t }) => t);
 }
 // 'read' | 'edit' | 'exec'
-const kindOf = (name) => defs.find((d) => d.name === name)?.kind || (name === 'web_fetch' || name === 'web_search' ? 'exec' : name.startsWith('mcp__') ? 'exec' : 'read');
+const kindOf = (name) => defs.find((d) => d.name === name)?.kind || (name === 'web_fetch' || name === 'web_search' || name === 'computer' ? 'exec' : name.startsWith('mcp__') ? 'exec' : 'read');
 
 // ---- SSH sessions: every file/shell tool runs on the remote host through the system ssh client ----
 const shq = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
@@ -193,6 +195,7 @@ async function webSearch(query, signal) {
 }
 
 function run(name, input, cwd, signal, ssh, ctx = {}) {
+  if (ssh?.host && name === 'computer') return Promise.resolve('ERROR: Computer use is not available in SSH sessions.');
   if (ssh?.host && name === 'bash' && input.background) return Promise.resolve('ERROR: background tasks are not supported in SSH sessions.');
   if (ssh?.host && !['use_skill', 'save_memory', 'web_fetch', 'task_output', 'task_stop', 'add_followup', 'artifact', 'todo_write', 'web_search'].includes(name)) return runRemote(name, input, ssh.host, cwd, signal);
   const abs = (p) => path.resolve(cwd || process.env.HOME, p || '.');
@@ -244,6 +247,7 @@ function run(name, input, cwd, signal, ssh, ctx = {}) {
     case 'artifact': return artifacts.runTool(input, ctx);
     case 'todo_write': return setTodos(input.todos, ctx);
     case 'web_search': return webSearch(input.query, signal);
+    case 'computer': return computer.run(input, ctx, signal);
     case 'use_skill': return skills.read(input.id);
     case 'save_memory': { const r = memory.add(input.text, 'model'); return r.error || (r.duplicate ? 'Already remembered.' : 'Saved to memory.'); }
     case 'web_fetch': return webFetch(input.url, signal);

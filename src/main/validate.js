@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Switches must be real booleans: a stray string like "false" would otherwise read as on and quietly turn a safety setting (shell, web, bypass) on.
-const BOOL = new Set(['runInTray', 'sidebarHidden', 'notifications', 'notifySound', 'capArtifacts', 'capShell', 'capEdit', 'capWeb', 'capSkills', 'capAgents', 'memoryEnabled', 'memoryAuto', 'allowBypass', 'autoOpenFiles', 'launchAtLogin', 'keepAwake', 'keepAwakeBattery', 'hardwareAccel', 'devMode', 'dockBounce', 'promptSuggestions', 'autoResume', 'checkUpdates', 'saveRouter', 'saveOutputs', 'saveCompact']);
+const BOOL = new Set(['runInTray', 'sidebarHidden', 'notifications', 'notifySound', 'capArtifacts', 'capShell', 'capEdit', 'capWeb', 'capComputer', 'capSkills', 'capAgents', 'memoryEnabled', 'memoryAuto', 'allowBypass', 'autoOpenFiles', 'launchAtLogin', 'keepAwake', 'keepAwakeBattery', 'hardwareAccel', 'devMode', 'dockBounce', 'promptSuggestions', 'autoResume', 'checkUpdates', 'saveRouter', 'saveOutputs', 'saveCompact']);
 const themes = require('./themes');
 const ROLES = ['', 'software', 'design', 'research', 'writing', 'data', 'product', 'education', 'student', 'other'];
 const ENUM = { theme: ['system', 'light', 'dark'], permissionMode: ['default', 'acceptEdits', 'plan', 'bypassPermissions'], provider: ['anthropic', 'openai'] };

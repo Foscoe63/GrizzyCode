@@ -43,6 +43,7 @@
 | 🌿 | **Worktrees** | Work on a new git branch in a separate worktree. |
 | 🌍 | **SSH sessions** | Run a code session's file and shell tools on a remote host. |
 | 🎨 | **Design systems** | Colors, fonts and guidelines the model follows when it builds interfaces. |
+| 🖱️ | **Computer use** | Off by default (Settings → Capabilities). Code sessions can see and drive other Mac apps you approve one at a time: screenshots, clicks, typing, keys, scrolling. Browsers are look-only, terminals and editors click-only, and GrizzyCode never controls itself. Needs Screen Recording and Accessibility permission. |
 | 🌐 | **Browser tools** | Let code sessions drive a real browser through the Playwright connector. |
 | 🪟 | **Windows and layout** | Side Chat, stacked Split View, resizable sidebars, a full-width status bar, and window size restored between launches. |
 | 🎨 | **Themes** | Settings → Appearance has built-in themes plus light and dark modes. |

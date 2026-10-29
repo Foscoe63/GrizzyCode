@@ -356,6 +356,8 @@ async function send(convId, userText, emit, images = [], opts = {}) {
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000) });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
       }
+      { const shot = require('./computer').takeShot(convId); // computer use: only the newest screenshot stays in the history
+        if (shot) { for (const m of conv.messages) if (Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_result')) m.content = m.content.filter((b) => b.type !== 'image'); results.push({ type: 'image', source: { type: 'base64', media_type: shot.mediaType, data: shot.data } }); } }
       conv.messages.push({ role: 'user', content: results });
       store.saveConversation(conv);
       if (ac.signal.aborted) break;
@@ -384,7 +386,7 @@ const stop = (convId) => { acp.stop(convId); active.get(convId)?.abort(); for (c
 const isRunning = (convId) => active.has(convId) || acp.isRunning(convId);
 
 // ---- Rewind: drop a user message and everything after it, and (optionally) put back the files Claude changed since ----
-const isHuman = (m) => m?.role === 'user' && (typeof m.content === 'string' || (Array.isArray(m.content) && m.content.some((b) => b.type !== 'tool_result')));
+const isHuman = (m) => m?.role === 'user' && (typeof m.content === 'string' || (Array.isArray(m.content) && m.content.some((b) => b.type !== 'tool_result' && !(b.type === 'image' && m.content.some((x) => x.type === 'tool_result')))));
 const humanText = (m) => (typeof m.content === 'string' ? m.content : m.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n'));
 function rewindPreview(convId, idx) {
   try { const conv = store.getConversation(convId); const m = conv.messages[idx]; if (!isHuman(m)) return null; return { removedMessages: conv.messages.length - idx, files: conv.ssh ? [] : checkpoints.preview(convId, idx), ssh: !!conv.ssh }; } catch { return null; }

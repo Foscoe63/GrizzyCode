@@ -57,7 +57,7 @@ const DEFAULTS = {
   // Privacy
   retentionDays: 0, // 0 = keep forever
   // Capabilities
-  capArtifacts: true, capShell: true, capEdit: true, capWeb: false, capSkills: true, capAgents: true, maxSteps: 40,
+  capArtifacts: true, capShell: true, capEdit: true, capWeb: false, capComputer: false, capSkills: true, capAgents: true, maxSteps: 40,
   // Memory
   memoryEnabled: true, memoryAuto: true,
   // Design systems

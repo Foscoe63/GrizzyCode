@@ -1271,6 +1271,21 @@ export const register: Register = (on, options) => {
     const ex = cw.exportData(); assert(ex.tasks.some((t) => t.id === 'T1'), 'grizzywork export has tasks');
     cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'grizzywork delete removes tasks and scratch workspaces');
   }
+  {
+    const cu = require('../src/main/computer'), T = cu.__test;
+    assert(cu.tierOf('Safari') === 'look' && cu.tierOf('Terminal') === 'click' && cu.tierOf('Notes') === 'full' && cu.tierOf('GrizzyCode') === 'none', 'computer use: app tiers');
+    assert(/key code 36/.test(cu.keyScript('return')) && /keystroke "a" using \{command down\}/.test(cu.keyScript('cmd+a')), 'computer use: key combos become scripts');
+    let ke = ''; try { cu.keyScript('cmd+q'); } catch (e) { ke = e.message; } assert(/not allowed/.test(ke), 'computer use: cmd+q is refused');
+    assert(!tools.publicDefs('code', 'default', {}).some((d) => d.name === 'computer') && (process.platform !== 'darwin' || tools.publicDefs('code', 'default', { capComputer: true }).some((d) => d.name === 'computer')) && !tools.publicDefs('chat', 'default', { capComputer: true }).some((d) => d.name === 'computer') && !tools.publicDefs('code', 'default', { capComputer: true }, { sub: true }).some((d) => d.name === 'computer'), 'computer use: off by default, never for chat or sub-agents');
+    let front = 'Notes'; T.setFront(async () => front);
+    T.setApprover(async () => false); let r = await T.requestAccess('c1', ['Notes'], 'x'); assert(/denied/.test(r) && !T.grants.get('c1'), 'computer use: a denied request grants nothing');
+    T.setApprover(async () => true); await T.requestAccess('c1', ['Notes', 'Safari', 'GrizzyCode']); assert(T.grants.get('c1').has('notes') && !T.grants.get('c1').has('grizzycode'), 'computer use: grants never include GrizzyCode itself');
+    assert(await T.gate('c1', 'full') === 'Notes', 'computer use: a granted app in front passes');
+    front = 'Mail'; let ge = ''; try { await T.gate('c1', 'look'); } catch (e) { ge = e.message; } assert(/not been granted/.test(ge), 'computer use: an app that was not granted is refused');
+    front = 'Safari'; ge = ''; try { await T.gate('c1', 'click'); } catch (e) { ge = e.message; } assert(/look only/.test(ge) && await T.gate('c1', 'look') === 'Safari', 'computer use: browsers are look-only');
+    front = 'Notes'; r = await cu.run({ action: 'click', x: 10, y: 10 }, { convId: 'c2' }); assert(/ERROR/.test(r), 'computer use: another session has no grants');
+    T.setFront(null); T.setApprover(null);
+  }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED'); app.exit(failed ? 1 : 0);
