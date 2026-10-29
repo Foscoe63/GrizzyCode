@@ -13,6 +13,7 @@ async function ensureTrusted(cwd) {
   settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, cwd] }); return true;
 }
 function showPage(name) {
+  if (name === 'grizzywork' && pageName !== 'grizzywork') { cwTask = null; cwFile = null; cwDraft.folder = null; }
   pageName = name; document.body.classList.add('paged');
   for (const [id, p] of Object.entries(NAV)) $(id).classList.toggle('on', p === name);
   $('nNew').classList.remove('on'); $('title').textContent = TITLES[name]; $('branch').hidden = true;
@@ -272,12 +273,12 @@ async function pgGrizzyWork() {
   P('#cGo').onclick = async () => {
     const prompt = P('#cText').value.trim(); if (!prompt) return toast('Describe the task first');
     if (cwDraft.folder && !settings.trustedFolders.includes(cwDraft.folder)) {
-      if (!(await gc.confirm(`Allow Claude to grizzywork in ${cwDraft.folder}?`, 'It can read files in this folder and, depending on the permission mode, change them.', 'Allow'))) return;
+      if (!(await gc.confirm(`Allow Claude to work in ${cwDraft.folder}?`, 'It can read files in this folder and, depending on the permission mode, change them.', 'Allow'))) return;
       settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, cwDraft.folder] });
     }
     const r = await gc.grizzywork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode });
     if (r?.error) return toast(r.error);
-    cwDraft.prompt = ''; toast('Task started'); pgGrizzyWork(); refreshList();
+    cwDraft.prompt = ''; P('#cText').value = ''; toast('Task started'); pgGrizzyWork(); refreshList();
   };
   P('#cNewSpace').onclick = () => cwSpaceForm();
   $('page').querySelectorAll('[data-sp]').forEach((row) => {
@@ -314,6 +315,21 @@ function cwSpaceForm(s = {}) {
   };
 }
 
+// Small, safe Markdown view: headings, bold/italic, inline code, bullet and numbered lists, paragraphs. Everything is escaped first.
+function mdLite(src) {
+  const inline = (t) => esc(t).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, '$1<i>$2</i>');
+  let out = '', list = null;
+  const close = () => { if (list) { out += `</${list}>`; list = null; } };
+  for (const line of String(src).split(/\r?\n/)) {
+    let m;
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { close(); out += `<h${Math.min(m[1].length + 1, 6)}>${inline(m[2])}</h${Math.min(m[1].length + 1, 6)}>`; }
+    else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) { if (list !== 'ul') { close(); out += '<ul>'; list = 'ul'; } out += `<li>${inline(m[1])}</li>`; }
+    else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { if (list !== 'ol') { close(); out += '<ol>'; list = 'ol'; } out += `<li>${inline(m[1])}</li>`; }
+    else if (!line.trim()) close();
+    else { close(); out += `<p>${inline(line)}</p>`; }
+  }
+  close(); return out;
+}
 const kb = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
 async function pgCwTask() {
   const t = cwTask, [list, allArts] = await Promise.all([gc.grizzywork.files(t.id), gc.artifacts.saved()]); const arts = allArts.filter((x) => x.convId === t.convId);
@@ -334,7 +350,8 @@ async function pgCwTask() {
     else if (r.kind === 'image') body = `<img src="${r.src}" style="max-width:100%;border-radius:8px">`;
     else if (r.kind === 'html') body = '<iframe sandbox="" style="width:100%;height:55vh;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>';
     else if (r.kind === 'table') { const rows = r.text.split(/\r?\n/).filter(Boolean).slice(0, 200).map((l) => l.split(r.sep)); body = `<div style="overflow:auto;max-height:55vh"><table>${rows.map((c, i) => `<tr>${c.map((x) => `<${i ? 'td' : 'th'}>${esc(x.replace(/^"|"$/g, ''))}</${i ? 'td' : 'th'}>`).join('')}</tr>`).join('')}</table></div>`; }
-    else if (r.kind === 'markdown' || r.kind === 'text') body = `<pre style="white-space:pre-wrap;max-height:55vh;overflow:auto">${esc(r.text)}</pre>`;
+    else if (r.kind === 'markdown') body = `<div style="max-height:55vh;overflow:auto">${mdLite(r.text)}</div>`;
+    else if (r.kind === 'text') body = `<pre style="white-space:pre-wrap;max-height:55vh;overflow:auto">${esc(r.text)}</pre>`;
     else body = `<p class="hint">${esc(r.note || 'No preview.')}</p>`;
     v.innerHTML = bar + body;
     if (r.kind === 'html') v.querySelector('iframe').srcdoc = r.text;
