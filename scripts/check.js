@@ -1284,6 +1284,16 @@ export const register: Register = (on, options) => {
     front = 'Mail'; let ge = ''; try { await T.gate('c1', 'look'); } catch (e) { ge = e.message; } assert(/not been granted/.test(ge), 'computer use: an app that was not granted is refused');
     front = 'Safari'; ge = ''; try { await T.gate('c1', 'click'); } catch (e) { ge = e.message; } assert(/look only/.test(ge) && await T.gate('c1', 'look') === 'Safari', 'computer use: browsers are look-only');
     front = 'Notes'; r = await cu.run({ action: 'click', x: 10, y: 10 }, { convId: 'c2' }); assert(/ERROR/.test(r), 'computer use: another session has no grants');
+    const nw = { id: 1, owner: 'Notes', layer: 0, b: { x: 100, y: 100, w: 400, h: 300 } }, ml = { id: 9, owner: 'Mail', layer: 0, b: { x: 300, y: 100, w: 300, h: 300 } };
+    T.setWindows(async () => [ml, nw]); T.view.set('c3', { id: 1, b: nw.b, k: 2, app: 'Notes' });
+    const p1 = await T.pt('c3', 50, 50); assert(p1.x === 200 && p1.y === 200, 'computer use: screenshot pixels map into the window');
+    let pe = ''; try { await T.pt('c3', 125, 50); } catch (e) { pe = e.message; } assert(/covers/.test(pe), 'computer use: a click under another window is refused');
+    pe = ''; try { await T.pt('c3', 300, 50); } catch (e) { pe = e.message; } assert(/outside/.test(pe), 'computer use: a click outside the window is refused');
+    T.setWindows(async () => [{ ...nw, b: { ...nw.b, x: 120 } }]); pe = ''; try { await T.pt('c3', 50, 50); } catch (e) { pe = e.message; } assert(/moved/.test(pe), 'computer use: a moved window needs a new screenshot');
+    assert(cu.frontWindow([ml, nw], 'notes') === nw && !cu.frontWindow([{ ...nw, layer: 25 }], 'Notes'), 'computer use: finds only a normal window of the app');
+    let asked = 0; T.setApprover(async () => { asked++; return true; }); front = 'Notes'; await T.confirmTyping('c4', 'Notes', 'x'); await T.confirmTyping('c4', 'Notes', 'y'); assert(asked === 1, 'computer use: typing is confirmed once per app');
+    T.setApprover(async () => false); pe = ''; try { await T.confirmTyping('c5', 'Notes', 'x'); } catch (e) { pe = e.message; } assert(/did not allow/.test(pe), 'computer use: a refused typing request stops the action');
+    T.setWindows(null);
     T.setFront(null); T.setApprover(null);
   }
   await modHost.stopAll();
