@@ -10,6 +10,7 @@ const git = require('./git');
 const term = require('./terminal');
 const importer = require('./importer');
 const features = require('./features');
+const cowork = require('./cowork');
 const llm = require('./llm');
 const auth = require('./auth');
 const models = require('./models');
@@ -600,6 +601,16 @@ function ipc() {
   h('schedules:save', (p) => features.saveSchedule(p));
   h('schedules:delete', (id) => features.removeSchedule(id));
   h('schedules:run', (id) => features.runSchedule(id));
+  const T = (f) => (...a) => { try { return f(...a); } catch (e) { return { error: e.message }; } };
+  h('cowork:tasks', () => cowork.listTasks());
+  h('cowork:start', (o) => T(cowork.start)(o));
+  h('cowork:stop', (id) => cowork.stop(id));
+  h('cowork:remove', (id) => cowork.remove(id));
+  h('cowork:reveal', (id) => { const t = cowork.listTasks().find((x) => x.id === id); if (t && fs.existsSync(t.cwd)) { shell.showItemInFolder(t.cwd); return true; } return false; });
+  h('cowork:spaces', () => cowork.listSpaces());
+  h('cowork:saveSpace', (p) => T(cowork.saveSpace)(p));
+  h('cowork:removeSpace', (id) => cowork.removeSpace(id));
+  h('cowork:cleanup', (days) => cowork.cleanup(days));
   h('dispatch:list', () => features.listDispatch());
   h('dispatch:start', (o) => { try { return features.startDispatch(o); } catch (e) { return { error: e.message }; } });
   h('dispatch:stop', (id) => features.stopDispatch(id));
@@ -681,6 +692,7 @@ app.whenReady().then(() => {
   } });
   modsGlue.setup({ ipcMain, store, mcp, models, llm, tools: require('./tools'), logger, app, dialog, Notification, wins, showMain, focused });
   modsGlue.host.startEnabled().catch((e) => console.warn('mods failed to start:', e.message));
+  cowork.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } });
   features.init({ emit, broadcast: (ch, ...a) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send(ch, ...a); } }); buildMenu(); syncTray(); registerShortcut(); createMain();
   appReady = true; { const l = pendingLink || process.argv.find((a) => a.startsWith(shell_.SCHEME + '://')); pendingLink = null; if (l) handleLink(l); }
   mcp.startAll().catch(() => {});

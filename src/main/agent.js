@@ -49,7 +49,7 @@ function buildSystem(s, conv) {
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   const sk = s.capSkills === false ? [] : skills.list();
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
-  return sys + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
+  return sys + require('./cowork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
 

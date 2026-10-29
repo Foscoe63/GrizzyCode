@@ -1,6 +1,6 @@
 // Sidebar pages: Projects, Artifacts, Scheduled, Dispatch, Customize. Share app.js's globals ($, esc, gc, settings, open, newCode, toast, …).
-const TITLES = { projects: 'Projects', artifacts: 'Artifacts', scheduled: 'Scheduled', dispatch: 'Dispatch', customize: 'Customize' };
-const NAV = { nProjects: 'projects', nArtifacts: 'artifacts', nScheduled: 'scheduled', nDispatch: 'dispatch', nCustomize: 'customize' };
+const TITLES = { projects: 'Projects', artifacts: 'Artifacts', scheduled: 'Scheduled', dispatch: 'Dispatch', cowork: 'Cowork', customize: 'Customize' };
+const NAV = { nProjects: 'projects', nArtifacts: 'artifacts', nScheduled: 'scheduled', nDispatch: 'dispatch', nCowork: 'cowork', nCustomize: 'customize' };
 let pageName = null, projSel = null, schedSel = null, artSel = null, savedSel = null, artTab = 'saved', artQuery = '', artFilter = 'all', dispDraft = { prompt: '', cwd: null, mode: 'acceptEdits' };
 const P = (sel) => $('page').querySelector(sel);
 const when = (t) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
@@ -23,9 +23,9 @@ function hidePage() {
   if (!pageName) return; pageName = null; document.body.classList.remove('paged');
   for (const id of Object.keys(NAV)) $(id).classList.remove('on');
 }
-const renderPage = () => ({ projects: pgProjects, artifacts: pgArtifacts, scheduled: pgScheduled, dispatch: pgDispatch, customize: pgCustomize }[pageName]?.());
+const renderPage = () => ({ projects: pgProjects, artifacts: pgArtifacts, scheduled: pgScheduled, dispatch: pgDispatch, cowork: pgCowork, customize: pgCustomize }[pageName]?.());
 for (const [id, name] of Object.entries(NAV)) $(id).onclick = () => { if (pageName === name) return; if (name === 'projects') projSel = null; if (name === 'scheduled') schedSel = null; showPage(name); };
-gc.onFeatures((n) => { if ((n === 'schedules' && pageName === 'scheduled' && !schedSel) || (n === 'dispatch' && pageName === 'dispatch')) renderPage(); });
+gc.onFeatures((n) => { if ((n === 'schedules' && pageName === 'scheduled' && !schedSel) || (n === 'dispatch' && pageName === 'dispatch') || (n === 'cowork' && pageName === 'cowork' && !cwEditing)) renderPage(); });
 
 // ---------------- Projects ----------------
 async function pgProjects() {
@@ -238,6 +238,73 @@ async function pgDispatch() {
     row.querySelector('.t-stop')?.addEventListener('click', async () => { await gc.dispatch.stop(t.id); pgDispatch(); });
     row.querySelector('.t-del')?.addEventListener('click', async () => { await gc.dispatch.remove(t.id); pgDispatch(); });
   });
+}
+
+// ---------------- Cowork ----------------
+let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits' }, cwEditing = false;
+async function pgCowork() {
+  const [tasks, spaces] = await Promise.all([gc.cowork.tasks(), gc.cowork.spaces()]);
+  const keep = $('page').querySelector('#cText')?.value; if (keep != null) cwDraft.prompt = keep;
+  const spName = (id) => spaces.find((s) => s.id === id)?.name;
+  $('page').innerHTML = shell('Cowork', '<button class="outline" id="cNewSpace">New Space</button>', `
+    <div class="card3"><textarea id="cText" rows="3" placeholder="What should Claude work on? Reports, research, spreadsheets, file organizing…">${esc(cwDraft.prompt)}</textarea>
+      <div class="inl"><button class="chip-b" id="cDir">${esc(cwDraft.folder ? folderName(cwDraft.folder) : 'Scratch workspace')}</button>${cwDraft.folder ? '<button class="outline" id="cScratch">Use scratch</button>' : ''}
+        <select id="cSpace"><option value="">No Space</option>${spaces.map((s) => `<option value="${s.id}" ${s.id === cwDraft.spaceId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+        <div class="seg" id="cMode">${[['acceptEdits', 'Accept edits'], ['default', 'Ask first'], ['plan', 'Plan only']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwDraft.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+        <span class="grow"></span><button class="primary" id="cGo">Start task</button></div></div>
+    ${spaces.length ? `<h3>Spaces</h3>${spaces.map((s) => `<div class="task" data-sp="${s.id}"><div class="grow"><b>${esc(s.name)}</b><p>${s.folders.length} folder${s.folders.length === 1 ? '' : 's'} · ${s.links.length} link${s.links.length === 1 ? '' : 's'}${s.instructions ? ' · instructions' : ''}</p></div><button class="outline sp-use">Use</button><button class="outline sp-edit">Edit</button></div>`).join('')}` : ''}
+    <h3>Tasks</h3>${tasks.length ? tasks.map((t) => `<div class="task" data-id="${t.id}"><span class="pill ${t.status}">${PILL[t.status] || t.status}</span>
+      <div class="grow"><b>${esc(t.prompt.slice(0, 90))}</b><p>${esc(t.scratch ? 'Scratch workspace' : folderName(t.cwd))}${spName(t.spaceId) ? ' · ' + esc(spName(t.spaceId)) : ''} · ${when(t.createdAt)}</p>${t.error ? `<i class="err">${esc(t.error)}</i>` : ''}</div>
+      <button class="outline t-files">Show files</button><button class="outline t-open">Open</button>${t.status === 'running' ? '<button class="outline t-stop">Stop</button>' : '<button class="outline t-del">Remove</button>'}</div>`).join('') : '<p class="hint">No Cowork tasks yet.</p>'}
+    <h3>Cleanup</h3><div class="inl"><span class="hint">Delete scratch workspaces older than</span>
+      <select id="cRet">${[[0, 'never'], [7, '7 days'], [30, '30 days'], [90, '90 days']].map(([v, l]) => `<option value="${v}" ${(settings.coworkRetentionDays ?? 30) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="outline" id="cClean">Clean up now</button></div>`);
+  P('#cDir').onclick = async () => { cwDraft.prompt = P('#cText').value; const f = await gc.pickFolder(); if (f) cwDraft.folder = f; pgCowork(); };
+  P('#cScratch')?.addEventListener('click', () => { cwDraft.prompt = P('#cText').value; cwDraft.folder = null; pgCowork(); });
+  P('#cSpace').onchange = (e) => { cwDraft.spaceId = e.target.value; };
+  $('page').querySelectorAll('#cMode button').forEach((b) => (b.onclick = () => { cwDraft.prompt = P('#cText').value; cwDraft.mode = b.dataset.v; pgCowork(); }));
+  P('#cGo').onclick = async () => {
+    const prompt = P('#cText').value.trim(); if (!prompt) return toast('Describe the task first');
+    if (cwDraft.folder && !settings.trustedFolders.includes(cwDraft.folder)) {
+      if (!(await gc.confirm(`Allow Claude to cowork in ${cwDraft.folder}?`, 'It can read files in this folder and, depending on the permission mode, change them.', 'Allow'))) return;
+      settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, cwDraft.folder] });
+    }
+    const r = await gc.cowork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode });
+    if (r?.error) return toast(r.error);
+    cwDraft.prompt = ''; toast('Task started'); pgCowork(); refreshList();
+  };
+  P('#cNewSpace').onclick = () => cwSpaceForm();
+  $('page').querySelectorAll('[data-sp]').forEach((row) => {
+    const s = spaces.find((x) => x.id === row.dataset.sp);
+    row.querySelector('.sp-use').onclick = () => { cwDraft.prompt = P('#cText').value; cwDraft.spaceId = s.id; pgCowork(); };
+    row.querySelector('.sp-edit').onclick = () => cwSpaceForm(s);
+  });
+  $('page').querySelectorAll('.task[data-id]').forEach((row) => {
+    const t = tasks.find((x) => x.id === row.dataset.id);
+    row.querySelector('.t-open').onclick = () => open(t.convId);
+    row.querySelector('.t-files').onclick = () => gc.cowork.reveal(t.id).then((ok) => ok || toast('The folder is gone'));
+    row.querySelector('.t-stop')?.addEventListener('click', async () => { await gc.cowork.stop(t.id); pgCowork(); });
+    row.querySelector('.t-del')?.addEventListener('click', async () => { await gc.cowork.remove(t.id); pgCowork(); });
+  });
+  P('#cRet').onchange = async (e) => { settings = await gc.settings.set({ coworkRetentionDays: Number(e.target.value) }); };
+  P('#cClean').onclick = async () => { const n = await gc.cowork.cleanup(Number(P('#cRet').value) || 30); toast(n ? `Removed ${n} scratch workspace${n === 1 ? '' : 's'}` : 'Nothing to clean up'); };
+}
+function cwSpaceForm(s = {}) {
+  cwEditing = true;
+  $('page').innerHTML = shell(s.id ? 'Edit Space' : 'New Space', '', `<div class="card3">
+    <input id="spName" placeholder="Name" value="${esc(s.name || '')}">
+    <textarea id="spIns" rows="5" placeholder="Instructions every task in this Space should follow">${esc(s.instructions || '')}</textarea>
+    <textarea id="spFolders" rows="3" placeholder="Folders, one absolute path per line">${esc((s.folders || []).join('\n'))}</textarea>
+    <textarea id="spLinks" rows="3" placeholder="Links, one per line">${esc((s.links || []).join('\n'))}</textarea>
+    <div class="inl"><button class="outline" id="spBack">Cancel</button>${s.id ? '<button class="outline" id="spDel">Delete</button>' : ''}<span class="grow"></span><button class="primary" id="spSave">Save</button></div></div>`);
+  const done = () => { cwEditing = false; pgCowork(); };
+  const lines = (id) => P(id).value.split('\n').map((x) => x.trim()).filter(Boolean);
+  P('#spBack').onclick = done;
+  P('#spDel')?.addEventListener('click', async () => { if (await gc.confirm('Delete this Space?', 'Tasks already started keep running.', 'Delete')) { await gc.cowork.removeSpace(s.id); done(); } });
+  P('#spSave').onclick = async () => {
+    const r = await gc.cowork.saveSpace({ id: s.id, name: P('#spName').value, instructions: P('#spIns').value, folders: lines('#spFolders'), links: lines('#spLinks') });
+    if (r?.error) return toast(r.error); done();
+  };
 }
 
 // ---------------- Customize ----------------
