@@ -119,7 +119,7 @@ async function send(convId, userText, emit, model) {
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
-    const p = await ensure(convId, conv.cwd || process.env.HOME, modelOf(model || conv.model), [agents.accessOf(agents.get(conv.agentId))]);
+    const p = await ensure(convId, conv.cwd || process.env.HOME, modelOf(model || conv.model), [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean));
     // The CLI may report token usage on the prompt result; when it does not, estimate (about 4 characters a token) so mods still see the turn.
     await mods.turnStep({ turnId, index: 0, model: model || conv.model, messageCount: conv.messages.length }, async () => {
       const res = await call(p, 'session/prompt', { sessionId: p.sessionId, prompt: [{ type: 'text', text: userText }] });

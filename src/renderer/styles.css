@@ -431,3 +431,8 @@ body.rzing{cursor:col-resize;user-select:none}body.rzing #side{transition:none}
 .msg.assistant:has(> .b > details.tool:only-child){margin-bottom:4px}
 .msg.assistant:has(> .b > details.tool:only-child) .tool{margin:0}
 .msg.assistant:has(> .b > details.tool:only-child) .acts{display:none}
+
+.pg{margin-bottom:12px}.pg h4{margin:12px 0 6px;font-size:12px;font-weight:500;color:var(--text-2)}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px}
+.tg{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;cursor:pointer}
+.tg .grow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

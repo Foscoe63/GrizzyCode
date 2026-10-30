@@ -615,7 +615,8 @@ function ipc() {
   h('grizzywork:memory', () => grizzywork.memList());
   h('grizzywork:memAdd', (t) => T(grizzywork.memAdd)(t));
   h('grizzywork:memRemove', (id) => grizzywork.memRemove(id));
-  h('grizzywork:plugins', () => grizzywork.pluginList());
+  h('grizzywork:plugins', () => grizzywork.toolGroups());
+  h('grizzywork:setTool', (k, id, on) => T(grizzywork.setTool)(k, id, on));
   h('grizzywork:setPlugin', (n, on) => grizzywork.setPlugin(n, on));
   h('grizzywork:export', async () => { const r = await dialog.showSaveDialog(focused(), { defaultPath: 'grizzywork-export.json' }); if (r.canceled || !r.filePath) return false; fs.writeFileSync(r.filePath, JSON.stringify(grizzywork.exportData(), null, 2)); return true; });
   h('grizzywork:deleteAll', () => grizzywork.deleteAll());

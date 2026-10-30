@@ -385,10 +385,17 @@ async function cwMemory(tabs) {
   $('page').querySelectorAll('.m-del').forEach((b) => (b.onclick = async () => { await gc.grizzywork.memRemove(b.closest('.task').dataset.id); pgGrizzyWork(); }));
 }
 async function cwPlugins(tabs) {
-  const l = await gc.grizzywork.plugins();
-  $('page').innerHTML = shell('GrizzyWork', '', `${tabs}<p class="hint">Plugins installed under Customize. Switch on the ones GrizzyWork tasks should use.</p>
-    ${l.length ? l.map((p) => `<div class="task" data-n="${esc(p.name)}"><div class="grow"><b>${esc(p.name)}</b><p>${esc(p.description)} ${p.skills.length ? '· ' + p.skills.length + ' skills' : ''} ${p.commands.length ? '· ' + p.commands.length + ' commands' : ''}</p></div><label><input type="checkbox" ${p.enabled ? 'checked' : ''}> Use in GrizzyWork</label></div>`).join('') : '<p class="hint">No plugins installed.</p>'}`);
-  $('page').querySelectorAll('.task input').forEach((i) => (i.onchange = async () => { await gc.grizzywork.setPlugin(i.closest('.task').dataset.n, i.checked); toast(i.checked ? 'Plugin on' : 'Plugin off'); }));
+  const groups = await gc.grizzywork.plugins();
+  const ROWS = [['skills', 'Skills'], ['connectors', 'Connectors'], ['commands', 'Commands']];
+  const tog = (g, k, i) => `<label class="tg" title="${esc(i.description || i.label)}"><span class="grow">${esc(i.label)}</span><input type="checkbox" class="switch" data-g="${esc(g.name)}" data-k="${k}" data-id="${esc(i.id)}" ${i.enabled ? 'checked' : ''}></label>`;
+  $('page').innerHTML = shell('GrizzyWork', '', `${tabs}<p class="hint">Switch each skill, connector and command on or off for GrizzyWork tasks. Whichever agent runs a task can only use what is on here, on top of its own access.</p>
+    ${groups.length ? groups.map((g) => { const all = ROWS.flatMap(([k]) => g[k]); return `<div class="card3 pg" data-g="${esc(g.name)}"><div class="inl"><div class="grow"><b>${esc(g.name || 'Other tools')}</b><p class="hint">${esc(g.description)}</p></div><span class="hint cnt">${all.filter((i) => i.enabled).length} of ${all.length} on</span><button type="button" class="outline pg-on">All on</button><button type="button" class="outline pg-off">All off</button></div>
+      ${ROWS.filter(([k]) => g[k].length).map(([k, l]) => `<div class="tgrow"><h4>${l} <span class="hint">${g[k].length}</span></h4><div class="tgrid">${g[k].map((i) => tog(g, k, i)).join('')}</div></div>`).join('')}</div>`; }).join('') : '<p class="hint">No skills, connectors or plugins installed.</p>'}`);
+  $('page').querySelectorAll('.pg input.switch').forEach((i) => (i.onchange = async () => { await gc.grizzywork.setTool(i.dataset.k, i.dataset.id, i.checked); const c = i.closest('.pg'), all = [...c.querySelectorAll('input.switch')]; c.querySelector('.cnt').textContent = `${all.filter((x) => x.checked).length} of ${all.length} on`; }));
+  $('page').querySelectorAll('.pg').forEach((c) => {
+    const set = (on) => async () => { for (const i of c.querySelectorAll('input.switch')) if (i.checked !== on) await gc.grizzywork.setTool(i.dataset.k, i.dataset.id, on); pgGrizzyWork(); };
+    c.querySelector('.pg-on').onclick = set(true); c.querySelector('.pg-off').onclick = set(false);
+  });
 }
 async function cwData(tabs) {
   const pol = { enabled: true, allowedFolders: [], ...(settings.grizzyworkPolicy || {}) };

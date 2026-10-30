@@ -47,7 +47,7 @@ function buildSystem(s, conv) {
   sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId, conv.cwd);
   const pr = store.getProject(conv.projectId);
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
-  const sk = s.capSkills === false ? [] : skills.list();
+  const sk = s.capSkills === false ? [] : require('./grizzywork').filterSkills(conv, skills.list()); // a GrizzyWork task only sees the skills switched on for it
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
   return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
@@ -129,7 +129,7 @@ const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
 
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
 // `lists` are the access limits that apply (the conversation's agent; a delegated agent adds its own on top).
-async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))], run = null) {
+async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean), run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
   if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, [...mcp.toolDefs(), ...mods.toolDefs()]), c.input);
@@ -145,6 +145,7 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
   if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode));
   { const blocked = require('./grizzywork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
+  if (c.name === 'use_skill' && !require('./grizzywork').skillAllowed(conv, String(c.input?.id || ''))) throw new Error(`The skill "${c.input?.id}" is switched off for GrizzyWork (GrizzyWork → Plugins).`);
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});
@@ -239,7 +240,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   try {
     for (let step = 0; step < limit; step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
-      lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
+      lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def), require('./grizzywork').access(root)].filter(Boolean); // never more than the agent it works for, nor than GrizzyWork's tool switches
       const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
       const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
@@ -313,7 +314,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
         const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
         if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
       }
-      const lists = [agents.accessOf(agents.get(conv.agentId))];
+      const lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean);
       const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
       const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(conv.agentId)?.enabled && agents.get(conv.agentId).memory) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name

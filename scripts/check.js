@@ -1269,6 +1269,18 @@ export const register: Register = (on, options) => {
     assert(cw.files('T1').length === 2 && cw.preview('T1', 'a.md').kind === 'markdown' && cw.preview('T1', 'p.html').kind === 'html', 'grizzywork lists and previews task files');
     let esc = ''; try { cw.preview('T1', '../../etc/hosts'); } catch (e) { esc = e.message; } assert(/outside/.test(esc), 'grizzywork preview is confined to the task folder');
     const ex = cw.exportData(); assert(ex.tasks.some((t) => t.id === 'T1'), 'grizzywork export has tasks');
+    { // per-tool switches: connectors become an allow-list on top of the agent's own access, skills are filtered, other chats are untouched
+      const acc = require('../src/main/access'), mcpx = require('../src/main/mcp'), gv = { grizzywork: {} };
+      fsx.writeFileSync(pth.join(store.root(), 'mcp_config.json'), JSON.stringify({ mcpServers: { alpha: { command: 'x' }, beta: { command: 'y' } } }));
+      store.saveSettings({ grizzyworkTools: {}, grizzyworkPlugins: [] });
+      assert(cw.access(gv) === null && cw.access({}) === null && cw.skillAllowed(gv, 'docx'), 'grizzywork tools: everything outside a plugin is on by default');
+      cw.setTool('connectors', 'beta', false); const ac = cw.access(gv);
+      assert(ac && acc.check([ac], 'mcp__beta__t', {}, '/x') && !acc.check([ac], 'mcp__alpha__t', {}, '/x') && cw.access({}) === null, 'grizzywork tools: a switched-off connector is refused for GrizzyWork only');
+      assert(acc.check([acc.clean({ connectors: ['beta'] }), ac], 'mcp__beta__t', {}, '/x'), 'grizzywork tools: the agent\'s own access still applies on top');
+      cw.setTool('skills', 'docx', false); assert(!cw.skillAllowed(gv, 'docx') && cw.skillAllowed({}, 'docx') && !cw.filterSkills(gv, [{ id: 'docx' }, { id: 'pdf' }]).some((k) => k.id === 'docx'), 'grizzywork tools: a switched-off skill is hidden and refused');
+      cw.setTool('connectors', 'beta', true); cw.setTool('skills', 'docx', true); assert(cw.access(gv) === null, 'grizzywork tools: switching back on restores access');
+      store.saveSettings({ grizzyworkTools: {} });
+    }
     cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'grizzywork delete removes tasks and scratch workspaces');
   }
   {

@@ -73,15 +73,64 @@ function memAdd(text) {
 }
 const memRemove = (id) => write('memory', read('memory').filter((m) => m.id !== id));
 
-// ---- Plugins: installed plugins can be switched on for GrizzyWork; their skills and commands are then named in the task prompt ----
+// ---- Tools: every skill, connector and plugin command is switched on or off for GrizzyWork on its own ----
+// settings.grizzyworkTools = { skills|connectors|commands: { id: true|false } }. An item never touched follows its plugin's old
+// switch (grizzyworkPlugins); an item that belongs to no plugin is on.
+const KINDS = ['skills', 'connectors', 'commands'];
+const owners = () => {
+  const o = { skills: {}, connectors: {}, commands: {} };
+  for (const p of require('./plugins').list()) {
+    for (const id of p.skills || []) o.skills[id] = p.name;
+    for (const n of p.servers || []) o.connectors[n] = p.name;
+    for (const c of p.commands || []) o.commands[`${p.name}:${c.name}`] = p.name;
+  }
+  return o;
+};
+function toolOn(kind, id, owner) {
+  const v = (cfg().grizzyworkTools || {})[kind]?.[id]; if (typeof v === 'boolean') return v;
+  return owner ? (cfg().grizzyworkPlugins || []).includes(owner) : true;
+}
+const connectorNames = () => Object.keys(require('./mcp').readConfig().mcpServers || {});
+// Plugins (each with its skills, connectors and commands), then whatever belongs to no plugin.
+function toolGroups() {
+  const own = owners(), sk = require('./skills').list(), cn = connectorNames();
+  const item = (kind, id, label, desc = '') => ({ id, label, description: desc, enabled: toolOn(kind, id, own[kind][id]) });
+  const groups = require('./plugins').list().map((p) => ({
+    name: p.name, description: p.description || '',
+    skills: (p.skills || []).map((id) => item('skills', id, sk.find((k) => k.id === id)?.name || id, sk.find((k) => k.id === id)?.description)),
+    connectors: (p.servers || []).map((n) => item('connectors', n, n)),
+    commands: (p.commands || []).map((c) => item('commands', `${p.name}:${c.name}`, '/' + p.name + ':' + c.name, c.description)),
+  }));
+  groups.push({ name: '', description: 'Not part of a plugin',
+    skills: sk.filter((k) => !own.skills[k.id]).map((k) => item('skills', k.id, k.name, k.description)),
+    connectors: cn.filter((n) => !own.connectors[n]).map((n) => item('connectors', n, n)), commands: [] });
+  return groups.filter((g) => g.skills.length || g.connectors.length || g.commands.length);
+}
+function setTool(kind, id, enabled) {
+  if (!KINDS.includes(kind)) throw new Error('Unknown tool kind.');
+  const t = { skills: {}, connectors: {}, commands: {}, ...(cfg().grizzyworkTools || {}) }; t[kind] = { ...t[kind], [String(id)]: !!enabled };
+  store.saveSettings({ grizzyworkTools: t }); broadcast('features:update', 'grizzywork'); return toolGroups();
+}
+// The old whole-plugin switch: sets every skill, connector and command of that plugin at once.
+function setPlugin(name, enabled) {
+  const g = toolGroups().find((x) => x.name === name); if (!g) return toolGroups();
+  const t = { skills: {}, connectors: {}, commands: {}, ...(cfg().grizzyworkTools || {}) };
+  for (const k of KINDS) { t[k] = { ...t[k] }; for (const i of g[k]) t[k][i.id] = !!enabled; }
+  const on = new Set(cfg().grizzyworkPlugins || []); enabled ? on.add(name) : on.delete(name);
+  store.saveSettings({ grizzyworkTools: t, grizzyworkPlugins: [...on] }); broadcast('features:update', 'grizzywork'); return toolGroups();
+}
 function pluginList() {
   const on = new Set(cfg().grizzyworkPlugins || []);
   return require('./plugins').list().map((p) => ({ name: p.name, description: p.description || '', skills: p.skills || [], commands: p.commands || [], enabled: on.has(p.name) }));
 }
-function setPlugin(name, enabled) {
-  const on = new Set(cfg().grizzyworkPlugins || []); enabled ? on.add(name) : on.delete(name);
-  store.saveSettings({ grizzyworkPlugins: [...on] }); broadcast('features:update', 'grizzywork'); return pluginList();
+// What the agent of a GrizzyWork task may use, on top of its own agent access: a connector allow-list (null = nothing switched off).
+function access(conv) {
+  if (!conv?.grizzywork) return null;
+  const own = owners().connectors, names = connectorNames(), on = names.filter((n) => toolOn('connectors', n, own[n]));
+  return on.length === names.length ? null : { connectors: on, tools: null, paths: [] };
 }
+const skillAllowed = (conv, id) => !conv?.grizzywork || toolOn('skills', id, owners().skills[id]);
+const filterSkills = (conv, list) => (conv?.grizzywork ? list.filter((k) => skillAllowed(conv, k.id)) : list);
 
 function setEgress(o) {
   const mode = ['all', 'allowlist', 'none'].includes(o?.mode) ? o.mode : 'all';
@@ -196,7 +245,7 @@ function promptBlock(conv) {
   const sp = conv.grizzywork.spaceId && read('spaces').find((s) => s.id === conv.grizzywork.spaceId);
   let out = `\n\nThis is a GrizzyWork task: general knowledge work for the user (documents, research, spreadsheets, organizing files), not a software project. Your working folder is ${conv.cwd}${conv.grizzywork.scratch ? ', a scratch workspace made for this task: write deliverables there and tell the user the file names' : ''}. Work autonomously, keep the user informed with short progress notes, and finish with a summary of what you produced and where it is.`;
   const mem = read('memory').slice(-40); if (mem.length) out += '\n\nWhat you remember about the user from past GrizzyWork tasks:\n' + mem.map((m) => '- ' + m.text).join('\n');
-  const pl = pluginList().filter((x) => x.enabled); if (pl.length) out += '\n\nPlugins switched on for GrizzyWork:\n' + pl.map((x) => `- ${x.name}: ${x.description}${x.skills.length ? ' (skills: ' + x.skills.join(', ') + ')' : ''}${x.commands.length ? ' (commands: ' + x.commands.join(', ') + ')' : ''}`).join('\n');
+  const cm = toolGroups().flatMap((g) => g.commands.filter((c) => c.enabled)); if (cm.length) out += '\n\nPlugin commands switched on for GrizzyWork:\n' + cm.map((c) => `- ${c.label}${c.description ? ': ' + c.description : ''}`).join('\n');
   out += '\nFor documents, spreadsheets, slides and PDFs, load the matching skill (docx, xlsx, pptx, pdf) with use_skill first.';
   if (sp) {
     out += `\n\nSpace "${sp.name}":`;
@@ -207,4 +256,4 @@ function promptBlock(conv) {
   return out;
 }
 
-module.exports = { setEgress, setPolicy, egressCheck, policy, memList, memAdd, memRemove, pluginList, setPlugin, files, preview, absFile, toArtifact, branch, exportData, deleteAll, init, listSpaces, saveSpace, removeSpace, listTasks, start, stop, remove, cleanup, promptBlock, createScratch };
+module.exports = { toolGroups, setTool, access, skillAllowed, filterSkills, setEgress, setPolicy, egressCheck, policy, memList, memAdd, memRemove, pluginList, setPlugin, files, preview, absFile, toArtifact, branch, exportData, deleteAll, init, listSpaces, saveSpace, removeSpace, listTasks, start, stop, remove, cleanup, promptBlock, createScratch };
