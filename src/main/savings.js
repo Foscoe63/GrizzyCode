@@ -64,7 +64,11 @@ function unwrapInvoke(call, mcpDefs) {
   if (call.name !== 'mcp_invoke') return null;
   const t = String(call.input?.tool || '').trim();
   const real = mcpDefs.find((d) => d.name === t || d.name === `mcp__${t}` || d.name.replace(/^mcp__/, '') === t);
-  if (!real) throw new Error(`Unknown connector tool "${t}". Call mcp_tools to list the tools.`);
+  if (!real) {
+    const { server } = split(t.startsWith('mcp__') ? t : `mcp__${t}`);
+    const known = [...new Set(mcpDefs.map((d) => split(d.name).server))];
+    throw new Error(`Unknown connector tool "${t}". ${server && !known.includes(server) ? `There is no connector named "${server}"; connectors are: ${known.join(', ') || 'none'}. ` : ''}Built-in tools (todo_write, read_file, grep, ...) are called directly, not through mcp_invoke. Call mcp_tools to list connector tools.`);
+  }
   return { ...call, name: real.name, input: call.input?.input && typeof call.input.input === 'object' ? call.input.input : {} };
 }
 

@@ -132,14 +132,14 @@ const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
 async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))], run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
-  if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, mcp.toolDefs()), c.input);
+  if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, [...mcp.toolDefs(), ...mods.toolDefs()]), c.input);
   if (c.name === 'pin_fact') { const r = savings.pin(convId, c.input?.fact); return r.error ? 'ERROR: ' + r.error : (conv.pinned = r.pinned, 'Pinned. It will be kept through any compaction of this conversation.'); }
   if (c.name === 'agent_note') { // the agent's own notes: answered here, no permission needed (they only touch GrizzyCode's saved data)
     if (!run?.agentId) return 'ERROR: this agent does not keep notes.';
     const i = c.input || {}, r = i.action === 'forget' ? agents.forgetNote(run.agentId, conv.cwd, String(i.id || i.text || '')) : i.action === 'save' ? agents.addNote(run.agentId, conv.cwd, i.text) : { error: 'action must be save or forget' };
     return r.error ? 'ERROR: ' + r.error : i.action === 'forget' ? 'Forgotten.' : r.duplicate ? 'Already noted.' : `Saved. You now have ${r.notes.length} note${r.notes.length === 1 ? '' : 's'} for this project.`;
   }
-  const real = savings.unwrapInvoke(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  const real = savings.unwrapInvoke(c, [...mcp.toolDefs(), ...mods.toolDefs()]); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
