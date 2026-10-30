@@ -25,7 +25,7 @@
 | 💬 | **Chat** | Conversations with any model from any provider you turn on. |
 | 👨‍💻 | **Code sessions** | Pick a folder; the agent reads, searches, edits and runs commands. Risky tools ask first. |
 | 🔐 | **Permission modes** | Ask · Accept edits · Plan · Bypass. Plan mode is read-only until you approve the plan. |
-| 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, or any compatible endpoint. |
+| 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, oMLX, or any compatible endpoint. |
 | 🧰 | **Connectors (MCP)** | Local commands or remote URLs, with a Test button, JSON import and OAuth sign-in. |
 | 📧 | **Google apps** | Built-in Gmail, Calendar, Sheets, Docs and Drive tools behind one Google sign-in. |
 | 🎓 | **Skills** | Installable instruction folders the model loads when relevant. |
@@ -81,6 +81,7 @@ Settings → **Providers**. Each provider has its own base URL, key, model list 
 | 🤖 OpenAI | built in | 🌬️ Mistral | built in |
 | ✨ Google Gemini | built in | 🦙 Ollama | local, no key |
 | ⚡ Groq | built in | 🖥️ LM Studio | local, no key |
+| 🍎 oMLX | local, no key | | |
 
 Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
 

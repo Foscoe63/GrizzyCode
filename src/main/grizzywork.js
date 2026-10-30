@@ -157,7 +157,7 @@ function deleteAll() {
 // ---- Tasks ----
 const listTasks = () => read('tasks').sort((a, b) => b.createdAt - a.createdAt);
 function setTask(id, patch) { const l = read('tasks'); const t = l.find((x) => x.id === id); if (t) { Object.assign(t, patch); write('tasks', l); } }
-function start({ prompt, folder, spaceId, permissionMode }) {
+function start({ prompt, folder, spaceId, permissionMode, agentId, model }) {
   prompt = String(prompt || '').trim(); if (!prompt) throw new Error('Describe the task first.');
   checkPolicy(folder);
   const space = spaceId ? read('spaces').find((s) => s.id === spaceId) : null;
@@ -166,7 +166,10 @@ function start({ prompt, folder, spaceId, permissionMode }) {
   const cwd = folder || createScratch();
   const pm = MODES.includes(permissionMode) ? permissionMode : 'acceptEdits';
   const c = store.newConversation({ mode: 'code', cwd, permissionMode: pm });
-  c.grizzywork = { spaceId: space?.id || null, scratch: !folder }; store.saveConversation(c);
+  c.grizzywork = { spaceId: space?.id || null, scratch: !folder };
+  if (agentId) c.agentId = String(agentId); // blank keeps the active agent
+  if (model) { c.model = String(model); c.modelPinned = true; } // a picked model wins over the agent's, like a pick in the composer
+  store.saveConversation(c);
   const t = { id: crypto.randomUUID(), prompt, cwd, scratch: !folder, spaceId: space?.id || null, permissionMode: pm, convId: c.id, status: 'running', createdAt: Date.now(), finishedAt: 0, error: '' };
   const l = read('tasks'); l.push(t); write('tasks', l);
   agent.send(c.id, prompt, (ev) => {

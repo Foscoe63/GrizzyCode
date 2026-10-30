@@ -243,19 +243,21 @@ async function pgDispatch() {
 
 // ---------------- GrizzyWork ----------------
 let cwTab = 'tasks', cwTask = null, cwFile = null;
-let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits' }, cwEditing = false;
+let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits', agentId: '', model: '' }, cwEditing = false;
 async function pgGrizzyWork() {
   if (cwTask) return pgCwTask();
   const tabs = `<div class="seg" id="cwTabs">${[['tasks', 'Tasks'], ['network', 'Network'], ['memory', 'Memory'], ['plugins', 'Plugins'], ['data', 'Data & policy']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const bindTabs = () => $('page').querySelectorAll('#cwTabs button').forEach((b) => (b.onclick = () => { cwTab = b.dataset.v; pgGrizzyWork(); }));
   if (cwTab !== 'tasks') { await ({ network: cwNetwork, memory: cwMemory, plugins: cwPlugins, data: cwData }[cwTab])(tabs); bindTabs(); return; }
-  const [tasks, spaces] = await Promise.all([gc.grizzywork.tasks(), gc.grizzywork.spaces()]);
+  const [tasks, spaces, agentList, cat] = await Promise.all([gc.grizzywork.tasks(), gc.grizzywork.spaces(), gc.agents.list().catch(() => []), gc.models.list(false).catch(() => ({ groups: [] }))]);
   const keep = $('page').querySelector('#cText')?.value; if (keep != null) cwDraft.prompt = keep;
   const spName = (id) => spaces.find((s) => s.id === id)?.name;
   $('page').innerHTML = shell('GrizzyWork', '<button class="outline" id="cNewSpace">New Space</button>', `${tabs}
     <div class="card3"><textarea id="cText" rows="3" placeholder="What should Claude work on? Reports, research, spreadsheets, file organizing…">${esc(cwDraft.prompt)}</textarea>
       <div class="inl"><button class="chip-b" id="cDir">${esc(cwDraft.folder ? folderName(cwDraft.folder) : 'Scratch workspace')}</button>${cwDraft.folder ? '<button class="outline" id="cScratch">Use scratch</button>' : ''}
         <select id="cSpace"><option value="">No Space</option>${spaces.map((s) => `<option value="${s.id}" ${s.id === cwDraft.spaceId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+        <select id="cAgent" title="Agent"><option value="">Default agent</option>${agentList.filter((a) => a.enabled).map((a) => `<option value="${esc(a.id)}" ${a.id === cwDraft.agentId ? 'selected' : ''}>${esc((a.icon ? a.icon + ' ' : '') + a.name)}</option>`).join('')}</select>
+        <select id="cModel" title="Model"><option value="">Default model</option>${(cat.groups || []).filter((g) => g.models.length).map((g) => `<optgroup label="${esc(g.label)}">${g.models.map((m) => `<option value="${esc(m.value)}" ${m.value === cwDraft.model ? 'selected' : ''}>${esc(m.name || m.id)}</option>`).join('')}</optgroup>`).join('')}</select>
         <div class="seg" id="cMode">${[['acceptEdits', 'Accept edits'], ['default', 'Ask first'], ['plan', 'Plan only']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwDraft.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
         <span class="grow"></span><button class="primary" id="cGo">Start task</button></div></div>
     ${spaces.length ? `<h3>Spaces</h3>${spaces.map((s) => `<div class="task" data-sp="${s.id}"><div class="grow"><b>${esc(s.name)}</b><p>${s.folders.length} folder${s.folders.length === 1 ? '' : 's'} · ${s.links.length} link${s.links.length === 1 ? '' : 's'}${s.instructions ? ' · instructions' : ''}</p></div><button class="outline sp-use">Use</button><button class="outline sp-edit">Edit</button></div>`).join('')}` : ''}
@@ -269,6 +271,8 @@ async function pgGrizzyWork() {
   P('#cDir').onclick = async () => { cwDraft.prompt = P('#cText').value; const f = await gc.pickFolder(); if (f) cwDraft.folder = f; pgGrizzyWork(); };
   P('#cScratch')?.addEventListener('click', () => { cwDraft.prompt = P('#cText').value; cwDraft.folder = null; pgGrizzyWork(); });
   P('#cSpace').onchange = (e) => { cwDraft.spaceId = e.target.value; };
+  P('#cAgent').onchange = (e) => { cwDraft.agentId = e.target.value; };
+  P('#cModel').onchange = (e) => { cwDraft.model = e.target.value; };
   $('page').querySelectorAll('#cMode button').forEach((b) => (b.onclick = () => { cwDraft.prompt = P('#cText').value; cwDraft.mode = b.dataset.v; pgGrizzyWork(); }));
   P('#cGo').onclick = async () => {
     const prompt = P('#cText').value.trim(); if (!prompt) return toast('Describe the task first');
@@ -276,7 +280,7 @@ async function pgGrizzyWork() {
       if (!(await gc.confirm(`Allow Claude to work in ${cwDraft.folder}?`, 'It can read files in this folder and, depending on the permission mode, change them.', 'Allow'))) return;
       settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, cwDraft.folder] });
     }
-    const r = await gc.grizzywork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode });
+    const r = await gc.grizzywork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode, agentId: cwDraft.agentId, model: cwDraft.model });
     if (r?.error) return toast(r.error);
     cwDraft.prompt = ''; P('#cText').value = ''; toast('Task started'); pgGrizzyWork(); refreshList();
   };

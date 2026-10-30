@@ -759,7 +759,7 @@ app.whenReady().then(() => srv.listen(0, async () => {
   // ===== providers: registry, toggles, custom providers, per-provider URLs / keys / model lists =====
   store.saveSettings({ provider: 'anthropic', baseUrl: '', apiKey: '', model: 'claude-sonnet-5-5', models: ['claude-sonnet-5-5'], keys: { anthropic: '', openrouter: '' }, providerCfg: { overrides: {}, custom: [] } });
   const plist = providers.list();
-  assert(plist.length === 10 && plist.filter((x) => x.builtin).length === 10 && plist.find((x) => x.id === 'anthropic').enabled && plist.find((x) => x.id === 'openrouter').enabled && !plist.find((x) => x.id === 'openai').enabled && !plist.find((x) => x.id === 'ollama').needsKey, 'providers: built-ins listed (Anthropic and OpenRouter on, others off, local ones need no key)');
+  assert(plist.length === 11 && plist.filter((x) => x.builtin).length === 11 && plist.find((x) => x.id === 'anthropic').enabled && plist.find((x) => x.id === 'openrouter').enabled && !plist.find((x) => x.id === 'openai').enabled && !plist.find((x) => x.id === 'ollama').needsKey && !plist.find((x) => x.id === 'omlx').needsKey, 'providers: built-ins listed (Anthropic and OpenRouter on, others off, local ones need no key)');
   assert(providers.save({ name: '', baseUrl: 'https://x.example/v1' }).error && providers.save({ name: 'Acme' }).error && providers.save({ name: 'Acme', baseUrl: 'ftp://x' }).error && providers.save({ name: 'anthropic', baseUrl: 'https://x.example' }).error, 'providers: custom provider validation (name, URL scheme, duplicate name)');
   // fake OpenAI-compatible server: /models list, chat stream; records the Authorization header
   let lastAuth = 'unset'; let modelsStatus = 200;
