@@ -216,7 +216,7 @@ function start({ prompt, folder, spaceId, permissionMode, agentId, model }) {
   const pm = MODES.includes(permissionMode) ? permissionMode : 'acceptEdits';
   const c = store.newConversation({ mode: 'code', cwd, permissionMode: pm });
   c.grizzywork = { spaceId: space?.id || null, scratch: !folder };
-  if (agentId) c.agentId = String(agentId); // blank keeps the active agent
+  if (agentId) { const ag = require('./agents').get(String(agentId)); if (!ag || !ag.enabled) throw new Error('That agent is not available.'); c.agentId = ag.id; } // blank keeps the active agent
   if (model) { c.model = String(model); c.modelPinned = true; } // a picked model wins over the agent's, like a pick in the composer
   store.saveConversation(c);
   const t = { id: crypto.randomUUID(), prompt, cwd, scratch: !folder, spaceId: space?.id || null, permissionMode: pm, convId: c.id, status: 'running', createdAt: Date.now(), finishedAt: 0, error: '' };

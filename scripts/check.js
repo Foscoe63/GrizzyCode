@@ -1281,6 +1281,13 @@ export const register: Register = (on, options) => {
       cw.setTool('connectors', 'beta', true); cw.setTool('skills', 'docx', true); assert(cw.access(gv) === null, 'grizzywork tools: switching back on restores access');
       store.saveSettings({ grizzyworkTools: {} });
     }
+    { // agents that exist only in GrizzyWork
+      const ag = require('../src/main/agents'), r = ag.save({ name: 'GW Researcher', scope: 'grizzywork', instructions: 'Research.' }), a = r.agents.find((x) => x.name === 'GW Researcher');
+      assert(a && a.scope === 'grizzywork' && ag.list().find((x) => x.id === 'general').scope === 'all', 'gw agents: scope is saved and defaults to everywhere');
+      assert(!ag.allowedIn(a, {}) && !ag.allowedIn(a, { grizzywork: null }) && ag.allowedIn(a, { grizzywork: {} }) && ag.allowedIn(ag.get('general'), {}) && ag.allowedIn(null, {}), 'gw agents: only GrizzyWork tasks may use a GrizzyWork-only agent');
+      assert(ag.save({ id: a.id, name: 'GW Researcher', scope: 'bogus' }).agents.find((x) => x.id === a.id).scope === 'all', 'gw agents: an unknown scope means everywhere');
+      ag.remove(a.id);
+    }
     cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'grizzywork delete removes tasks and scratch workspaces');
   }
   {

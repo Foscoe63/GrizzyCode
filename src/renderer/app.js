@@ -1231,7 +1231,7 @@ function renderAgentPicker() {
 }
 function openAgentMenu() {
   const m = $('agentMenu'), sel = currentAgent()?.id; m.innerHTML = '';
-  for (const a of agents.filter((x) => x.enabled)) {
+  for (const a of agents.filter((x) => x.enabled && (x.scope !== 'grizzywork' || cur?.grizzywork))) { // GrizzyWork-only agents show up only inside a GrizzyWork task
     const r = document.createElement('div'); r.className = 'ai' + (a.id === sel ? ' sel' : ''); r.setAttribute('role', 'option');
     r.innerHTML = `<span class="aic">${esc(a.icon || '🤖')}</span><span class="atx"><div class="an">${esc(a.name)}</div><div class="ad">${esc(a.description || '')}</div></span>${a.id === sel ? '<span class="ck">✓</span>' : ''}`;
     r.onclick = () => pickAgent(a.id); m.appendChild(r);
@@ -1243,7 +1243,7 @@ function openAgentMenu() {
 function closeAgentMenu() { $('agentMenu').hidden = true; $('agentBtn').classList.remove('on'); }
 async function pickAgent(id) {
   closeAgentMenu(); const a = agentById(id); if (!a) return;
-  settings = await gc.settings.set({ activeAgent: id });
+  if (a.scope !== 'grizzywork') settings = await gc.settings.set({ activeAgent: id }); // a GrizzyWork-only agent is never the app-wide default
   if (cur) cur = await gc.conv.update(cur.id, { agentId: id });
   if (a.model) { if (cur) cur = await gc.conv.update(cur.id, { model: a.model, modelPinned: false }); else settings = await gc.settings.set({ model: a.model }); syncComposer(); }
   if (a.permissionMode && viewMode === 'code') {
@@ -1260,9 +1260,9 @@ async function renderAgents() {
   for (const a of agents) {
     const r = document.createElement('div'); r.className = 'mcard'; const isActive = currentAgent()?.id === a.id;
     const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.effort && `thinking ${esc(a.effort)}`, a.memory && 'remembers', a.steps && `${a.steps} steps`, a.gates?.length && `${a.gates.length} check${a.gates.length === 1 ? '' : 's'}`, a.guards?.length && `${a.guards.length} rule${a.guards.length === 1 ? '' : 's'}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
-    r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
+    r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${a.scope === 'grizzywork' ? '<span class="mbadge">GrizzyWork only</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
     const act = r.querySelector('.mact'); const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.textContent = t; b.onclick = f; act.appendChild(b); };
-    if (a.enabled && !isActive) btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
+    if (a.enabled && !isActive && a.scope !== 'grizzywork') btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
     btn('Edit', () => openAgent(a));
     if (!a.builtin) btn('Delete', async () => { if (await gc.confirm(`Delete “${a.name}”?`, 'This agent is removed.', 'Delete')) { await gc.agents.remove(a.id); settings = await gc.settings.get(); renderAgents(); syncComposer(); } });
     else if (a.modified) btn('Reset', async () => { await gc.agents.remove(a.id); renderAgents(); });
@@ -1302,7 +1302,7 @@ async function renderAgentNotes(a) {
 async function openAgent(a) {
   agEditing = a || null; $('agTitle').textContent = a ? `Edit “${a.name}”` : 'New agent';
   $('agName').value = a?.name || ''; $('agIcon').value = a?.icon || ''; $('agDesc').value = a?.description || ''; $('agInstr').value = a?.instructions || '';
-  fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agMsg').textContent = '';
+  fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agScope').value = a?.scope || 'all'; $('agMsg').textContent = '';
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
   $('agPaths').value = (a?.paths || []).join('\n');
@@ -1315,7 +1315,7 @@ async function openAgent(a) {
 }
 $('agNew').onclick = () => openAgent(null); $('agCancel').onclick = () => $('agDlg').close();
 $('agSave').onclick = async () => {
-  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
+  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, scope: $('agScope').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
   if (r.error) { $('agMsg').textContent = r.error; $('agMsg').className = 'mmsg bad'; return; }
   $('agDlg').close(); renderAgents();
 };

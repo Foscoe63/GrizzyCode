@@ -459,6 +459,7 @@
   <div class="row" style="padding:6px 0"><div><b>Remember across conversations</b><p>The agent keeps short notes (conventions, commands that work, pitfalls) for each project and sees them next time. It saves them itself with <code>agent_note</code>; you can review and delete them here.</p></div><input type="checkbox" class="switch" id="agMem"></div>
   <div id="agNotes"></div>
   <div class="fld"><label>Folders <span class="hint">one per line; file tools stay inside them, and the shell is turned off. Leave empty for no limit</span><textarea id="agPaths" rows="3" placeholder="e.g. ~/Projects/site&#10;docs" autocomplete="off" spellcheck="false"></textarea></label></div>
+  <div class="fld"><label>Where it works <span class="hint">a GrizzyWork-only agent is hidden from chat, Code and delegation everywhere else</span><select id="agScope"><option value="all">Everywhere</option><option value="grizzywork">GrizzyWork only</option></select></label></div>
   <div class="row" style="padding:6px 0"><div><b>Enabled</b><p>Disabled agents are hidden from the picker.</p></div><input type="checkbox" class="switch" id="agOn"></div>
   <div id="agMsg" class="mmsg"></div>
   <div class="foot" style="padding:14px 0 0;display:flex;gap:8px;justify-content:flex-end"><button id="agCancel" class="outline" type="button">Cancel</button><button id="agSave" class="primary" type="button">Save</button></div></div></dialog>

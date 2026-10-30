@@ -186,14 +186,15 @@ function persistAgents(root, convId) {
 const MAX_AGENTS = 24, SUB_STEPS = 25, MODE_RANK = { plan: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
 // A delegated agent never has more freedom than the conversation it works for.
 const clampMode = (want, parent) => (want && (MODE_RANK[want] ?? 1) < (MODE_RANK[parent] ?? 1) ? want : parent);
-const findAgent = (ref) => { const r = String(ref || 'general').trim().toLowerCase(); const all = agents.list().filter((a) => a.enabled); return all.find((a) => a.id.toLowerCase() === r) || all.find((a) => a.name.toLowerCase() === r); };
+const usable = (conv) => agents.list().filter((a) => a.enabled && agents.allowedIn(a, conv));
+const findAgent = (ref, conv) => { const r = String(ref || 'general').trim().toLowerCase(); const all = usable(conv); return all.find((a) => a.id.toLowerCase() === r) || all.find((a) => a.name.toLowerCase() === r); };
 
 function roster(s, depth, convId) {
   if (s.capAgents === false) return '';
   const can = depth < tools.MAX_AGENT_DEPTH;
   let t = '\n\nAgents: ' + (can ? 'you can hand self-contained subtasks to specialised agents with delegate_agent. They work independently with their own context and return a report; several delegate_agent calls in one turn run in parallel. Delegate when it helps (wide searches, independent parts, a second opinion or review) and do small things yourself. ' : '');
   t += 'Use message_agent with an agent id to send it a follow-up, or to pass it another agent\'s findings.';
-  if (can) t += ' Available agents:\n' + agents.list().filter((a) => a.enabled).map((a) => `- ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}: ${a.description || 'no description'}`).join('\n');
+  if (can) t += ' Available agents:\n' + usable(store.getConversation(convId)).map((a) => `- ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}: ${a.description || 'no description'}`).join('\n');
   const alive = [...registry(convId).values()];
   if (alive.length) t += '\n\nAgents already working in this conversation (message them by id):\n' + alive.map((x) => `- ${x.id}: ${x.name}`).join('\n');
   return t;
@@ -206,8 +207,8 @@ function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, calle
     const reg = registry(convId);
     let sub;
     if (c.name === 'delegate_agent') {
-      const def = findAgent(c.input.agent);
-      if (!def) throw new Error(`Unknown agent "${c.input.agent}". Available: ${agents.list().filter((a) => a.enabled).map((a) => a.id).join(', ')}`);
+      const def = findAgent(c.input.agent, root);
+      if (!def) throw new Error(`Unknown agent "${c.input.agent}". Available: ${usable(root).map((a) => a.id).join(', ')}`);
       const task = String(c.input.task || '').trim(); if (!task) throw new Error('delegate_agent needs a task.');
       if (reg.size >= MAX_AGENTS) throw new Error(`Too many agents in this conversation (${MAX_AGENTS}). Reuse one with message_agent.`);
       sub = { id: 'agent_' + randomUUID().slice(0, 6), def, name: def.name, messages: [{ role: 'user', content: task }], running: false, depth: depth + 1 };
@@ -285,6 +286,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
 async function send(convId, userText, emit, images = [], opts = {}) {
   const s = store.getSettings({ reveal: true });
   const conv = store.getConversation(convId);
+  if (conv.agentId && !agents.allowedIn(agents.get(conv.agentId), conv)) { conv.agentId = ''; store.saveConversation(conv); } // a GrizzyWork-only agent never runs outside GrizzyWork
   if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return acp.send(convId, userText, emit, conv.model || agents.get(conv.agentId)?.model || s.model); // Grizzy = the real Claude Code CLI over ACP
   const content = images.length
     ? [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: userText }]

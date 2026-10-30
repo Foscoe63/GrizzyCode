@@ -127,8 +127,10 @@ const write = (d) => { fs.mkdirSync(store.root(), { recursive: true }); fs.write
 function list() {
   const d = load();
   return [...BUILTIN.map((b) => ({ ...b, ...(d.overrides[b.id] || {}), id: b.id, builtin: true, modified: !!d.overrides[b.id] })), ...d.custom.map((c) => ({ ...c, builtin: false }))]
-    .map((a) => ({ ...a, enabled: a.enabled !== false }));
+    .map((a) => ({ ...a, enabled: a.enabled !== false, scope: a.scope === 'grizzywork' ? 'grizzywork' : 'all' }));
 }
+// May this conversation use the agent? A GrizzyWork-only agent is for GrizzyWork tasks alone.
+const allowedIn = (a, conv) => !a || a.scope !== 'grizzywork' || !!conv?.grizzywork;
 const get = (id) => (id ? list().find((a) => a.id === id) : null);
 
 function clean(p) {
@@ -146,6 +148,7 @@ function clean(p) {
     ...(p.steps ? { steps: Math.max(1, Math.min(100, Number(p.steps) || 25)) } : {}),
     ...(Array.isArray(p.gates) ? { gates: p.gates.filter((g) => GATES[g]) } : {}),
     ...(p.report != null ? { report: String(p.report).slice(0, 1000) } : {}),
+    scope: p.scope === 'grizzywork' ? 'grizzywork' : 'all', // 'grizzywork' = only GrizzyWork tasks can use this agent
     enabled: p.enabled !== false,
   };
 }
@@ -201,4 +204,4 @@ function blockFor(a, cwd) {
   const rep = String(a.report || '').trim();
   return `\n\nYou are working as the agent “${a.name}”. Follow these agent instructions:\n${a.instructions.trim()}${rep ? `\n\nReport format: ${rep}` : ''}${(a.guards || []).map((g) => GUARD_INFO[g]).filter(Boolean).length ? '\n\nRules enforced on your tool calls: ' + a.guards.map((g) => GUARD_INFO[g]).filter(Boolean).join('; ') + '. A call that breaks one is refused.' : ''}${memoryBlock(a, cwd)}${(a.gates || []).length ? '\n\nYou cannot finish until your report meets this format and your work is verified; GrizzyCode checks the report against what you actually did (cited files and lines must exist, checks must have run) and sends an incomplete one back to you.' : ''}`;
 }
-module.exports = { list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };
+module.exports = { allowedIn, list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };
