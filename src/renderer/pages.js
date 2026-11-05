@@ -47,13 +47,18 @@ async function pgProjects() {
     <label class="fld">Instructions<textarea id="pInst" rows="7" placeholder="How should GrizzyCode behave in this project? Tone, context, rules…">${esc(p.instructions)}</textarea></label>
     <div class="fld">Default folder <span class="hint">(optional — chats become code sessions in this folder)</span>
       <div class="inl"><code id="pFolder">${esc(p.folder || 'None')}</code><button class="outline" id="pPick">Choose…</button>${p.folder ? '<button class="outline" id="pClear">Clear</button>' : ''}</div></div>
+    <div class="fld">Knowledge files <span class="hint">(text files every chat in this project can draw on)</span>
+      <div id="pFiles"></div><div class="inl"><button class="outline" id="pAddFiles">Add files…</button></div></div>
     <div class="pg-actions"><button class="primary" id="pSave">Save</button>${p.id ? '<button class="outline" id="pChat">New chat in project</button><span class="grow"></span><button class="outline danger" id="pDel">Delete project</button>' : ''}</div>
     ${p.id ? `<h3>Chats in this project</h3>${convs.length ? convs.map((c) => `<div class="rowi" data-id="${c.id}" data-closed="${c.archived ? 1 : ''}"><span>${esc(c.title)}</span><i>${c.archived ? 'closed · ' : ''}${when(c.updatedAt)}</i></div>`).join('') : '<p class="hint">No chats yet.</p>'}` : ''}`);
-  let folder = p.folder;
+  let folder = p.folder; let files = [...(p.files || [])];
+  const drawFiles = () => { P('#pFiles').innerHTML = files.length ? files.map((f, i) => `<div class="rowi"><span>${esc(f.name)}</span><i>${Math.ceil(f.text.length / 1000)} KB · <a href="#" data-rm="${i}">remove</a></i></div>`).join('') : '<p class="hint">None yet.</p>'; P('#pFiles').querySelectorAll('[data-rm]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); files.splice(+a.dataset.rm, 1); drawFiles(); })); };
+  drawFiles();
+  P('#pAddFiles').onclick = async () => { for (const f of await gc.projects.pickFiles()) if (!files.some((x) => x.name === f.name)) files.push(f); drawFiles(); };
   P('#pBack').onclick = () => { projSel = null; pgProjects(); };
   P('#pPick').onclick = async () => { const f = await gc.pickFolder(); if (f) { folder = f; P('#pFolder').textContent = f; } };
   P('#pClear')?.addEventListener('click', () => { folder = null; P('#pFolder').textContent = 'None'; });
-  const save = async () => { const r = await gc.projects.save({ id: p.id, name: P('#pName').value, instructions: P('#pInst').value, folder }); projSel = r.id; return r; };
+  const save = async () => { const r = await gc.projects.save({ id: p.id, name: P('#pName').value, instructions: P('#pInst').value, folder, files }); projSel = r.id; return r; };
   P('#pSave').onclick = async () => { await save(); toast('Project saved'); pgProjects(); };
   if (p.id) {
     P('#pChat').onclick = async () => {

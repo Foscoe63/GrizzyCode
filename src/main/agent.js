@@ -45,8 +45,9 @@ function buildSystem(s, conv, lists = []) {
   if (style) sys += `\n\nResponse style: ${style}`;
   if (s.preferences?.trim()) sys += `\n\nThe user's personal preferences (follow them unless the task says otherwise):\n${s.preferences.trim().slice(0, 2000)}`;
   sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId, conv.cwd);
-  const pr = store.getProject(conv.projectId);
-  if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
+  const pr = store.projectFor(conv);
+  if (pr && (pr.instructions || '').trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
+  if (pr && pr.files?.length) { let left = 80000; sys += `\n\nKnowledge files for project "${pr.name}" (reference material; use when relevant):`; for (const f of pr.files) { if (left <= 0) break; const t = f.text.slice(0, left); left -= t.length; sys += `\n\n<project-file name="${f.name}">\n${t}\n</project-file>`; } }
   const sk = s.capSkills === false ? [] : access.keepSkills(lists, require('./grizzywork').filterSkills(conv, skills.list())); // a GrizzyWork task only sees the skills switched on for it
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
   return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
@@ -139,11 +140,13 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     const i = c.input || {}, r = i.action === 'forget' ? agents.forgetNote(run.agentId, conv.cwd, String(i.id || i.text || '')) : i.action === 'save' ? agents.addNote(run.agentId, conv.cwd, i.text) : { error: 'action must be save or forget' };
     return r.error ? 'ERROR: ' + r.error : i.action === 'forget' ? 'Forgotten.' : r.duplicate ? 'Already noted.' : `Saved. You now have ${r.notes.length} note${r.notes.length === 1 ? '' : 's'} for this project.`;
   }
-  const real = savings.unwrapInvoke(c, [...mcp.toolDefs(), ...mods.toolDefs()]); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  const allMcp = [...mcp.toolDefs(), ...mods.toolDefs()];
+  const real = savings.unwrapInvoke(c, allMcp) || savings.resolveBare(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  if (c.name === 'use_skill') { const id = String(c.input?.id || ''); if (id && mcp.toolDefs().some((d) => (/^mcp__(.+?)__/.exec(d.name) || [])[1] === id)) throw new Error(`"${id}" is a connector (MCP server), not a skill. Call mcp_tools with server "${id}" to list its tools and mcp_invoke to call one.`); }
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
-  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode));
+  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode) + savings.unknownToolHint(c.name, mcp.toolDefs()));
   { const blocked = require('./grizzywork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
   if (c.name === 'use_skill' && !require('./grizzywork').skillAllowed(conv, String(c.input?.id || ''))) throw new Error(`The skill "${c.input?.id}" is switched off for GrizzyWork (GrizzyWork → Plugins).`);
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it

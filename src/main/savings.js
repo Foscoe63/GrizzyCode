@@ -72,6 +72,17 @@ function unwrapInvoke(call, mcpDefs) {
   return { ...call, name: real.name, input: call.input?.input && typeof call.input.input === 'object' ? call.input.input : {} };
 }
 
+// A model that names a connector tool directly ("inspect_desktop_application", "hindsight__recall") instead of going through mcp_invoke:
+// run the real tool when exactly one connector tool matches. Returns null when the name is not a connector tool.
+function resolveBare(call, mcpDefs) {
+  const n = String(call.name || '');
+  if (!n || n === 'mcp_invoke' || n === 'mcp_tools' || mcpDefs.some((d) => d.name === n)) return null;
+  const hits = mcpDefs.filter((d) => d.name === `mcp__${n}` || split(d.name).tool === n);
+  return hits.length === 1 ? { ...call, name: hits[0].name } : null;
+}
+// Extra hint for a tool name that does not exist: connector tools are reached through mcp_invoke.
+const unknownToolHint = (name, mcpDefs) => (mcpDefs.length ? ` If you meant a connector tool, call mcp_tools to list them and mcp_invoke with {"tool": "<server>__<tool>", "input": {...}} — "${name}" is not a tool name.` : '');
+
 // ---------- 2. Output compression ----------
 const outDir = () => path.join(store.root(), 'outputs');
 const retrieveDef = { name: 'retrieve_output', description: 'Read back a tool output that was compressed to save context. Give the id from the note; optionally "pattern" (regex, returns matching lines with context), or "offset"/"limit" (1-based line range).',
@@ -204,4 +215,4 @@ async function compact(conv, s, summarize, { force = false, usedRatio = 0 } = {}
 
 // Tools offered to the model: reading back compressed output (only when compression is on) and pinning facts.
 const defs = (s) => [...(on(s, 'saveOutputs', true) ? [retrieveDef] : []), pinDef];
-module.exports = { tok, record, stats, totals, resetStats, routeMcp, describeTools, unwrapInvoke, routerDefs, compressOutput, retrieve, retrieveDef, pinDef, pin, unpin, pins, pinBlock, compact, isSummary, cutPoint, defs, ROUTER_MIN_TOOLS };
+module.exports = { resolveBare, unknownToolHint, tok, record, stats, totals, resetStats, routeMcp, describeTools, unwrapInvoke, routerDefs, compressOutput, retrieve, retrieveDef, pinDef, pin, unpin, pins, pinBlock, compact, isSummary, cutPoint, defs, ROUTER_MIN_TOOLS };

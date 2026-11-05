@@ -240,10 +240,18 @@ function listProjects() {
   const counts = {}; for (const c of listConversations(true)) if (c.projectId) counts[c.projectId] = (counts[c.projectId] || 0) + 1;
   return l.map((p) => ({ ...p, chats: counts[p.id] || 0 })).sort((a, b) => b.updatedAt - a.updatedAt);
 }
+// The project a conversation belongs to: its own projectId, else the project whose default folder contains the conversation's working folder.
+function projectFor(conv) {
+  if (!conv) return null;
+  if (conv.projectId) return getProject(conv.projectId);
+  if (!conv.cwd || conv.ssh) return null;
+  const cwd = path.resolve(conv.cwd);
+  return listProjects().filter((p) => p.folder && (cwd === path.resolve(p.folder) || cwd.startsWith(path.resolve(p.folder) + path.sep))).sort((a, b) => b.folder.length - a.folder.length)[0] || null;
+}
 const getProject = (id) => (id ? listProjects().find((p) => p.id === id) || null : null);
 function saveProject(p) {
   ensure(); let l = []; try { l = JSON.parse(fs.readFileSync(projectsFile(), 'utf8')); } catch {}
-  const rec = { id: p.id || crypto.randomUUID(), name: (p.name || '').trim() || 'Untitled project', instructions: p.instructions || '', folder: p.folder || null, createdAt: Date.now(), updatedAt: Date.now() };
+  const rec = { id: p.id || crypto.randomUUID(), name: (p.name || '').trim() || 'Untitled project', instructions: p.instructions || '', folder: p.folder || null, files: (p.files || []).slice(0, 30).map((f) => ({ name: String(f.name).slice(0, 120), text: String(f.text).slice(0, 60000) })), createdAt: Date.now(), updatedAt: Date.now() };
   const i = l.findIndex((x) => x.id === rec.id); if (i >= 0) { rec.createdAt = l[i].createdAt; l[i] = rec; } else l.push(rec);
   fs.writeFileSync(projectsFile(), JSON.stringify(l, null, 2)); return getProject(rec.id);
 }
@@ -253,4 +261,4 @@ function deleteProject(id) {
   for (const m of listConversations(true)) if (m.projectId === id) { const c = getConversation(m.id); c.projectId = null; saveConversation(c); }
 }
 
-module.exports = { vault, heal, keyKind, defaultProviderId, isOpenRouterUrl, listProjects, getProject, saveProject, deleteProject, getUsage, clearUsage, addUsage, lastClosed, root, getSettings, saveSettings, listConversations, getConversation, newConversation, saveConversation, deleteConversation, searchConversations };
+module.exports = { vault, heal, keyKind, defaultProviderId, isOpenRouterUrl, listProjects, getProject, projectFor, saveProject, deleteProject, getUsage, clearUsage, addUsage, lastClosed, root, getSettings, saveSettings, listConversations, getConversation, newConversation, saveConversation, deleteConversation, searchConversations };

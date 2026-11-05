@@ -1270,14 +1270,16 @@ async function renderAgents() {
   }
 }
 // Every model from every enabled provider, grouped; a saved model that is no longer listed stays selectable.
-function fillAgentModels(cur) {
-  const groups = catalog.groups.filter((g) => g.models.length);
+function fillAgentModels(cur, filter = '') {
+  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = catalog.groups.map((g) => ({ ...g, models: g.models.filter((m) => words.every((w) => ((m.name || '') + ' ' + (m.id || '') + ' ' + (m.value || '') + ' ' + g.label).toLowerCase().includes(w))) })).filter((g) => g.models.length);
   const known = groups.some((g) => g.models.some((m) => (m.value || m.id) === cur));
   $('agModel').innerHTML = '<option value="">Default (current model)</option>'
     + (cur && !known ? `<option value="${esc(cur)}">${esc(cur)}</option>` : '')
     + groups.map((g) => `<optgroup label="${esc(g.label)}">${g.models.map((m) => `<option value="${esc(m.value || m.id || '')}">${esc(m.name || m.id)}</option>`).join('')}</optgroup>`).join('');
   $('agModel').value = cur;
 }
+$('agModelSearch').addEventListener('input', () => { const cur = $('agModel').value; fillAgentModels(cur, $('agModelSearch').value); });
 // Access: a mode select (all / only the ones picked) plus a checkbox list that shows while "picked" is chosen.
 const AG_TOOLS = [['read_file', 'Read files'], ['list_dir', 'List folders'], ['grep', 'Search'], ['write_file', 'Write files'], ['edit_file', 'Edit files'], ['bash', 'Shell'], ['web_fetch', 'Web fetch']];
 function fillAgentPick(mode, list, items, chosen) {
@@ -1302,7 +1304,7 @@ async function renderAgentNotes(a) {
 async function openAgent(a) {
   agEditing = a || null; $('agTitle').textContent = a ? `Edit “${a.name}”` : 'New agent';
   $('agName').value = a?.name || ''; $('agIcon').value = a?.icon || ''; $('agDesc').value = a?.description || ''; $('agInstr').value = a?.instructions || '';
-  fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agScope').value = a?.scope || 'all'; $('agMsg').textContent = '';
+  $('agModelSearch').value = ''; fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agScope').value = a?.scope || 'all'; $('agMsg').textContent = '';
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
   const skillIds = [...new Set([...((await gc.skills.list().catch(() => [])) || []).map((k) => k.id), ...(a?.skills || [])])];
