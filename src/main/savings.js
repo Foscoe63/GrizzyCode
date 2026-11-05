@@ -60,9 +60,12 @@ function describeTools(mcpDefs, input = {}) {
   return pick.map((r) => JSON.stringify({ tool: r.d.name, description: r.d.description, input_schema: r.d.input_schema }, null, 1)).join('\n\n');
 }
 // mcp_invoke -> the call it stands for (so permissions, approval cards and mods see the real tool). Returns null if it is not a router call.
+// Models write "rea.inspect_artifact", "rea/inspect_artifact" or "rea:inspect_artifact"; the real name is "rea__inspect_artifact".
+const normName = (n) => String(n || '').trim().replace(/^mcp[._/:]+/, 'mcp__').replace(/^([A-Za-z0-9-]+)[./:]+(?=[A-Za-z0-9_])/, '$1__');
 function unwrapInvoke(call, mcpDefs) {
   if (call.name !== 'mcp_invoke') return null;
-  const t = String(call.input?.tool || '').trim();
+  let t = String(call.input?.tool || '').trim();
+  if (!mcpDefs.some((d) => d.name === t || d.name === `mcp__${t}` || d.name.replace(/^mcp__/, '') === t)) t = normName(t);
   const real = mcpDefs.find((d) => d.name === t || d.name === `mcp__${t}` || d.name.replace(/^mcp__/, '') === t);
   if (!real) {
     const { server } = split(t.startsWith('mcp__') ? t : `mcp__${t}`);
@@ -75,9 +78,10 @@ function unwrapInvoke(call, mcpDefs) {
 // A model that names a connector tool directly ("inspect_desktop_application", "hindsight__recall") instead of going through mcp_invoke:
 // run the real tool when exactly one connector tool matches. Returns null when the name is not a connector tool.
 function resolveBare(call, mcpDefs) {
-  const n = String(call.name || '');
-  if (!n || n === 'mcp_invoke' || n === 'mcp_tools' || mcpDefs.some((d) => d.name === n)) return null;
-  const hits = mcpDefs.filter((d) => d.name === `mcp__${n}` || split(d.name).tool === n);
+  const raw = String(call.name || '');
+  if (!raw || raw === 'mcp_invoke' || raw === 'mcp_tools' || mcpDefs.some((d) => d.name === raw)) return null;
+  const n = normName(raw);
+  const hits = mcpDefs.filter((d) => d.name === n || d.name === `mcp__${n}` || split(d.name).tool === n || split(d.name).tool === raw);
   return hits.length === 1 ? { ...call, name: hits[0].name } : null;
 }
 // Extra hint for a tool name that does not exist: connector tools are reached through mcp_invoke.
