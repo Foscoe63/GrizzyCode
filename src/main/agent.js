@@ -31,7 +31,7 @@ const STYLES = {
   learning: 'Act as a collaborative teacher. Explain concepts as they come up, and for small, well-scoped pieces leave a clearly marked TODO(human) with guidance so the user writes that part themselves.',
 };
 const ROLE_TEXT = { software: 'software engineering', design: 'design', research: 'research', writing: 'writing and editing', data: 'data and analytics', product: 'product and business', education: 'teaching', student: 'study as a student', other: '' };
-function buildSystem(s, conv) {
+function buildSystem(s, conv, lists = []) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
     sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. For multi-step work keep a visible task list with todo_write. Prefer glob and grep over shell find/grep to locate code. Prefer small, verified steps.`;
@@ -47,7 +47,7 @@ function buildSystem(s, conv) {
   sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId, conv.cwd);
   const pr = store.getProject(conv.projectId);
   if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
-  const sk = s.capSkills === false ? [] : require('./grizzywork').filterSkills(conv, skills.list()); // a GrizzyWork task only sees the skills switched on for it
+  const sk = s.capSkills === false ? [] : access.keepSkills(lists, require('./grizzywork').filterSkills(conv, skills.list())); // a GrizzyWork task only sees the skills switched on for it
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
   return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
@@ -246,7 +246,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
-      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
+      const system = buildSystem(s, sc, lists) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model), effort: sub.def.effort || root.effort }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
@@ -322,7 +322,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
-      const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      const system = buildSystem(s, conv, lists) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
         try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(conv.agentId)?.enabled ? agents.get(conv.agentId).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }

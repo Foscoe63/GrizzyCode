@@ -1305,6 +1305,8 @@ async function openAgent(a) {
   fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agScope').value = a?.scope || 'all'; $('agMsg').textContent = '';
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
+  const skillIds = [...new Set([...((await gc.skills.list().catch(() => [])) || []).map((k) => k.id), ...(a?.skills || [])])];
+  fillAgentPick('agSkillMode', 'agSkillList', skillIds.map((n) => [n, n]), a?.skills);
   $('agPaths').value = (a?.paths || []).join('\n');
   $('agMem').checked = !!a?.memory; renderAgentNotes(a);
   $('agEffort').value = a?.effort || ''; $('agSteps').value = a?.steps || ''; $('agReport').value = a?.report || '';
@@ -1315,7 +1317,7 @@ async function openAgent(a) {
 }
 $('agNew').onclick = () => openAgent(null); $('agCancel').onclick = () => $('agDlg').close();
 $('agSave').onclick = async () => {
-  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, scope: $('agScope').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
+  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, scope: $('agScope').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), skills: agPicked('agSkillMode', 'agSkillList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
   if (r.error) { $('agMsg').textContent = r.error; $('agMsg').className = 'mmsg bad'; return; }
   $('agDlg').close(); renderAgents();
 };
