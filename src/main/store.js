@@ -176,15 +176,16 @@ function listConversations(includeArchived = false) {
   return fs.readdirSync(convDir()).filter((f) => f.endsWith('.json')).map((f) => {
     try {
       const c = JSON.parse(fs.readFileSync(path.join(convDir(), f), 'utf8'));
-      return { id: c.id, title: c.title, mode: c.mode, cwd: c.cwd, updatedAt: c.updatedAt, pinned: !!c.pinned, archived: !!c.archived, closedAt: c.closedAt || 0, projectId: c.projectId || null };
+      return { id: c.id, title: c.title, mode: c.mode, cwd: c.cwd, updatedAt: c.updatedAt, pinned: !!c.pinned, archived: !!c.archived, closedAt: c.closedAt || 0, projectId: c.projectId || null, ops: !!c.ops };
     } catch { return null; }
   }).filter(Boolean).filter((m) => includeArchived || !m.archived).sort((a, b) => (b.pinned - a.pinned) || b.updatedAt - a.updatedAt);
 }
 
 function getConversation(id) { return JSON.parse(fs.readFileSync(convPath(id), 'utf8')); }
 
-function newConversation({ mode = 'chat', cwd = null, permissionMode, projectId = null, worktree = null, ssh = null } = {}) {
-  const c = { id: crypto.randomUUID(), title: 'New conversation', mode, cwd, projectId, worktree, ssh, messages: [], createdAt: Date.now(), updatedAt: Date.now(),
+function newConversation({ mode = 'chat', cwd = null, permissionMode, projectId = null, worktree = null, ssh = null, ops = false } = {}) {
+  if (ops && !cwd) cwd = require('os').homedir(); // a general (no-folder) session works from the home folder
+  const c = { id: crypto.randomUUID(), title: 'New conversation', mode, cwd, projectId, worktree, ssh, ops: !!ops, messages: [], createdAt: Date.now(), updatedAt: Date.now(),
     permissionMode: permissionMode || getSettings().permissionMode, agentId: getSettings().activeAgent || '', model: null, allow: [], usage: { in: 0, out: 0, cr: 0, cw: 0 }, ctx: null };
   saveConversation(c);
   return c;

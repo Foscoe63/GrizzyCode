@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const MODES = { default: 'Ask permissions', acceptEdits: 'Accept edits', plan: 'Plan mode', bypassPermissions: 'Bypass permissions' };
 let cur = null, live = null, settings = {}, order = [], atts = [], providerCache = [];
 let modInfo = { band: false, panes: [], status: [], commands: [], messageHooks: false, working: false };
-let viewMode = 'chat', homeFolder = null, useWt = false, homeSsh = null; const shut = new Set(), expanded = new Set();
+let viewMode = 'chat', homeFolder = null, homeOps = false, useWt = false, homeSsh = null; const shut = new Set(), expanded = new Set();
 try { viewMode = localStorage.getItem('gc.view') === 'code' ? 'code' : 'chat'; } catch {}
 const busy = new Set(); const hist = []; let hpos = -1; let lastHolder = null;
 
@@ -121,7 +121,7 @@ function renderConv(c) {
   $('msgs').innerHTML = '';
   $('title').textContent = c.title;
   if (typeof hidePage === 'function') hidePage();
-  setView(c.mode, false); homeFolder = c.mode === 'code' ? c.cwd : null; syncHome();
+  setView(c.mode, false); homeOps = !!c.ops; homeFolder = c.mode === 'code' ? c.cwd : null; syncHome();
   const results = {};
   for (const m of c.messages) if (Array.isArray(m.content)) for (const b of m.content) if (b.type === 'tool_result') results[b.tool_use_id] = b.content;
   for (const m of c.messages) {
@@ -154,15 +154,16 @@ function syncHome() {
   $('emptySub').textContent = code ? '' : 'Ask a question, or switch to Code to work in a folder.';
   $('envCard').hidden = !(empty && code && !cur);
   if (!$('envCard').hidden) renderEnv();
-  $('dirName').textContent = (cur?.cwd || homeSsh?.cwd || homeFolder || 'Choose folder').split('/').pop() || '/';
+  $('dirName').textContent = (cur ? cur.ops : homeOps) ? 'No folder' : (cur?.cwd || homeSsh?.cwd || homeFolder || 'Choose folder').split('/').pop() || '/';
 }
 function renderEnv() {
   const l = $('envList'); l.innerHTML = '';
+  { const d = document.createElement('div'); d.title = 'A general task on this computer, with no project folder'; if (homeOps) d.className = 'on'; d.innerHTML = `${ICON.laptop}<span>No folder (general task)</span>`; d.onclick = () => { homeOps = true; homeSsh = null; syncHome(); syncComposer(); $('input').focus(); }; l.appendChild(d); }
   const fs = [...new Set([...(settings.pinnedFolders || []), ...(settings.trustedFolders || [])])];
   for (const f of fs) {
     const d = document.createElement('div'); d.title = f; if (f === homeFolder) d.className = 'on';
     d.innerHTML = `${ICON.laptop}<span>${esc(f.split('/').pop() || f)}</span><button class="env-del" title="Remove" type="button">✕</button>`;
-    d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeFolder = f; syncHome(); $('input').focus(); };
+    d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeOps = false; homeFolder = f; syncHome(); $('input').focus(); };
     d.querySelector('.env-del').onclick = async (e) => { e.stopPropagation(); await removeEnv(f); };
     l.appendChild(d);
   }
@@ -200,18 +201,18 @@ async function refreshList() {
     d.oncontextmenu = (e) => { e.preventDefault(); ctxMenu(e, [
       ['Rename…', async () => { const t = prompt('Rename', it.title); if (t) { await gc.conv.update(it.id, { title: t }); refreshList(); if (cur?.id === it.id) $('title').textContent = t; } }],
       [it.pinned ? 'Unpin' : 'Pin', async () => { await gc.conv.update(it.id, { pinned: !it.pinned }); refreshList(); }],
-      ...(it.mode === 'code' && it.cwd ? [[settings.pinnedFolders.includes(it.cwd) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(it.cwd)], ['New session in this folder', () => newCode(it.cwd)]] : []),
+      ...(it.mode === 'code' && it.cwd && !it.ops ? [[settings.pinnedFolders.includes(it.cwd) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(it.cwd)], ['New session in this folder', () => newCode(it.cwd)]] : []),
       ['Open in new window', () => gc.newWindow(it.id)], ['Open side by side', () => gc.splitWindow(it.id)], null,
       ['Close session', () => closeSession(it.id)],
       ['Delete…', async () => { if (await gc.confirm('Delete this conversation?', 'This cannot be undone.', 'Delete')) { const r = await gc.conv.remove(it.id); if (cur?.id === it.id) goHome(); refreshList(); if (r && !r.removed) gc.confirm('Worktree kept', `The session’s worktree was left on disk (${r.reason}). Remove it manually with git worktree remove.`, 'OK'); } }],
     ]); };
     l.appendChild(d);
   };
-  const group = (key, html, { plus, folder } = {}) => {
+  const group = (key, html, { plus, folder, ops } = {}) => {
     const g = document.createElement('div'); g.className = 'group' + (shut.has(key) ? ' shut' : '');
     g.innerHTML = `<span class="gt">${html}</span>${plus ? '<button class="plus" title="New session" type="button">＋</button>' : ''}<span class="car">▾</span>`;
     g.onclick = () => { shut.has(key) ? shut.delete(key) : shut.add(key); refreshList(); };
-    if (plus) g.querySelector('.plus').onclick = (e) => { e.stopPropagation(); newCode(folder); };
+    if (plus) g.querySelector('.plus').onclick = (e) => { e.stopPropagation(); ops ? newCode(null, true) : newCode(folder); };
     if (folder) { g.title = folder; g.oncontextmenu = (e) => { e.preventDefault(); ctxMenu(e, [[settings.pinnedFolders.includes(folder) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(folder)], ['New session here', () => newCode(folder)]]); }; }
     l.appendChild(g); return !shut.has(key);
   };
@@ -221,9 +222,11 @@ async function refreshList() {
     if (list.length > limit) { const m = document.createElement('div'); m.className = 'more'; m.textContent = all ? 'Show less' : 'Show more'; m.onclick = () => { all ? expanded.delete(key) : expanded.add(key); refreshList(); }; l.appendChild(m); }
   };
   if (q) { items.forEach(add); return; }
-  const pinned = items.filter((i) => i.pinned), rest = items.filter((i) => !i.pinned);
+  const pinned = items.filter((i) => i.pinned); let rest = items.filter((i) => !i.pinned);
   if (pinned.length && group('pinned', 'Pinned')) run('pinned', pinned, 99);
   if (viewMode === 'chat') { if (rest.length && group('recents', 'Recents')) run('recents', rest, 12); return; }
+  const gen = rest.filter((i) => i.ops); rest = rest.filter((i) => !i.ops);
+  if (group('general', 'General <i>· no folder</i>', { plus: true, ops: true })) run('general', gen);
   const by = new Map(); for (const f of settings.pinnedFolders || []) by.set(f, []);
   for (const it of rest) { if (!by.has(it.cwd)) by.set(it.cwd, []); by.get(it.cwd).push(it); }
   for (const [f, list] of by) {
@@ -256,7 +259,8 @@ async function newChat() {
   setView('chat', false);
   const c = await gc.conv.create({ mode: 'chat' }); await open(c.id);
 }
-async function newCode(folder) {
+async function newCode(folder, ops) {
+  if (ops && !folder) { setView('code', false); const c = await gc.conv.create({ mode: 'code', ops: true }); await open(c.id); return; } // no folder to trust: the session starts in the home folder
   if (homeSsh && !folder) { setView('code', false); const c = await gc.conv.create({ mode: 'code', cwd: homeSsh.cwd, ssh: { host: homeSsh.host } }); await open(c.id); return; }
   const cwd = folder || await gc.pickFolder(); if (!cwd) return;
   if (!settings.trustedFolders.includes(cwd)) {
@@ -286,7 +290,7 @@ function syncComposer() {
   const code = cur?.mode === 'code';
   const codeUi = viewMode === 'code';
   $('envName').textContent = (cur?.ssh || homeSsh) ? 'SSH · ' + (cur?.ssh?.host || homeSsh.host) : 'This computer'; $('envChip').classList.toggle('on', !!(cur?.ssh || homeSsh));
-  $('wtChip').hidden = !codeUi || !!cur || !!homeSsh; $('wtChip').classList.toggle('on', useWt);
+  $('wtChip').hidden = !codeUi || !!cur || !!homeSsh || homeOps; $('wtChip').classList.toggle('on', useWt);
   const ms = $('modeSel'); ms.hidden = !codeUi; $('envChip').hidden = $('dirChip').hidden = !codeUi;
   if (cur) syncHome(); else $('dirName').textContent = (homeFolder || 'Choose folder').split('/').pop();
   ms.innerHTML = Object.entries(MODES).filter(([k]) => k !== 'bypassPermissions' || settings.allowBypass !== false || cur?.permissionMode === 'bypassPermissions').map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
@@ -312,7 +316,7 @@ $('modeSel').onchange = async () => {
   if (v === 'bypassPermissions' && !(await gc.confirm('Run coding task in bypass permissions mode?', 'GrizzyCode will edit files and run commands without asking. Only use this in folders you trust.', 'Bypass permissions'))) { $('modeSel').value = cur.permissionMode; return; }
   cur = await gc.conv.update(cur.id, { permissionMode: v }); syncComposer();
 };
-$('dirChip').onclick = async () => { if (cur) return; const f = await gc.pickFolder(); if (f) { homeFolder = f; homeSsh = null; syncHome(); syncComposer(); } };
+$('dirChip').onclick = async () => { if (cur) return; const f = await gc.pickFolder(); if (f) { homeFolder = f; homeOps = false; homeSsh = null; syncHome(); syncComposer(); } };
 $('envChoose').onclick = $('dirChip').onclick;
 $('envChip').onclick = async () => {
   if (cur) return;
@@ -516,6 +520,7 @@ async function send() {
   if (!cur) {
     if (viewMode === 'code') {
       if (homeSsh) await newCode();
+      else if (homeOps) await newCode(null, true);
       else if (!homeFolder) { toast('Choose a folder for this code session first, or switch to Chat'); const c = $('dirChip'); c.classList.remove('nudge'); void c.offsetWidth; c.classList.add('nudge'); return; }
       else await newCode(homeFolder);
     } else await newChat();

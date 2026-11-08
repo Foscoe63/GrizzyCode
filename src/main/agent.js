@@ -36,6 +36,7 @@ function buildSystem(s, conv, lists = []) {
   if (conv.mode === 'code') {
     sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. For multi-step work keep a visible task list with todo_write. Prefer glob and grep over shell find/grep to locate code. Prefer small, verified steps.`;
     sys += '\n\nIf asked to build or install a mod for GrizzyCode: put it in ~/.GrizzyCode/mods/<name>/ (same as ~/.grizzycode) and keep its saved data under ~/.grizzycode/mods-data/<name>/. Never use ~/.claude or `claude plugin install` for it; load the mod-authoring skill first.';
+    if (conv.ops) sys += `\n\nThis is a general task, not a software project: there is no project folder (the shell starts in ${conv.cwd}). It may be about this computer, its services, files or settings, wherever they are. Inspect before you change anything, say what you found, and tell the user the plan before moving, deleting or reconfiguring things. Copy or back up before you move or overwrite data, and keep the user's originals until the new setup is verified.`;
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
