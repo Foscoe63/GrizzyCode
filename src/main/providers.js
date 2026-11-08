@@ -97,12 +97,22 @@ async function fetchModels(p, key, { force = false } = {}) {
         list = (j.data || j.models || []).map((m) => (typeof m === 'string' ? { id: m, name: m } : { id: String(m.id || m.name || ''), name: m.name || m.display_name || m.id, ctx: m.context_length || m.context_window || m.max_input_tokens || 0, price: m.pricing ? { in: per(m.pricing.prompt), out: per(m.pricing.completion), cr: per(m.pricing.input_cache_read), cw: per(m.pricing.input_cache_write) } : undefined })).filter((m) => m.id);
       }
       if (!list.length) throw new Error('the provider returned no models');
+      if (p.type !== 'anthropic' && /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/v1$/i.test(p.baseUrl.replace(/\/$/, ''))) {
+        // LM Studio reports the context length each model is actually loaded with (the OpenAI list does not), so use that to size compaction.
+        try {
+          const nr = await fetch(p.baseUrl.replace(/\/v1\/?$/, '') + '/api/v0/models', { signal: AbortSignal.timeout(3000) });
+          if (nr.ok) {
+            const nat = new Map(((await nr.json()).data || []).map((m) => [String(m.id).toLowerCase(), Number(m.loaded_context_length) || Number(m.max_context_length) || 0]));
+            for (const m of list) { const c = nat.get(String(m.id).toLowerCase()); if (c) m.ctx = c; }
+          }
+        } catch {}
+      }
       return { models: list };
     } catch (e) { return { models: [], error: `Could not load the model list (${e.message}).` }; }
   });
   const seen = new Set(), out = [];
   for (const m of [...live.models, ...own, ...(live.models.length ? [] : fallback)]) if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
-  for (const m of out) if (m.ctx || m.price) info.set(`${p.id}:${m.id}`, { ctx: m.ctx, price: m.price });
+  for (const m of out) if (m.ctx || m.price) info.set(`${p.id}:${m.id}`.toLowerCase(), { ctx: m.ctx, price: m.price });
   return { models: out, error: live.error && !own.length && !fallback.length ? live.error : live.error ? live.error + (fallback.length ? ' Showing known models.' : '') : undefined };
 }
 
@@ -115,5 +125,5 @@ async function test(id) {
   const live = r.models.length && !r.error;
   return live ? { ok: true, count: r.models.length } : { ok: false, error: r.error || 'No models returned.', models: r.models.length };
 }
-const infoOf = (value) => info.get(value);
+const infoOf = (value) => info.get(String(value).toLowerCase());
 module.exports = { list, get, save, remove, fetchModels, test, infoOf, ID_RE };
