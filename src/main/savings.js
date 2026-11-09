@@ -38,7 +38,7 @@ function catalog(mcpDefs) {
   const by = new Map();
   for (const d of mcpDefs) { const { server, tool } = split(d.name); (by.get(server) || by.set(server, []).get(server)).push([tool, String(d.description || '').replace(/^\[[^\]]*\]\s*/, '').replace(/\s+/g, ' ').slice(0, 70)]); }
   return '\n\nConnector (MCP) tools are not listed individually to save context. Use mcp_tools to see parameter schemas and mcp_invoke to call one. Catalog:\n' +
-    [...by].map(([srv, ts]) => `- ${srv}: ${ts.map(([n, d]) => (d ? `${n} (${d})` : n)).join('; ')}`).join('\n');
+    [...by].map(([srv, ts]) => ts.length > 8 ? `- ${srv} (${ts.length} tools; mcp_tools with server "${srv}" gives descriptions): ${ts.map(([n]) => n).join(', ')}` : `- ${srv}: ${ts.map(([n, d]) => (d ? `${n} (${d.slice(0, 50)})` : n)).join('; ')}`).join('\n');
 }
 // -> { defs: tool definitions to send, exec: the full list used to validate a call, system: text to add, active }
 function routeMcp(mcpDefs, s, conv) {

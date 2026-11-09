@@ -51,7 +51,7 @@ function buildSystem(s, conv, lists = []) {
   if (pr && (pr.instructions || '').trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
   if (pr && pr.files?.length) { let left = 80000; sys += `\n\nKnowledge files for project "${pr.name}" (reference material; use when relevant):`; for (const f of pr.files) { if (left <= 0) break; const t = f.text.slice(0, left); left -= t.length; sys += `\n\n<project-file name="${f.name}">\n${t}\n</project-file>`; } }
   const sk = s.capSkills === false ? [] : access.keepSkills(lists, require('./grizzywork').filterSkills(conv, skills.list())); // a GrizzyWork task only sees the skills switched on for it
-  if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
+  if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${String(k.description).replace(/\s+/g, ' ').slice(0, 110)}`).join('\n');
   return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
