@@ -319,7 +319,9 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       if (s.saveCompact) { // fold old turns into a summary when the context is getting full
         try { const r0 = models.route(s, mstr0); if (r0.baseUrl && !models.contextWindow(s, mstr0)) await providers.fetchModels(providers.get(models.canon(s, mstr0).split(':')[0], s), r0.apiKey, {}); } catch {} // learn a local model's loaded context size
         if (conv.ctx && !conv.ctx.max) conv.ctx.max = models.contextWindow(s, mstr0) || null;
-        const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
+        // a rejected request records no usage, so also estimate from the history itself (plus ~6k for the prompt and tools)
+        const est = savings.tok(conv.messages.map((m) => (typeof m.content === 'string' ? m.content : (m.content || []).map((b) => (b.type === 'image' ? '[image]' : b))))) + 6000;
+        const ratio = Math.max(conv.ctx?.used || 0, est) / (conv.ctx?.max || models.contextWindow(s, mstr0) || 200000);
         const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
         if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
       }
