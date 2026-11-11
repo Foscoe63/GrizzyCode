@@ -316,15 +316,6 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
       { const ad = agents.get(conv.agentId), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; }
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(conv.agentId)?.model || s.model;
-      if (s.saveCompact) { // fold old turns into a summary when the context is getting full
-        try { const r0 = models.route(s, mstr0); if (r0.baseUrl && !models.contextWindow(s, mstr0)) await providers.fetchModels(providers.get(models.canon(s, mstr0).split(':')[0], s), r0.apiKey, {}); } catch {} // learn a local model's loaded context size
-        if (conv.ctx && !conv.ctx.max) conv.ctx.max = models.contextWindow(s, mstr0) || null;
-        // a rejected request records no usage, so also estimate from the history itself (plus ~6k for the prompt and tools)
-        const est = savings.tok(conv.messages.map((m) => (typeof m.content === 'string' ? m.content : (m.content || []).map((b) => (b.type === 'image' ? '[image]' : b))))) + 6000;
-        const ratio = Math.max(conv.ctx?.used || 0, est) / (conv.ctx?.max || models.contextWindow(s, mstr0) || 200000);
-        const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
-        if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
-      }
       const lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean);
       const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
       const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(conv.agentId)?.enabled && agents.get(conv.agentId).memory) }), ...mods.toolDefs(), ...savings.defs(s)]);
@@ -332,6 +323,18 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
       const system = buildSystem(s, conv, lists) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      if (s.saveCompact) { // fold old turns into a summary when the context is getting full
+        try { const r0 = models.route(s, mstr0); if (r0.baseUrl && !models.contextWindow(s, mstr0)) await providers.fetchModels(providers.get(models.canon(s, mstr0).split(':')[0], s), r0.apiKey, {}); } catch {} // learn a local model's loaded context size
+        const r1 = models.route(s, mstr0), win = (await providers.loadedCtx(r1.baseUrl, models.canon(s, mstr0).replace(/^[a-z0-9-]+:/, ''))) || models.contextWindow(s, mstr0) || null; // what LM Studio has loaded now, else the model's listed size
+        if (conv.ctx) conv.ctx.max = win;
+        // A rejected request records no usage, so estimate this turn's size from what it would actually send: the history
+        // plus this request's system prompt and the tool schemas — a fixed cost a flat guess under-counted, which is how
+        // a session well past its window could read as barely a fifth full.
+        const est = savings.tok(savings.noImages([system, ...conv.messages, ...sendDefs])) + 1000;
+        const ratio = Math.max(conv.ctx?.used || 0, est) / (win || 200000);
+        const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
+        if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
+      }
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
         try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(conv.agentId)?.enabled ? agents.get(conv.agentId).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
@@ -342,7 +345,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       conv.messages.push({ role: 'assistant', content: res.content });
       const mstr = mstr0, u = res.usage, cu = conv.usage || {};
       conv.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
-      conv.ctx = { used: u.in + (u.cr || 0) + (u.cw || 0), max: models.contextWindow(s, mstr) || null, model: mstr, at: Date.now() };
+      conv.ctx = { used: u.in + (u.cr || 0) + (u.cw || 0), max: (await providers.loadedCtx(models.route(s, mstr).baseUrl, models.canon(s, mstr).replace(/^[a-z0-9-]+:/, ''))) || models.contextWindow(s, mstr) || null, model: mstr, at: Date.now() };
       store.addUsage(u, { model: models.canon(s, mstr), mode: conv.mode, conv: convId, price: models.priceOf(s, mstr) });
       store.saveConversation(conv);
       emit({ type: 'usage', convId, usage: conv.usage, last: u, ctx: conv.ctx });

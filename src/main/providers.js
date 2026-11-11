@@ -125,5 +125,15 @@ async function test(id) {
   const live = r.models.length && !r.error;
   return live ? { ok: true, count: r.models.length } : { ok: false, error: r.error || 'No models returned.', models: r.models.length };
 }
+// The context length LM Studio has a model loaded with right now (0 when it is not LM Studio, or the model is not loaded).
+// Read live each turn: the loaded size changes when the model is reloaded, and max_context_length is only the model's ceiling.
+async function loadedCtx(baseUrl, modelId) {
+  if (!/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/v1$/i.test(String(baseUrl || '').replace(/\/$/, ''))) return 0;
+  try {
+    const r = await fetch(baseUrl.replace(/\/v1\/?$/, '') + '/api/v0/models', { signal: AbortSignal.timeout(2000) });
+    const m = r.ok && ((await r.json()).data || []).find((x) => String(x.id).toLowerCase() === String(modelId).toLowerCase() && x.state === 'loaded');
+    return Number(m && m.loaded_context_length) || 0;
+  } catch { return 0; }
+}
 const infoOf = (value) => info.get(String(value).toLowerCase());
-module.exports = { list, get, save, remove, fetchModels, test, infoOf, ID_RE };
+module.exports = { list, get, save, remove, fetchModels, test, infoOf, loadedCtx, ID_RE };

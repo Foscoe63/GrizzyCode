@@ -45,6 +45,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/",
     "check": "electron scripts/check.js && electron scripts/ui-check.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder"

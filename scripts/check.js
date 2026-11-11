@@ -865,6 +865,16 @@ app.whenReady().then(() => srv.listen(0, async () => {
     store.saveSettings({ saveCompact: false, compactKeep: 8 });
     const small = store.newConversation({ mode: 'chat' }); small.messages = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }]; store.saveConversation(small);
     assert((await agent.compactNow(small.id)).error, 'compaction: a short conversation is not compacted');
+    // An agent run is mostly assistant tool_use + user tool_result pairs, so a long one can have no plain user turn
+    // near the end. That is a long conversation, not a short one, and it must still compact on the assistant turn.
+    const toolMsgs = [];
+    for (let i = 0; i < 30; i++) { toolMsgs.push({ role: 'assistant', content: [{ type: 'text', text: `step ${i} ` + 'filler text '.repeat(120) }, { type: 'tool_use', id: 'k' + i, name: 'bash', input: { command: 'ls' } }] }); toolMsgs.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k' + i, content: 'output ' + 'filler text '.repeat(60) }] }); }
+    let c6 = store.newConversation({ mode: 'chat' }); c6.messages = toolMsgs.map((m) => ({ ...m })); store.saveConversation(c6);
+    script = [textTurn('Earlier work: ran the same command over and over and read its output. ' + 'z'.repeat(80))];
+    const cr6 = await agent.compactNow(c6.id); c6 = store.getConversation(c6.id);
+    assert(cr6.ok && savings.isSummary(c6.messages[0]), 'compaction: a thread that is all tool calls still compacts (it said "not enough earlier conversation" before)');
+    const orphans = c6.messages.flatMap((m, i) => (m.role === 'user' && Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'tool_result' && !c6.messages.slice(0, i).some((x) => Array.isArray(x.content) && x.content.some((y) => y.type === 'tool_use' && y.id === b.tool_use_id))));
+    assert(!orphans.length && c6.messages.length < toolMsgs.length, 'compaction: no tool result is cut off from the tool call it answers');
     assert(cleanSettings({ saveOutputChars: 5, compactAtPct: 500 }).out.saveOutputChars === 2000 && cleanSettings({ compactAtPct: 500 }).out.compactAtPct === 95, 'settings: saver limits are clamped');
   }
 
