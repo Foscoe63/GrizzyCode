@@ -124,6 +124,22 @@ async function compactNow(convId) {
   return r.compacted ? { ok: true, ...r } : { error: `Nothing to compact: ${r.skipped}.` };
 }
 
+// Changes made while a turn runs (todo list, session allow, delegated agents) used to each read and rewrite the whole conversation
+// file, which costs more the longer the chat. They are now kept as a patch, written together after a short pause, and whatever is
+// left is folded into the turn's own final save. The patch is applied to a fresh read, so edits made elsewhere in the meantime survive.
+const pendingPatch = new Map(); // convId -> { patch, timer }
+function patchConversation(convId, patch) {
+  let p = pendingPatch.get(convId);
+  if (!p) pendingPatch.set(convId, p = { patch: {}, timer: null });
+  Object.assign(p.patch, patch);
+  p.timer ||= setTimeout(() => { const l = takePatch(convId); if (l) try { store.saveConversation(Object.assign(store.getConversation(convId), l)); } catch {} }, 500);
+}
+function takePatch(convId) {
+  const p = pendingPatch.get(convId); if (!p) return null;
+  pendingPatch.delete(convId); clearTimeout(p.timer);
+  return p.patch;
+}
+
 // Why a tool is missing: file, shell and web tools exist only in Code mode, so an agent's own tool list cannot add them in a chat.
 const FILE_TOOLS = ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file', 'bash'];
 const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
@@ -154,13 +170,13 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});
-    if (d === 'session') { const l = store.getConversation(convId); l.allow = [...new Set([...(l.allow || []), c.name])]; store.saveConversation(l); conv.allow = l.allow; }
+    if (d === 'session') { conv.allow = [...new Set([...(conv.allow || []), c.name])]; patchConversation(convId, { allow: conv.allow }); }
     else if (d !== 'once') throw new Error('User denied this tool call.');
   }
   if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
   const hk = !conv.ssh && !mods.isModTool(c.name) ? await hooks.run('PreToolUse', c.name, c.input, conv.cwd, signal) : {};
   if (hk.block) throw new Error(hk.block);
-  const ctx = { convId, setTodos: (list) => { const l = store.getConversation(convId); l.todos = list; store.saveConversation(l); conv.todos = list; emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
+  const ctx = { convId, setTodos: (list) => { conv.todos = list; patchConversation(convId, { todos: list }); emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
   const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh, ctx)));
   if (!conv.ssh && !/^ERROR/.test(String(out))) agents.noteCall(run, c, conv.cwd);
   if (!conv.ssh && !mods.isModTool(c.name)) { const post = await hooks.run('PostToolUse', c.name, c.input, conv.cwd, signal, out); if (post.note) return String(out) + '\n\n[hook] ' + post.note; }
@@ -186,7 +202,7 @@ function registry(convId) {
 function persistAgents(root, convId) {
   const list = [...registry(convId).values()].map((x) => ({ id: x.id, agentId: x.def.id, def: x.def, name: x.name, messages: x.messages, depth: x.depth }));
   root.agents = list;                                  // the running turn saves its own copy of the conversation too
-  try { const l = store.getConversation(convId); l.agents = list; store.saveConversation(l); } catch {}
+  patchConversation(convId, { agents: list });
 }
 const MAX_AGENTS = 24, SUB_STEPS = 25, MODE_RANK = { plan: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
 // A delegated agent never has more freedom than the conversation it works for.
@@ -391,7 +407,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
     active.delete(convId);
     mods.turnComplete({ answer: lastText, durationMs: Date.now() - t0, isAborted: aborted || ac.signal.aborted, turnId, reason: aborted || ac.signal.aborted ? 'aborted' : 'answer' }).catch(() => {});
     // re-read so concurrent permission/allow edits are not clobbered
-    const l = store.getConversation(convId); l.messages = conv.messages; l.usage = conv.usage; l.ctx = conv.ctx; l.savings = conv.savings; l.title = conv.title; store.saveConversation(l);
+    const l = Object.assign(store.getConversation(convId), takePatch(convId)); l.messages = conv.messages; l.usage = conv.usage; l.ctx = conv.ctx; l.savings = conv.savings; l.title = conv.title; store.saveConversation(l);
   }
 }
 
