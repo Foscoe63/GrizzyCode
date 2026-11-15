@@ -169,6 +169,7 @@ function save(p) {
 function remove(id) {
   const d = load(); delete d.overrides[id]; d.custom = d.custom.filter((x) => x.id !== id); write(d);
   if (store.getSettings().activeAgent === id) store.saveSettings({ activeAgent: '' });
+  if (!BUILTIN.some((b) => b.id === id)) { try { require('./teams').forgetAgent(id); } catch {} } // no department keeps pointing at a deleted agent
   return list();
 }
 // ---- Memory: notes an agent keeps across conversations, scoped to the folder it was working in (so one project's habits never leak into another) ----

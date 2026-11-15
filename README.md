@@ -178,6 +178,17 @@ Engineer, Reviewer, Planner, Researcher and Writer (and any agent you make under
 
 Grizzy (the Claude Code CLI) and OpenCode are separate and are not configured here.
 
+## 🧑‍🤝‍🧑 Team map: departments of agents
+
+The **Team** page groups your agents into departments (General is always there). Create one from a preset (software team: lead + researcher + coder; writing, research, support, or empty), drag agents between panels, drag panels to place them, and pick a **lead** per department.
+
+- **Tag to route:** `@App-Coder build a login page` goes to that department's lead, who delegates to the researcher and coder (`delegate_agent`), checks their reports and answers with one result. `@agent` runs that agent directly; `@everyone` goes to the chief (General's lead, else the first lead), who hands it to each department. Tag completion works in every message box. A lead that tries to answer a department message without using its team is sent back once. File and shell tools still need a Code-mode conversation: pick a folder in the Team page's message bar to let a coder build something.
+- **Shared instructions** per department (up to 24,000 bytes) go into the prompt of every member, the lead included. Only you edit them.
+- **Shared memory**: agents `propose_team_memory` while they work; you accept, reject, edit, pin or undo each note. Only accepted notes reach prompts; `search_team_memory` finds the ones that did not fit.
+- **Authority follows departments**: a lead is in charge of its own department (plus any you tick under *Authority*) and may `dismiss_agent` a finished delegated agent there; it can still message anyone.
+- **Usage by department** (7/30 days) is filed under the department an agent was in when it ran, so moving or deleting one never rewrites the past.
+- Saved in `teams.json` with safe defaults for older files; a file that cannot be read is backed up and never overwritten.
+
 ## 🧩 Mods
 
 GrizzyCode runs Claude Code **mods** (function-hook plugins), each in its own worker thread. Settings → Mods, or `/mods` in a chat.
@@ -230,6 +241,7 @@ Settings → Capabilities → **Token savers**. Figures are estimates (about 4 c
 npm start                         # launch
 npm run check                     # backend tests (including GrizzyWork and computer use) plus the headless page tests
 npx electron scripts/check.js     # backend only (mock API, permission modes, plan flow, git, worktrees, pty, ssh, import, MCP, Google connectors, skills, mods, token savers, GrizzyWork, computer use)
+npx electron scripts/check-teams.js # Team map: departments, tagging, instructions, authority, memory, usage, templates, and the whole flow through the agent loop
 npx electron scripts/ui-check.js  # drives the Projects page against a fake bridge
 npx electron scripts/shot.js out  # render the real UI to PNGs (add `dark` for dark mode)
 npm run dist                      # build the signed DMG and zip into dist/ (arm64; notarization is skipped unless configured)
@@ -242,7 +254,7 @@ src/main/        main process: agent loop, providers, MCP, tools, savings, mods 
 src/main/mods/   mod host, worker sandbox, authoring (create/export/publish)
 src/renderer/    the UI
 skills/          bundled skills
-scripts/         tests (check.js, ui-check.js) and screenshots
+scripts/         tests (check.js, check-teams.js, ui-check.js) and screenshots
 docs/            reverse-engineering notes (RE-FINDINGS.md)
 ```
 

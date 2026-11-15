@@ -213,10 +213,10 @@ function getUsage() {
   let d = {}; try { d = JSON.parse(fs.readFileSync(usageFile(), 'utf8')); } catch {}
   const fix = (x) => ({ ...z4(), ...(x || {}) });
   return { total: fix(d.total), days: Object.fromEntries(Object.entries(d.days || {}).map(([k, v]) => [k, { ...fix(v), cost: v?.cost || 0 }])),
-    models: d.models || {}, modes: { chat: fix(d.modes?.chat), code: fix(d.modes?.code) }, requests: d.requests || 0, sessions: d.sessions || [], cost: d.cost || 0, since: d.since || null };
+    models: d.models || {}, deptDays: d.deptDays && typeof d.deptDays === 'object' ? d.deptDays : {}, modes: { chat: fix(d.modes?.chat), code: fix(d.modes?.code) }, requests: d.requests || 0, sessions: d.sessions || [], cost: d.cost || 0, since: d.since || null };
 }
 function clearUsage() { try { fs.unlinkSync(usageFile()); } catch {} }
-// meta: { model, mode: 'chat'|'code', conv, price: { in, out, cr, cw } per token }
+// meta: { model, mode: 'chat'|'code', conv, price: { in, out, cr, cw } per token, dept: { key, name } the department the agent that ran was in }
 function addUsage(u, meta = {}) {
   if (!u || (!u.in && !u.out && !u.cr && !u.cw)) return;
   ensure();
@@ -225,10 +225,15 @@ function addUsage(u, meta = {}) {
   add4(d.total, u); (d.days[day] ||= { ...z4(), cost: 0 }); add4(d.days[day], u); d.days[day].cost += cost;
   if (meta.model) { const m = (d.models[meta.model] ||= { ...z4(), n: 0, cost: 0 }); add4(m, u); m.n++; m.cost += cost; }
   add4(d.modes[meta.mode === 'code' ? 'code' : 'chat'], u);
+  if (meta.dept && meta.dept.key) { // filed under the department the agent was in when it ran, with its name then, so a later rename or delete never rewrites the past
+    const dd = ((d.deptDays[day] ||= {})[meta.dept.key] ||= { name: meta.dept.name, in: 0, out: 0, cr: 0, cw: 0, runs: 0 });
+    dd.name = meta.dept.name; add4(dd, u); dd.runs++;
+  }
   d.requests++; d.cost += cost; d.since ||= day;
   if (meta.conv && !d.sessions.includes(meta.conv)) d.sessions.push(meta.conv);
   if (d.sessions.length > 20000) d.sessions = d.sessions.slice(-20000);
   const keep = Object.keys(d.days).sort().slice(-120); d.days = Object.fromEntries(keep.map((k) => [k, d.days[k]]));
+  d.deptDays = Object.fromEntries(Object.keys(d.deptDays).sort().slice(-120).map((k) => [k, d.deptDays[k]]));
   fs.writeFileSync(usageFile(), JSON.stringify(d));
 }
 

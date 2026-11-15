@@ -1,6 +1,6 @@
 // Sidebar pages: Projects, Artifacts, Scheduled, Dispatch, Customize. Share app.js's globals ($, esc, gc, settings, open, newCode, toast, …).
-const TITLES = { projects: 'Projects', artifacts: 'Artifacts', scheduled: 'Scheduled', dispatch: 'Dispatch', grizzywork: 'GrizzyWork', customize: 'Customize' };
-const NAV = { nProjects: 'projects', nArtifacts: 'artifacts', nScheduled: 'scheduled', nDispatch: 'dispatch', nGrizzyWork: 'grizzywork', nCustomize: 'customize' };
+const TITLES = { team: 'Team map', projects: 'Projects', artifacts: 'Artifacts', scheduled: 'Scheduled', dispatch: 'Dispatch', grizzywork: 'GrizzyWork', customize: 'Customize' };
+const NAV = { nTeam: 'team', nProjects: 'projects', nArtifacts: 'artifacts', nScheduled: 'scheduled', nDispatch: 'dispatch', nGrizzyWork: 'grizzywork', nCustomize: 'customize' };
 let pageName = null, projSel = null, schedSel = null, artSel = null, savedSel = null, artTab = 'saved', artQuery = '', artFilter = 'all', dispDraft = { prompt: '', cwd: null, mode: 'acceptEdits' };
 const P = (sel) => $('page').querySelector(sel);
 const when = (t) => (t ? new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
@@ -24,7 +24,7 @@ function hidePage() {
   if (!pageName) return; pageName = null; document.body.classList.remove('paged');
   for (const id of Object.keys(NAV)) $(id).classList.remove('on');
 }
-const renderPage = () => ({ projects: pgProjects, artifacts: pgArtifacts, scheduled: pgScheduled, dispatch: pgDispatch, grizzywork: pgGrizzyWork, customize: pgCustomize }[pageName]?.());
+const renderPage = () => ({ team: pgTeam, projects: pgProjects, artifacts: pgArtifacts, scheduled: pgScheduled, dispatch: pgDispatch, grizzywork: pgGrizzyWork, customize: pgCustomize }[pageName]?.());
 for (const [id, name] of Object.entries(NAV)) $(id).onclick = () => { if (pageName === name) return; if (name === 'projects') projSel = null; if (name === 'scheduled') schedSel = null; showPage(name); };
 gc.onFeatures((n) => { if ((n === 'schedules' && pageName === 'scheduled' && !schedSel) || (n === 'dispatch' && pageName === 'dispatch') || (n === 'grizzywork' && pageName === 'grizzywork' && !cwEditing)) renderPage(); });
 
