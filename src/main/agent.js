@@ -9,6 +9,7 @@ const memory = require('./memory');
 const designsystems = require('./designsystems');
 const access = require('./access');
 const agents = require('./agents');
+const teams = require('./teams');
 const mods = require('./mods/host');
 const acp = require('./acp');
 const project = require('./project');
@@ -139,6 +140,10 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     const i = c.input || {}, r = i.action === 'forget' ? agents.forgetNote(run.agentId, conv.cwd, String(i.id || i.text || '')) : i.action === 'save' ? agents.addNote(run.agentId, conv.cwd, i.text) : { error: 'action must be save or forget' };
     return r.error ? 'ERROR: ' + r.error : i.action === 'forget' ? 'Forgotten.' : r.duplicate ? 'Already noted.' : `Saved. You now have ${r.notes.length} note${r.notes.length === 1 ? '' : 's'} for this project.`;
   }
+  if (tools.TEAM_TOOLS.includes(c.name)) { // the department's shared memory and a lead's authority: answered here, no permission needed (they only touch GrizzyCode's own saved data)
+    if (!toolDefs.some((t) => t.name === c.name)) throw new Error(`The tool ${c.name} is only available to agents that sit in a department${c.name === 'dismiss_agent' ? ' as its lead' : ''}.`);
+    return teamTool(conv, convId, c, run);
+  }
   const real = savings.unwrapInvoke(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
@@ -160,6 +165,25 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
   if (!conv.ssh && !mods.isModTool(c.name)) { const post = await hooks.run('PostToolUse', c.name, c.input, conv.cwd, signal, out); if (post.note) return String(out) + '\n\n[hook] ' + post.note; }
   if (s.autoOpenFiles && !conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && !/^ERROR/.test(String(out))) { try { require('electron').shell.openPath(require('path').resolve(conv.cwd || '.', c.input.path)); } catch {} }
   return out;
+}
+
+// propose_team_memory / search_team_memory / dismiss_agent. `run.teamId` is the agent making the call.
+function teamTool(conv, convId, c, run) {
+  const me = run && run.teamId, i = c.input || {};
+  if (c.name === 'propose_team_memory') {
+    const r = teams.memoryPropose(me, { kind: i.kind, name: i.name, detail: i.detail, aliases: i.aliases, key: i.key });
+    return r.error ? 'ERROR: ' + r.error : `Proposed (note ${r.fact.id}). It is waiting for the person to accept it; until then it is not shown to anyone.`;
+  }
+  if (c.name === 'search_team_memory') {
+    const found = teams.memorySearch(me, i.query, i.limit);
+    return found.length ? found.map((f) => `- [${f.id}] ${f.kind}: ${f.name}${f.aliases.length ? ` (also: ${f.aliases.join(', ')})` : ''}: ${f.detail}`).join('\n') : 'No accepted notes match.';
+  }
+  const reg = registry(convId), sub = reg.get(String(i.id || '').trim());
+  if (!sub) throw new Error(`No agent with id "${i.id}". Existing agents: ${[...reg.values()].map((x) => `${x.id} (${x.name})`).join(', ') || 'none'}`);
+  if (!teams.hasAuthority(me, sub.def.id)) throw new Error(`You may not dismiss ${sub.name}: it is not in a department you are in charge of (or it is a lead). You can still message it.`);
+  if (sub.running) throw new Error(`${sub.name} is busy right now.`);
+  reg.delete(sub.id); persistAgents(conv, convId);
+  return `Dismissed ${sub.name} (${sub.id}).`;
 }
 
 // ---- Agents: delegate_agent starts another agent on a task; message_agent talks to one that already exists ----
@@ -234,21 +258,21 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   sc.agentId = '';                              // the persona is added from the agent's own definition below
   const model = (!root.modelPinned && sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
   let last = '', finished = false, lists = [];
-  const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = agents.guardState(sub.def), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
+  const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = { ...agents.guardState(sub.def), teamId: sub.def.id }, limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
   gs.followUp = sub.messages.length > 1;
   try {
     for (let step = 0; step < limit; step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
       lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
       const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory }), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory, team: teams.hasTeamTools(sub.def.id), dismiss: teams.isLead(sub.def.id) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
-      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
+      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + teams.agentBlock(sub.def.id) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model), effort: sub.def.effort || root.effort }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
-      store.addUsage(u, { model: models.canon(s, model), mode: root.mode, conv: convId, price: models.priceOf(s, model) });
+      store.addUsage(u, { model: models.canon(s, model), mode: root.mode, conv: convId, price: models.priceOf(s, model), dept: teams.deptFor(sub.def.id) });
       emit({ type: 'usage', convId, usage: root.usage, last: u, ctx: root.ctx });
       last = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('') || last;
       sub.messages.push({ role: 'assistant', content: res.content });
@@ -297,32 +321,37 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   active.set(convId, ac);
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
-  const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set(), agentId: '' };
+  const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set(), agentId: '', teamId: '' };
+  // @Department / @agent / @everyone: who runs this message and how the team is told to handle it (see teams.route)
+  const troute = s.capAgents === false || teams.loadError() ? null : teams.route(userText); let routeNudged = false;
+  if (troute) emit({ type: 'info', convId, text: `Sent to ${troute.label}${troute.actingName ? ` · led by ${troute.actingName}` : ''}.` });
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
-    const a0 = agents.get(conv.agentId), maxSteps = Math.max(1, Math.min(200, Number(s.maxSteps) || 40, a0 && a0.enabled && a0.steps ? a0.steps : 200)); // an agent's own step budget caps the run
+    const a0 = agents.get(troute && troute.actingId ? troute.actingId : conv.agentId), maxSteps = Math.max(1, Math.min(200, Number(s.maxSteps) || 40, a0 && a0.enabled && a0.steps ? a0.steps : 200)); // an agent's own step budget caps the run
     for (let turn = 0; turn < maxSteps; turn++) {
       const live = store.getConversation(convId); // pick up mode/allow changes made mid-run
       conv.permissionMode = live.permissionMode; conv.allow = live.allow; conv.model = live.model; conv.agentId = live.agentId;
       conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
-      { const ad = agents.get(conv.agentId), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; }
-      const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(conv.agentId)?.model || s.model;
+      const aid = troute && troute.actingId ? troute.actingId : conv.agentId; // the agent that runs this turn (the tagged lead, or the conversation's own agent)
+      { const ad = agents.get(aid), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; run.teamId = aid; }
+      const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(aid)?.model || s.model;
       if (s.saveCompact) { // fold old turns into a summary when the context is getting full
         const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
         const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
         if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
       }
-      const lists = [agents.accessOf(agents.get(conv.agentId))];
+      const lists = [agents.accessOf(agents.get(aid))];
       const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(conv.agentId)?.enabled && agents.get(conv.agentId).memory) }), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(aid)?.enabled && agents.get(aid).memory), team: teams.hasTeamTools(aid), dismiss: teams.isLead(aid) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
-      const system = buildSystem(s, conv) + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      const sysConv = Object.create(conv); sysConv.agentId = aid;
+      const system = buildSystem(s, sysConv) + teams.agentBlock(aid) + (troute ? troute.block : '') + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
-        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(conv.agentId)?.enabled ? agents.get(conv.agentId).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
+        try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(aid)?.enabled ? agents.get(aid).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
         catch (e) { llmErr = e; return null; }
       });
       if (llmErr) throw llmErr;
@@ -331,12 +360,15 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const mstr = mstr0, u = res.usage, cu = conv.usage || {};
       conv.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
       conv.ctx = { used: u.in + (u.cr || 0) + (u.cw || 0), max: models.contextWindow(s, mstr) || null, model: mstr, at: Date.now() };
-      store.addUsage(u, { model: models.canon(s, mstr), mode: conv.mode, conv: convId, price: models.priceOf(s, mstr) });
+      store.addUsage(u, { model: models.canon(s, mstr), mode: conv.mode, conv: convId, price: models.priceOf(s, mstr), dept: teams.deptFor(aid) });
       store.saveConversation(conv);
       emit({ type: 'usage', convId, usage: conv.usage, last: u, ctx: conv.ctx });
       const calls = res.content.filter((b) => b.type === 'tool_use');
       if (!calls.length) {
-        const adef = agents.get(conv.agentId); gs.text = lastText; gs.can = new Set(toolDefs.map((t) => t.name));
+        const adef = agents.get(aid); gs.text = lastText; gs.can = new Set(toolDefs.map((t) => t.name));
+        if (troute && troute.mustDelegate && !routeNudged && turn + 1 < maxSteps && !gs.calls.some((c) => tools.AGENT_TOOLS.includes(c.name))) { // a department message must go through the team
+          routeNudged = true; conv.messages.push({ role: 'user', content: teams.DELEGATE_NUDGE(troute) }); store.saveConversation(conv); continue;
+        }
         const nudge = adef && adef.enabled && turn + 1 < maxSteps ? agents.gate(adef, gs) : ''; // the chosen agent's completion gates
         if (nudge) { conv.messages.push({ role: 'user', content: nudge }); store.saveConversation(conv); continue; }
         break;
@@ -354,7 +386,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
             if (d === 'approve') { conv.permissionMode = 'acceptEdits'; const l = store.getConversation(convId); l.permissionMode = 'acceptEdits'; store.saveConversation(l); emit({ type: 'mode', convId, permissionMode: 'acceptEdits' }); out = 'Plan approved. Permission mode is now Accept edits. Proceed with the implementation.'; }
             else out = 'The user wants to keep planning. Revise the plan based on their feedback.';
           } else if (agentRuns.has(c.id)) out = await agentRuns.get(c.id);
-          else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal, '', undefined, run);
+          else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal, '', lists, run);
         } catch (e) { out = 'ERROR: ' + e.message; }
         agentRuns.delete(c.id);
         if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input, out: String(out).slice(-400) }); else gs.errors++;

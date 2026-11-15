@@ -59,6 +59,15 @@ const AGENT_TOOLS = [delegateTool.name, messageTool.name];
 const noteTool = { name: 'agent_note', kind: 'read', description: 'Keep or drop one of your own notes, which are shown to you in every future conversation in this project. save: a short durable fact you had to discover (a convention, a command that works, a pitfall). forget: remove a note by its id when it is wrong or stale. Never store secrets.', risky: false,
   input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['save', 'forget'] }, text: { type: 'string', description: 'The note (save)' }, id: { type: 'string', description: 'Note id (forget)' } }, required: ['action'] } };
 
+// Team tools (agents that sit in a department): propose and search the department's shared memory, and dismiss a delegated agent (leads only).
+const teamProposeTool = { name: 'propose_team_memory', kind: 'read', description: 'Propose a fact for your department\'s shared memory (a person, place, decision or term every agent in the department should know). It is only a proposal: the person reviews it, and only accepted notes reach anyone\'s prompt. To correct an accepted note, propose again with the same key. Never include secrets.', risky: false,
+  input_schema: { type: 'object', properties: { kind: { type: 'string', enum: ['person', 'place', 'decision', 'term'] }, name: { type: 'string', description: 'Short title (max 120 chars)' }, detail: { type: 'string', description: 'The fact, its context and why it matters (max 600 chars)' }, aliases: { type: 'array', items: { type: 'string' } }, key: { type: 'string', description: 'Optional stable key; reuse the key of an accepted note to correct it' } }, required: ['kind', 'name', 'detail'] } };
+const teamSearchTool = { name: 'search_team_memory', kind: 'read', description: 'Search your department\'s accepted shared memory (notes the prompt did not load). Every word of the query must match.', risky: false,
+  input_schema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } };
+const dismissTool = { name: 'dismiss_agent', kind: 'read', description: 'Dismiss a delegated agent that has finished (by its id), freeing it. Only a department lead may do this, and only to agents in departments it is in charge of.', risky: false,
+  input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Agent id returned by delegate_agent' } }, required: ['id'] } };
+const TEAM_TOOLS = [teamProposeTool.name, teamSearchTool.name, dismissTool.name];
+
 // caps: the capability settings (capShell, capEdit, capWeb, capSkills, capAgents, memoryEnabled && memoryAuto); omitted = defaults.
 // opts.depth: how deep the calling agent is (0 = the main agent); opts.sub: a delegated agent, which never presents a plan.
 function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
@@ -67,7 +76,8 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   list = list.filter((d) => (d.kind !== 'exec' || on('capShell')) && (d.kind !== 'edit' || on('capEdit')));
   const out = [...list];
   if (mode === 'code' && permissionMode === 'plan' && !opts.sub) out.push(planTool);
-  if (on('capAgents')) { if ((opts.depth || 0) < MAX_AGENT_DEPTH) out.push(delegateTool); out.push(messageTool); }
+  if (on('capAgents')) { if ((opts.depth || 0) < MAX_AGENT_DEPTH) out.push(delegateTool); out.push(messageTool); if (opts.dismiss) out.push(dismissTool); }
+  if (opts.team) out.push(teamProposeTool, teamSearchTool);
   if (on('capWeb', false) && permissionMode !== 'plan') out.push(webTool, searchTool);
   if (on('memoryEnabled') && on('memoryAuto')) out.push(memoryTool);
   if (on('capSkills') && skills.list().length) out.push(skillTool);
@@ -304,4 +314,4 @@ async function webFetch(url, signal) {
   throw new Error('Too many redirects.');
 }
 
-module.exports = { globFiles, applyEdits, AGENT_TOOLS, MAX_AGENT_DEPTH, publicDefs, kindOf, run, sshArgs, isPrivateIp, htmlToText };
+module.exports = { globFiles, applyEdits, AGENT_TOOLS, TEAM_TOOLS, MAX_AGENT_DEPTH, publicDefs, kindOf, run, sshArgs, isPrivateIp, htmlToText };

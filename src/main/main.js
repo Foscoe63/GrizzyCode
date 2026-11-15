@@ -4,6 +4,7 @@ const fs = require('fs');
 const store = require('./store');
 const agent = require('./agent');
 const agents = require('./agents');
+const teams = require('./teams');
 const mcp = require('./mcp');
 const skills = require('./skills');
 const git = require('./git');
@@ -465,6 +466,26 @@ function ipc() {
   h('agents:forgetNote', (id, scope, noteId) => { agents.forgetNote(id, scope, noteId); return agents.allNotes(id); });
   h('agents:clearNotes', (id, scope) => agents.clearNotes(id, scope));
   h('agents:schema', () => ({ gates: agents.GATE_INFO, guards: agents.GUARD_INFO }));
+  // --- Team map: departments, shared instructions, shared memory, authority, usage ---
+  h('teams:snapshot', () => teams.snapshot());
+  h('teams:create', (name, templateId, agentIds) => (templateId ? teams.createFromTemplate(templateId, name) : teams.createDepartment(name, { agentIds: Array.isArray(agentIds) ? agentIds : [] })));
+  h('teams:rename', (id, name) => teams.renameDepartment(id, name));
+  h('teams:delete', (id) => teams.deleteDepartment(id));
+  h('teams:move', (agentId, deptId, index) => teams.moveAgent(agentId, deptId, index));
+  h('teams:setLead', (deptId, agentId) => teams.setLead(deptId, agentId));
+  h('teams:setPosition', (id, p) => teams.setPosition(id, p));
+  h('teams:setManaged', (leadId, ids) => teams.setManaged(leadId, ids));
+  h('teams:getInstructions', (id) => teams.getInstructions(id) || { text: '', updatedAt: 0 });
+  h('teams:setInstructions', (id, text) => teams.setInstructions(id, text));
+  h('teams:facts', (id) => teams.facts(id).map((f) => ({ ...f, canUndo: teams.canUndoFact(f) })));
+  h('teams:memAdd', (id, f) => teams.memoryAdd(id, f || {}));
+  h('teams:memResolve', (id, fid, accept, rev) => teams.memoryResolve(id, fid, !!accept, rev));
+  h('teams:memUpdate', (id, fid, patch, rev) => teams.memoryUpdate(id, fid, patch, rev));
+  h('teams:memRemove', (id, fid, rev) => teams.memoryRemove(id, fid, rev));
+  h('teams:memUndo', (id, fid) => teams.memoryUndo(id, fid));
+  h('teams:usage', (days) => teams.usage(Number(days) === 30 ? 30 : 7));
+  h('teams:pending', () => teams.pendingTotal());
+  h('teams:tags', (text) => { const r = teams.parseTags(text); return r.tags; });
   h('ds:list', () => designsystems.list());
   h('ds:save', (p) => designsystems.save(p));
   h('ds:remove', (id) => designsystems.remove(id));
@@ -667,7 +688,7 @@ function ipc() {
 app.setName('GrizzyCode');
 // All settings, data, caches, logs and native mods live in ~/.GrizzyCode. Copy anything from the old locations the first time.
 {
-  const home = require('os').homedir(), root = path.join(home, '.GrizzyCode');
+  const home = require('os').homedir(), root = process.env.GRIZZYCODE_HOME ? path.resolve(process.env.GRIZZYCODE_HOME) : path.join(home, '.GrizzyCode'); // GRIZZYCODE_HOME: run against a throwaway data folder
   const oldUser = path.join(app.getPath('appData'), 'GrizzyCode'), oldMods = path.join(home, '.claude', 'grizzycode', 'mods');
   try { fs.mkdirSync(root, { recursive: true }); } catch {}
   try { if (!fs.existsSync(path.join(root, 'data')) && fs.existsSync(path.join(oldUser, 'data'))) fs.cpSync(path.join(oldUser, 'data'), path.join(root, 'data'), { recursive: true }); } catch {}
