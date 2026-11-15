@@ -90,6 +90,8 @@ Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
 Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx -y @zed-industries/claude-code-acp`.
 
 > [!IMPORTANT]
+Pick **OpenCode** to run the OpenCode CLI through `opencode acp` (install it with `brew install sst/tap/opencode` or `npm i -g opencode-ai`, then `opencode auth login`; its models are whatever you configured in OpenCode).
+
 > On a new computer, install the Claude Code CLI first: `npm i -g @anthropic-ai/claude-code`, then `claude /login`. Make sure Node and `npx` are available. GrizzyCode shows a reminder in the model picker when `claude` isn't found.
 
 ## 📁 Projects
@@ -174,7 +176,7 @@ Engineer, Reviewer, Planner, Researcher and Writer (and any agent you make under
 
 - 🧠 Optional **memory**: an agent with memory keeps short notes (`agent_note`) per project folder, sees them in the next conversation there, and you can review or delete them in the agent's settings.
 
-Grizzy (the Claude Code CLI) is separate and is not configured here.
+Grizzy (the Claude Code CLI) and OpenCode are separate and are not configured here.
 
 ## 🧩 Mods
 

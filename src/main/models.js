@@ -63,7 +63,7 @@ async function catalog({ force = false } = {}) {
   // Grizzy runs Claude models, so offer the same list as Anthropic (live when a key is saved) after its own default.
   const anth = groups.find((g) => g.id === 'anthropic');
   if (anth?.models.length) grizzy.models = [grizzy.models[0], ...anth.models.map((m) => ({ ...m, value: acp.PREFIX + m.id, name: `${acp.NAME} · ${m.name}` }))];
-  groups.unshift(grizzy);
+  groups.unshift(grizzy, acp.opencodeGroup(await acp.loadedLmModels()));
   return { groups, current: canon(s, s.model) };
 }
 

@@ -10,6 +10,7 @@ const access = require('./access');
 const MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 const BUILTIN = [
   { id: 'general', icon: '🐻', name: 'GrizzyCode', description: 'The default assistant.', instructions: '', model: '', permissionMode: '' },
+  { id: 'opencode', icon: '🟩', name: 'OpenCode', description: 'The OpenCode CLI (needs `opencode` installed and logged in).', instructions: '', model: 'opencode:default', permissionMode: '' },
   { id: 'grizzy', icon: '🐻‍❄️', name: 'Grizzy', description: 'The real Claude Code CLI (needs `claude` installed and logged in).', instructions: '', model: 'grizzy:claude-code', permissionMode: '' },
   // Beyond a persona, each of these is a runtime profile: its own tool set, step budget, completion gates (the run is not allowed to
   // finish until they pass) and a report contract. `gates` are names from GATES below; `steps` is the delegated step budget.

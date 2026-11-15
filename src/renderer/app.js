@@ -374,7 +374,7 @@ const modelLabel = (v) => modelNames.get(v) || niceModel(bareId(v));
 const canonModel = (m) => (splitModel(m) ? m : catalogCanon(m));
 const currentModel = () => canonModel(cur?.model || settings.model);
 function catalogCanon(m) { // bare ids follow the default provider (mirrors the main process)
-  if (String(m).startsWith('grizzy:')) return m; // Grizzy agent (Claude Code CLI)
+  if (/^(grizzy|opencode):/.test(String(m))) return m; // Grizzy (Claude Code CLI) / OpenCode agents
   const base = settings.baseUrl || '';
   if (settings.provider === 'anthropic' && !base) return 'anthropic:' + m;
   if (/openrouter\.ai/i.test(base)) return 'openrouter:' + m;

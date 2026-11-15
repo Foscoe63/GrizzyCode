@@ -255,7 +255,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   const where = { parentId: parentCallId, agent: sub.name, agentId: sub.id };
   const sc = Object.create(root);               // reads mode/cwd/allow live from the conversation; the agent's own overrides sit on top
   sc.agentId = '';                              // the persona is added from the agent's own definition below
-  const model = (!root.modelPinned && sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
+  const model = (!root.modelPinned && sub.def.model && !acp.isAcp(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isAcp(m)) || '';
   let last = '', finished = false, lists = [];
   const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = agents.guardState(sub.def), limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
   gs.followUp = sub.messages.length > 1;
@@ -308,7 +308,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   const s = store.getSettings({ reveal: true });
   const conv = store.getConversation(convId);
   if (conv.agentId && !agents.allowedIn(agents.get(conv.agentId), conv)) { conv.agentId = ''; store.saveConversation(conv); } // a GrizzyWork-only agent never runs outside GrizzyWork
-  if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return acp.send(convId, userText, emit, conv.model || agents.get(conv.agentId)?.model || s.model); // Grizzy = the real Claude Code CLI over ACP
+  if (acp.isAcp(conv.model || agents.get(conv.agentId)?.model || s.model)) return acp.send(convId, userText, emit, conv.model || agents.get(conv.agentId)?.model || s.model); // Grizzy / OpenCode = real agent CLIs over ACP
   const content = images.length
     ? [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: userText }]
     : userText;
@@ -431,7 +431,7 @@ function rewindPreview(convId, idx) {
 function rewind(convId, idx, { files = true } = {}) {
   if (isRunning(convId)) return { error: 'Stop the running task first.' };
   const s = store.getSettings(); const conv = store.getConversation(convId);
-  if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return { error: 'Rewind is not available for sessions run by the Claude Code CLI.' };
+  if (acp.isAcp(conv.model || agents.get(conv.agentId)?.model || s.model)) return { error: 'Rewind is not available for sessions run by the Claude Code or OpenCode CLI.' };
   const m = conv.messages[idx]; if (!isHuman(m)) return { error: 'That message can’t be rewound to.' };
   const restored = files && !conv.ssh ? checkpoints.restore(convId, idx) : (checkpoints.discard(convId, idx), null);
   conv.messages = conv.messages.slice(0, idx); conv.ctx = null; conv.agents = []; registries.delete(convId);
