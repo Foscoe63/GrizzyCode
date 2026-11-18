@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('gc', {
   system: { status: inv('system:status'), testNotification: inv('system:testNotification'), relaunch: inv('system:relaunch') },
   dev: { devtools: inv('dev:devtools'), openLogs: inv('dev:openLogs'), openSettingsFile: inv('dev:openSettingsFile'), openMcpConfig: inv('dev:openMcpConfig'), reloadMcp: inv('dev:reloadMcp'), openMcpLog: inv('dev:openMcpLog'), report: inv('dev:report'), clearCache: inv('dev:clearCache') },
   zoom: inv('zoom:set'), testApi: inv('api:test'),
-  conv: { list: inv('conv:list'), get: inv('conv:get'), create: inv('conv:new'), update: inv('conv:update'), close: inv('conv:close'), reopen: inv('conv:reopen'), remove: inv('conv:delete'), export: inv('conv:export') },
+  conv: { list: inv('conv:list'), get: inv('conv:get'), create: inv('conv:new'), update: inv('conv:update'), close: inv('conv:close'), reopen: inv('conv:reopen'), remove: inv('conv:delete'), export: inv('conv:export'), clear: inv('conv:clear') },
   agent: { send: inv('agent:send'), stop: inv('agent:stop'), approve: inv('agent:approve'), running: inv('agent:running'), onEvent: on('agent:event') },
   pickFolder: inv('dialog:folder'), confirm: inv('dialog:confirm'),
   files: { list: inv('files:list') },

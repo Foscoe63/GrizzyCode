@@ -352,8 +352,14 @@ function ipc() {
   h('conv:close', (id) => { const c = store.getConversation(id); c.archived = true; c.closedAt = Date.now(); store.saveConversation(c); });
   h('conv:reopen', () => { const m = store.lastClosed(); if (!m) return null; const c = store.getConversation(m.id); c.archived = false; c.closedAt = 0; store.saveConversation(c); return c; });
   h('conv:delete', async (id) => { const c = store.getConversation(id); term.kill(id); require('./acp').kill(id); bgtasks.stopAll(id); require('./checkpoints').drop(id); const r = c?.worktree ? await git.worktreeRemove(c.worktree) : null; store.deleteConversation(id); return r; });
-  h('conv:export', async (id) => {
+  h('conv:clear', (id) => { const c = store.getConversation(id); c.messages = []; c.todos = []; c.usage = { in: 0, out: 0, cr: 0, cw: 0 }; c.ctx = null; try { agent.stop(id); } catch {} try { require('./checkpoints').drop(id); } catch {} store.saveConversation(c); return c; });
+  h('conv:export', async (id, format = 'md') => {
     const c = store.getConversation(id);
+    if (format === 'json') {
+      const r = await dialog.showSaveDialog(focused(), { defaultPath: (c.title.replace(/[^\w ]/g, '') || 'session') + '.json' });
+      if (!r.canceled) fs.writeFileSync(r.filePath, JSON.stringify(c, null, 2));
+      return;
+    }
     const md = `# ${c.title}\n\n` + c.messages.map((m) => `**${m.role}**\n\n` + (typeof m.content === 'string' ? m.content
       : m.content.map((b) => b.type === 'text' ? b.text : b.type === 'tool_use' ? '`' + b.name + '` ' + JSON.stringify(b.input) : b.type === 'image' ? '[image]' : '```\n' + b.content + '\n```').join('\n\n'))).join('\n\n---\n\n');
     const w = focused();
