@@ -521,7 +521,7 @@ async function send() {
     if (viewMode === 'code') {
       if (homeSsh) await newCode();
       else if (homeOps) await newCode(null, true);
-      else if (!homeFolder) { toast('Choose a folder for this code session first, or switch to Chat'); const c = $('dirChip'); c.classList.remove('nudge'); void c.offsetWidth; c.classList.add('nudge'); return; }
+      else if (!homeFolder) { homeOps = true; await newCode(null, true); } // no folder picked: start a general session instead of blocking
       else await newCode(homeFolder);
     } else await newChat();
     if (!cur) return;
@@ -1838,6 +1838,7 @@ function makeResizable(handle, { cssVar, key, def, min, max, fromRight }) {
   makeResizable($('rzRs'), { cssVar: '--rs-w', key: 'rsW', def: 300, min: 240, max: 640, fromRight: true });
   makeResizable($('rzDiff'), { cssVar: '--diff-w', key: 'diffW', def: 420, min: 280, max: 800, fromRight: true });
   homeFolder = settings.pinnedFolders?.[0] || settings.trustedFolders?.[0] || null;
+  if (!homeFolder) homeOps = true;
   if (settings.rsOpen) { $('rside').hidden = false; $('rsBtn').classList.add('on'); }
   applyFont(settings.font); applyAppearance(); applyCaps(); loadPluginCmds(); loadProviders(); gc.mods.info().then((i) => { modInfo = i; scheduleModRender(); });
   document.body.classList.toggle('nosidebar', !!settings.sidebarHidden);
