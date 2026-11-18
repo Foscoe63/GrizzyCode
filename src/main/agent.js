@@ -5,6 +5,7 @@ const tools = require('./tools');
 const mcp = require('./mcp');
 const skills = require('./skills');
 const models = require('./models');
+const providers = require('./providers');
 const memory = require('./memory');
 const designsystems = require('./designsystems');
 const access = require('./access');
@@ -32,13 +33,15 @@ const STYLES = {
   learning: 'Act as a collaborative teacher. Explain concepts as they come up, and for small, well-scoped pieces leave a clearly marked TODO(human) with guidance so the user writes that part themselves.',
 };
 const ROLE_TEXT = { software: 'software engineering', design: 'design', research: 'research', writing: 'writing and editing', data: 'data and analytics', product: 'product and business', education: 'teaching', student: 'study as a student', other: '' };
-function buildSystem(s, conv) {
+function buildSystem(s, conv, lists = []) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
     sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. For multi-step work keep a visible task list with todo_write. Prefer glob and grep over shell find/grep to locate code. Prefer small, verified steps.`;
     sys += '\n\nIf asked to build or install a mod for GrizzyCode: put it in ~/.GrizzyCode/mods/<name>/ (same as ~/.grizzycode) and keep its saved data under ~/.grizzycode/mods-data/<name>/. Never use ~/.claude or `claude plugin install` for it; load the mod-authoring skill first.';
+    if (conv.ops) sys += `\n\nThis is a general task, not a software project: there is no project folder (the shell starts in ${conv.cwd}). It may be about this computer, its services, files or settings, wherever they are. Inspect before you change anything, say what you found, and tell the user the plan before moving, deleting or reconfiguring things. Copy or back up before you move or overwrite data, and keep the user's originals until the new setup is verified.`;
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
+  if (conv.mode !== 'code') sys += `\n\nYou have file, shell and other tools in this chat, working from ${conv.cwd || 'the home folder'}. Use them whenever the user asks you to do something on this computer, such as installing, fetching or changing files; each call that changes anything asks the user first. Do not use them for plain questions. If asked to install a plugin or skill from a GitHub URL, clone or copy it to the right place for the app or project the user names. If asked to build or install a mod for GrizzyCode, put it in ~/.GrizzyCode/mods/<name>/ and never use ~/.claude.`;
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
   else if (s.profileName?.trim()) sys += `\n\nThe user's name is ${s.profileName.trim()}.`;
   if (ROLE_TEXT[s.profileRole]) sys += `\nThe user works in ${ROLE_TEXT[s.profileRole]}; pitch explanations and examples accordingly.`;
@@ -46,10 +49,11 @@ function buildSystem(s, conv) {
   if (style) sys += `\n\nResponse style: ${style}`;
   if (s.preferences?.trim()) sys += `\n\nThe user's personal preferences (follow them unless the task says otherwise):\n${s.preferences.trim().slice(0, 2000)}`;
   sys += memory.promptBlock(s) + designsystems.promptBlock(s) + agents.promptBlock(conv.agentId, conv.cwd);
-  const pr = store.getProject(conv.projectId);
-  if (pr && pr.instructions.trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
-  const sk = s.capSkills === false ? [] : skills.list();
-  if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${k.description}`).join('\n');
+  const pr = store.projectFor(conv);
+  if (pr && (pr.instructions || '').trim()) sys += `\n\nProject "${pr.name}" — follow these project instructions:\n${pr.instructions}`;
+  if (pr && pr.files?.length) { let left = 80000; sys += `\n\nKnowledge files for project "${pr.name}" (reference material; use when relevant):`; for (const f of pr.files) { if (left <= 0) break; const t = f.text.slice(0, left); left -= t.length; sys += `\n\n<project-file name="${f.name}">\n${t}\n</project-file>`; } }
+  const sk = s.capSkills === false ? [] : access.keepSkills(lists, require('./grizzywork').filterSkills(conv, skills.list())); // a GrizzyWork task only sees the skills switched on for it
+  if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${String(k.description).replace(/\s+/g, ' ').slice(0, 110)}`).join('\n');
   return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
@@ -122,18 +126,34 @@ async function compactNow(convId) {
   return r.compacted ? { ok: true, ...r } : { error: `Nothing to compact: ${r.skipped}.` };
 }
 
+// Changes made while a turn runs (todo list, session allow, delegated agents) used to each read and rewrite the whole conversation
+// file, which costs more the longer the chat. They are now kept as a patch, written together after a short pause, and whatever is
+// left is folded into the turn's own final save. The patch is applied to a fresh read, so edits made elsewhere in the meantime survive.
+const pendingPatch = new Map(); // convId -> { patch, timer }
+function patchConversation(convId, patch) {
+  let p = pendingPatch.get(convId);
+  if (!p) pendingPatch.set(convId, p = { patch: {}, timer: null });
+  Object.assign(p.patch, patch);
+  p.timer ||= setTimeout(() => { const l = takePatch(convId); if (l) try { store.saveConversation(Object.assign(store.getConversation(convId), l)); } catch {} }, 500);
+}
+function takePatch(convId) {
+  const p = pendingPatch.get(convId); if (!p) return null;
+  pendingPatch.delete(convId); clearTimeout(p.timer);
+  return p.patch;
+}
+
 // Why a tool is missing: file, shell and web tools exist only in Code mode, so an agent's own tool list cannot add them in a chat.
 const FILE_TOOLS = ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file', 'bash'];
 const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
-  ? `The tool ${name} is not available: file and shell tools only exist in a Code-mode conversation (open a folder in Code), and an agent's own tool list cannot add them to a chat.`
+  ? `The tool ${name} is not available: it is switched off in Settings → Capabilities or excluded by the agent's access limits.`
   : `The tool ${name} is not enabled. It can be turned on in Settings → Capabilities (or the agent's access limits may exclude it).`);
 
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
 // `lists` are the access limits that apply (the conversation's agent; a delegated agent adds its own on top).
-async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId))], run = null) {
+async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean), run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
-  if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, mcp.toolDefs()), c.input);
+  if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, [...mcp.toolDefs(), ...mods.toolDefs()]), c.input);
   if (c.name === 'pin_fact') { const r = savings.pin(convId, c.input?.fact); return r.error ? 'ERROR: ' + r.error : (conv.pinned = r.pinned, 'Pinned. It will be kept through any compaction of this conversation.'); }
   if (c.name === 'agent_note') { // the agent's own notes: answered here, no permission needed (they only touch GrizzyCode's saved data)
     if (!run?.agentId) return 'ERROR: this agent does not keep notes.';
@@ -144,22 +164,25 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     if (!toolDefs.some((t) => t.name === c.name)) throw new Error(`The tool ${c.name} is only available to agents that sit in a department${c.name === 'dismiss_agent' ? ' as its lead' : ''}.`);
     return teamTool(conv, convId, c, run);
   }
-  const real = savings.unwrapInvoke(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  const allMcp = [...mcp.toolDefs(), ...mods.toolDefs()];
+  const real = savings.unwrapInvoke(c, allMcp) || savings.resolveBare(c, mcp.toolDefs()); if (real) c = real; // mcp_invoke runs (and is approved as) the real connector tool
+  if (c.name === 'use_skill') { const id = String(c.input?.id || ''); if (id && mcp.toolDefs().some((d) => (/^mcp__(.+?)__/.exec(d.name) || [])[1] === id)) throw new Error(`"${id}" is a connector (MCP server), not a skill. Call mcp_tools with server "${id}" to list its tools and mcp_invoke to call one.`); }
   const blocked = access.check(lists, c.name, c.input, conv.cwd); if (blocked) throw new Error(blocked);
   const verdict = mods.isModTool(c.name) ? 'allow' : decide(conv, c.name, s);
   if (verdict === 'deny') throw new Error('Plan mode is active: this tool is not available.' + (who ? '' : ' Call exit_plan_mode when your plan is ready.'));
-  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode));
+  if (!toolDefs.some((t) => t.name === c.name) && c.name !== 'exit_plan_mode') throw new Error(notEnabled(c.name, conv.mode) + savings.unknownToolHint(c.name, mcp.toolDefs()));
   { const blocked = require('./grizzywork').egressCheck(conv, c.name, c.input); if (blocked) throw new Error(blocked); }
+  if (c.name === 'use_skill' && !require('./grizzywork').skillAllowed(conv, String(c.input?.id || ''))) throw new Error(`The skill "${c.input?.id}" is switched off for GrizzyWork (GrizzyWork → Plugins).`);
   if (!conv.ssh) { const refused = agents.guard(run, c, conv.cwd); if (refused) throw new Error(refused); } // the agent's own rules, before the user is asked about it
   if (verdict === 'ask') {
     const d = await ask(emit, convId, c, who ? { agent: who } : {});
-    if (d === 'session') { const l = store.getConversation(convId); l.allow = [...new Set([...(l.allow || []), c.name])]; store.saveConversation(l); conv.allow = l.allow; }
+    if (d === 'session') { conv.allow = [...new Set([...(conv.allow || []), c.name])]; patchConversation(convId, { allow: conv.allow }); }
     else if (d !== 'once') throw new Error('User denied this tool call.');
   }
   if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
   const hk = !conv.ssh && !mods.isModTool(c.name) ? await hooks.run('PreToolUse', c.name, c.input, conv.cwd, signal) : {};
   if (hk.block) throw new Error(hk.block);
-  const ctx = { convId, setTodos: (list) => { const l = store.getConversation(convId); l.todos = list; store.saveConversation(l); conv.todos = list; emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
+  const ctx = { convId, setTodos: (list) => { conv.todos = list; patchConversation(convId, { todos: list }); emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
   const out = mods.isModTool(c.name) ? await mods.callModTool(c.name, c.input, c.id) : await mods.toolCall(c.name, c.input, c.id, () => (c.name.startsWith('mcp__') ? mcp.callTool(c.name, c.input) : tools.run(c.name, c.input, conv.cwd, signal, conv.ssh, ctx)));
   if (!conv.ssh && !/^ERROR/.test(String(out))) agents.noteCall(run, c, conv.cwd);
   if (!conv.ssh && !mods.isModTool(c.name)) { const post = await hooks.run('PostToolUse', c.name, c.input, conv.cwd, signal, out); if (post.note) return String(out) + '\n\n[hook] ' + post.note; }
@@ -204,19 +227,20 @@ function registry(convId) {
 function persistAgents(root, convId) {
   const list = [...registry(convId).values()].map((x) => ({ id: x.id, agentId: x.def.id, def: x.def, name: x.name, messages: x.messages, depth: x.depth }));
   root.agents = list;                                  // the running turn saves its own copy of the conversation too
-  try { const l = store.getConversation(convId); l.agents = list; store.saveConversation(l); } catch {}
+  patchConversation(convId, { agents: list });
 }
 const MAX_AGENTS = 24, SUB_STEPS = 25, MODE_RANK = { plan: 0, default: 1, acceptEdits: 2, bypassPermissions: 3 };
 // A delegated agent never has more freedom than the conversation it works for.
 const clampMode = (want, parent) => (want && (MODE_RANK[want] ?? 1) < (MODE_RANK[parent] ?? 1) ? want : parent);
-const findAgent = (ref) => { const r = String(ref || 'general').trim().toLowerCase(); const all = agents.list().filter((a) => a.enabled); return all.find((a) => a.id.toLowerCase() === r) || all.find((a) => a.name.toLowerCase() === r); };
+const usable = (conv) => agents.list().filter((a) => a.enabled && agents.allowedIn(a, conv));
+const findAgent = (ref, conv) => { const r = String(ref || 'general').trim().toLowerCase(); const all = usable(conv); return all.find((a) => a.id.toLowerCase() === r) || all.find((a) => a.name.toLowerCase() === r); };
 
 function roster(s, depth, convId) {
   if (s.capAgents === false) return '';
   const can = depth < tools.MAX_AGENT_DEPTH;
   let t = '\n\nAgents: ' + (can ? 'you can hand self-contained subtasks to specialised agents with delegate_agent. They work independently with their own context and return a report; several delegate_agent calls in one turn run in parallel. Delegate when it helps (wide searches, independent parts, a second opinion or review) and do small things yourself. ' : '');
   t += 'Use message_agent with an agent id to send it a follow-up, or to pass it another agent\'s findings.';
-  if (can) t += ' Available agents:\n' + agents.list().filter((a) => a.enabled).map((a) => `- ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}: ${a.description || 'no description'}`).join('\n');
+  if (can) t += ' Available agents:\n' + usable(store.getConversation(convId)).map((a) => `- ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}: ${a.description || 'no description'}`).join('\n');
   const alive = [...registry(convId).values()];
   if (alive.length) t += '\n\nAgents already working in this conversation (message them by id):\n' + alive.map((x) => `- ${x.id}: ${x.name}`).join('\n');
   return t;
@@ -229,8 +253,8 @@ function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, calle
     const reg = registry(convId);
     let sub;
     if (c.name === 'delegate_agent') {
-      const def = findAgent(c.input.agent);
-      if (!def) throw new Error(`Unknown agent "${c.input.agent}". Available: ${agents.list().filter((a) => a.enabled).map((a) => a.id).join(', ')}`);
+      const def = findAgent(c.input.agent, root);
+      if (!def) throw new Error(`Unknown agent "${c.input.agent}". Available: ${usable(root).map((a) => a.id).join(', ')}`);
       const task = String(c.input.task || '').trim(); if (!task) throw new Error('delegate_agent needs a task.');
       if (reg.size >= MAX_AGENTS) throw new Error(`Too many agents in this conversation (${MAX_AGENTS}). Reuse one with message_agent.`);
       sub = { id: 'agent_' + randomUUID().slice(0, 6), def, name: def.name, messages: [{ role: 'user', content: task }], running: false, depth: depth + 1 };
@@ -256,19 +280,19 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
   const where = { parentId: parentCallId, agent: sub.name, agentId: sub.id };
   const sc = Object.create(root);               // reads mode/cwd/allow live from the conversation; the agent's own overrides sit on top
   sc.agentId = '';                              // the persona is added from the agent's own definition below
-  const model = (!root.modelPinned && sub.def.model && !acp.isGrizzy(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isGrizzy(m)) || '';
+  const model = (!root.modelPinned && sub.def.model && !acp.isAcp(sub.def.model) && sub.def.model) || [root.model, s.model].find((m) => m && !acp.isAcp(m)) || '';
   let last = '', finished = false, lists = [];
   const gs = agents.gateState([], { cwd: root.cwd, ssh: !!root.ssh }), run = { ...agents.guardState(sub.def), teamId: sub.def.id }, limit = Math.min(sub.def.steps || SUB_STEPS, Math.max(1, Number(s.maxSteps) || 40));
   gs.followUp = sub.messages.length > 1;
   try {
     for (let step = 0; step < limit; step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
-      lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def)]; // never more than the agent it works for
-      const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
+      lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def), require('./grizzywork').access(root)].filter(Boolean); // never more than the agent it works for, nor than GrizzyWork's tool switches
+      const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, root);
       const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory, team: teams.hasTeamTools(sub.def.id), dismiss: teams.isLead(sub.def.id) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
-      const system = buildSystem(s, sc) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + teams.agentBlock(sub.def.id) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
+      const system = buildSystem(s, sc, lists) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + teams.agentBlock(sub.def.id) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
       const res = await llm.stream({ ...s, ...models.route(s, model), effort: sub.def.effort || root.effort }, { system, messages: sub.messages, tools: sendDefs }, () => {}, signal);
       const u = res.usage, cu = root.usage || {};
       root.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
@@ -308,7 +332,8 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
 async function send(convId, userText, emit, images = [], opts = {}) {
   const s = store.getSettings({ reveal: true });
   const conv = store.getConversation(convId);
-  if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return acp.send(convId, userText, emit, conv.model || agents.get(conv.agentId)?.model || s.model); // Grizzy = the real Claude Code CLI over ACP
+  if (conv.agentId && !agents.allowedIn(agents.get(conv.agentId), conv)) { conv.agentId = ''; store.saveConversation(conv); } // a GrizzyWork-only agent never runs outside GrizzyWork
+  if (acp.isAcp(conv.model || agents.get(conv.agentId)?.model || s.model)) return acp.send(convId, userText, emit, conv.model || agents.get(conv.agentId)?.model || s.model); // Grizzy / OpenCode = real agent CLIs over ACP
   const content = images.length
     ? [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mediaType, data: im.data } })), { type: 'text', text: userText }]
     : userText;
@@ -319,6 +344,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
 
   const ac = new AbortController();
   active.set(convId, ac);
+  if (!conv.cwd) conv.cwd = os.homedir(); // older chats were saved without a folder
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
   const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set(), agentId: '', teamId: '' };
@@ -336,19 +362,26 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const aid = troute && troute.actingId ? troute.actingId : conv.agentId; // the agent that runs this turn (the tagged lead, or the conversation's own agent)
       { const ad = agents.get(aid), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; run.teamId = aid; }
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(aid)?.model || s.model;
-      if (s.saveCompact) { // fold old turns into a summary when the context is getting full
-        const ratio = conv.ctx?.used ? conv.ctx.used / (conv.ctx.max || 200000) : 0;
-        const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
-        if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
-      }
-      const lists = [agents.accessOf(agents.get(aid))];
-      const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
+      const lists = [agents.accessOf(agents.get(aid)), require('./grizzywork').access(conv)].filter(Boolean);
+      const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, conv);
       const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(aid)?.enabled && agents.get(aid).memory), team: teams.hasTeamTools(aid), dismiss: teams.isLead(aid) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
       const sysConv = Object.create(conv); sysConv.agentId = aid;
-      const system = buildSystem(s, sysConv) + teams.agentBlock(aid) + (troute ? troute.block : '') + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      const system = buildSystem(s, sysConv, lists) + teams.agentBlock(aid) + (troute ? troute.block : '') + access.promptBlock(lists) + route.system + roster(s, 0, convId) + sections.map((x) => '\n\n' + x.text).join('');
+      if (s.saveCompact) { // fold old turns into a summary when the context is getting full
+        try { const r0 = models.route(s, mstr0); if (r0.baseUrl && !models.contextWindow(s, mstr0)) await providers.fetchModels(providers.get(models.canon(s, mstr0).split(':')[0], s), r0.apiKey, {}); } catch {} // learn a local model's loaded context size
+        const r1 = models.route(s, mstr0), win = (await providers.loadedCtx(r1.baseUrl, models.canon(s, mstr0).replace(/^[a-z0-9-]+:/, ''))) || models.contextWindow(s, mstr0) || null; // what LM Studio has loaded now, else the model's listed size
+        if (conv.ctx) conv.ctx.max = win;
+        // A rejected request records no usage, so estimate this turn's size from what it would actually send: the history
+        // plus this request's system prompt and the tool schemas — a fixed cost a flat guess under-counted, which is how
+        // a session well past its window could read as barely a fifth full.
+        const est = savings.tok(savings.noImages([system, ...conv.messages, ...sendDefs])) + 1000;
+        const ratio = Math.max(conv.ctx?.used || 0, est) / (win || 200000);
+        const r = await savings.compact(conv, s, summarizer(s, mstr0, convId, conv.mode, ac.signal), { usedRatio: ratio });
+        if (r.compacted) { checkpoints.drop(convId); conv.ctx = null; store.saveConversation(conv); emit({ type: 'info', convId, text: `Compacted ${r.compacted} earlier messages into a summary (about ${r.tokensSaved.toLocaleString('en-US')} tokens saved). Pinned facts were kept.` }); }
+      }
       let res, llmErr = null;
       await mods.turnStep({ turnId, index: turn, model: mstr0, messageCount: conv.messages.length }, async () => {
         try { res = await streamRetry(s, { ...s, ...models.route(s, mstr0), effort: conv.effort ?? (agents.get(aid)?.enabled ? agents.get(aid).effort : undefined) }, { system, messages: conv.messages, tools: sendDefs }, (d) => emit({ type: 'text', convId, delta: d }), ac.signal, (text) => emit({ type: 'info', convId, text })); return { input_tokens: res.usage.in, output_tokens: res.usage.out, cache_read_input_tokens: res.usage.cr || 0, cache_creation_input_tokens: res.usage.cw || 0 }; }
@@ -359,7 +392,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       conv.messages.push({ role: 'assistant', content: res.content });
       const mstr = mstr0, u = res.usage, cu = conv.usage || {};
       conv.usage = { in: (cu.in || 0) + u.in, out: (cu.out || 0) + u.out, cr: (cu.cr || 0) + (u.cr || 0), cw: (cu.cw || 0) + (u.cw || 0) };
-      conv.ctx = { used: u.in + (u.cr || 0) + (u.cw || 0), max: models.contextWindow(s, mstr) || null, model: mstr, at: Date.now() };
+      conv.ctx = { used: u.in + (u.cr || 0) + (u.cw || 0), max: (await providers.loadedCtx(models.route(s, mstr).baseUrl, models.canon(s, mstr).replace(/^[a-z0-9-]+:/, ''))) || models.contextWindow(s, mstr) || null, model: mstr, at: Date.now() };
       store.addUsage(u, { model: models.canon(s, mstr), mode: conv.mode, conv: convId, price: models.priceOf(s, mstr), dept: teams.deptFor(aid) });
       store.saveConversation(conv);
       emit({ type: 'usage', convId, usage: conv.usage, last: u, ctx: conv.ctx });
@@ -408,7 +441,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
     active.delete(convId);
     mods.turnComplete({ answer: lastText, durationMs: Date.now() - t0, isAborted: aborted || ac.signal.aborted, turnId, reason: aborted || ac.signal.aborted ? 'aborted' : 'answer' }).catch(() => {});
     // re-read so concurrent permission/allow edits are not clobbered
-    const l = store.getConversation(convId); l.messages = conv.messages; l.usage = conv.usage; l.ctx = conv.ctx; l.savings = conv.savings; l.title = conv.title; store.saveConversation(l);
+    const l = Object.assign(store.getConversation(convId), takePatch(convId)); l.messages = conv.messages; l.usage = conv.usage; l.ctx = conv.ctx; l.savings = conv.savings; l.title = conv.title; store.saveConversation(l);
   }
 }
 
@@ -432,7 +465,7 @@ function rewindPreview(convId, idx) {
 function rewind(convId, idx, { files = true } = {}) {
   if (isRunning(convId)) return { error: 'Stop the running task first.' };
   const s = store.getSettings(); const conv = store.getConversation(convId);
-  if (acp.isGrizzy(conv.model || agents.get(conv.agentId)?.model || s.model)) return { error: 'Rewind is not available for sessions run by the Claude Code CLI.' };
+  if (acp.isAcp(conv.model || agents.get(conv.agentId)?.model || s.model)) return { error: 'Rewind is not available for sessions run by the Claude Code or OpenCode CLI.' };
   const m = conv.messages[idx]; if (!isHuman(m)) return { error: 'That message can’t be rewound to.' };
   const restored = files && !conv.ssh ? checkpoints.restore(convId, idx) : (checkpoints.discard(convId, idx), null);
   conv.messages = conv.messages.slice(0, idx); conv.ctx = null; conv.agents = []; registries.delete(convId);

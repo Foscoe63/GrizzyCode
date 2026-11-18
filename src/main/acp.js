@@ -11,6 +11,12 @@ const access = require('./access');
 const NAME = 'Grizzy';
 const PREFIX = 'grizzy:';
 const isGrizzy = (m) => String(m || '').startsWith(PREFIX);
+// OpenCode (`opencode acp`) is the second agent backend: same protocol, different CLI. 'opencode:default' = its own configured model;
+// 'opencode:<provider/model>' pins one via ACP's model config option.
+const OC_NAME = 'OpenCode';
+const OC_PREFIX = 'opencode:';
+const isOpencode = (m) => String(m || '').startsWith(OC_PREFIX);
+const isAcp = (m) => isGrizzy(m) || isOpencode(m);
 
 const procs = new Map();     // convId -> { child, sessionId, pending, nextId, buf, cwd }
 const runs = new Map();      // convId -> { emit, approvals:Set }
@@ -19,7 +25,7 @@ const approvals = new Map(); // approvalId -> { resolve, options }
 function shellEnv() {
   const env = { ...process.env };
   delete env.CLAUDECODE; delete env.CLAUDE_CODE_ENTRYPOINT; // lets Grizzy start even when GrizzyCode itself was launched from a Claude Code session
-  const extra = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME}/.local/bin`, `${process.env.HOME}/.claude/local`];
+  const extra = ['/opt/homebrew/bin', '/usr/local/bin', `${process.env.HOME}/.local/bin`, `${process.env.HOME}/.claude/local`, `${process.env.HOME}/.opencode/bin`];
   env.PATH = [...extra, env.PATH || ''].join(':');
   return env;
 }
@@ -77,7 +83,7 @@ function onMessage(convId, p, m) {
 }
 
 // 'grizzy:claude-code' = the CLI's own default model; 'grizzy:<anthropic model id>' pins that model via ANTHROPIC_MODEL.
-const modelOf = (m) => { const id = String(m || '').slice(PREFIX.length); return id && id !== 'claude-code' ? id : ''; };
+const modelOf = (m) => { const oc = isOpencode(m), id = String(m || '').slice((oc ? OC_PREFIX : PREFIX).length); return id && id !== 'claude-code' && id !== 'default' ? id : ''; };
 
 // Connectors the agent may use, in ACP's mcpServers shape. With no connector limit nothing is passed, so the CLI keeps its own setup.
 function mcpFor(lists) {
@@ -87,12 +93,25 @@ function mcpFor(lists) {
     .map(([name, d]) => (d.url ? { type: 'http', name, url: d.url, headers: kv(d.headers) } : { name, command: d.command, args: d.args || [], env: kv(d.env) }));
 }
 
-async function ensure(convId, cwd, model, lists = []) {
+// LM Studio's local server, as GrizzyCode knows it (Settings → Providers), else the default port.
+const lmBase = () => { try { return (require('./providers').get('lmstudio', store.getSettings())?.baseUrl || LM_DEFAULT).replace(/\/$/, ''); } catch { return LM_DEFAULT; } };
+const LM_DEFAULT = 'http://localhost:1234/v1';
+// Models LM Studio has loaded right now (empty when it is not running).
+async function loadedLmModels() {
+  try {
+    const r = await fetch(lmBase().replace(/\/v1$/, '') + '/api/v0/models', { signal: AbortSignal.timeout(2000) }); if (!r.ok) return [];
+    return ((await r.json()).data || []).filter((x) => x.state === 'loaded' && (!x.type || x.type === 'llm' || x.type === 'vlm')).map((x) => ({ id: String(x.id), ctx: Number(x.loaded_context_length) || Number(x.max_context_length) || 0 }));
+  } catch { return []; }
+}
+
+async function ensure(convId, cwd, model, lists = [], backend = '') {
   const servers = mcpFor(lists), denied = access.cliDenied(lists), key = JSON.stringify([servers, denied]);
-  const have = procs.get(convId); if (have && have.cwd === cwd && have.model === model && have.key === key && !have.child.killed) { have.access = lists; return have; }
+  const have = procs.get(convId); if (have && have.cwd === cwd && have.model === model && have.oc === isOpencode(backend) && have.key === key && !have.child.killed) { have.access = lists; return have; }
   if (have) have.child.kill();
-  const child = spawn('npx', ['-y', '@zed-industries/claude-code-acp'], { cwd, env: { ...shellEnv(), ...(model ? { ANTHROPIC_MODEL: model } : {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
-  const p = { child, pending: new Map(), nextId: 1, buf: '', cwd, model, key, access: lists, sessionId: null, stderr: '' };
+  const oc = isOpencode(backend);
+  const env = { ...shellEnv(), ...(model && !oc ? { ANTHROPIC_MODEL: model } : {}) };
+  const child = oc ? spawn('opencode', ['acp'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] }) : spawn('npx', ['-y', '@zed-industries/claude-code-acp'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const p = { child, oc, pending: new Map(), nextId: 1, buf: '', cwd, model, key, access: lists, sessionId: null, stderr: '' };
   procs.set(convId, p);
   child.stdout.on('data', (d) => {
     p.buf += d; let i;
@@ -100,9 +119,13 @@ async function ensure(convId, cwd, model, lists = []) {
   });
   child.stderr.on('data', (d) => { p.stderr = (p.stderr + d).slice(-2000); });
   child.on('error', (e) => { for (const w of p.pending.values()) w.reject(e); });
-  child.on('exit', () => { for (const w of p.pending.values()) w.reject(new Error('Claude Code exited. ' + p.stderr.trim().split('\n').pop())); p.pending.clear(); if (procs.get(convId) === p) procs.delete(convId); });
+  child.on('exit', () => { for (const w of p.pending.values()) w.reject(new Error((oc ? OC_NAME : 'Claude Code') + ' exited. ' + p.stderr.trim().split('\n').pop())); p.pending.clear(); if (procs.get(convId) === p) procs.delete(convId); });
   await call(p, 'initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } });
-  p.sessionId = (await call(p, 'session/new', { cwd, mcpServers: servers, ...(denied.length ? { _meta: { claudeCode: { options: { disallowedTools: denied } } } } : {}) })).sessionId;
+  p.sessionId = (await call(p, 'session/new', { cwd, mcpServers: servers, ...(denied.length && !oc ? { _meta: { claudeCode: { options: { disallowedTools: denied } } } } : {}) })).sessionId;
+  if (oc && model) { // OpenCode picks its model through ACP's `model` config option ('lmstudio/<id>' is found by OpenCode itself)
+    try { await call(p, 'session/set_config_option', { sessionId: p.sessionId, configId: 'model', value: model }); }
+    catch (e) { throw new Error(`OpenCode would not switch to ${model}: ${e.message}`); }
+  }
   return p;
 }
 
@@ -119,7 +142,7 @@ async function send(convId, userText, emit, model) {
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
-    const p = await ensure(convId, conv.cwd || process.env.HOME, modelOf(model || conv.model), [agents.accessOf(agents.get(conv.agentId))]);
+    const p = await ensure(convId, conv.cwd || process.env.HOME, modelOf(model || conv.model), [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean), model || conv.model);
     // The CLI may report token usage on the prompt result; when it does not, estimate (about 4 characters a token) so mods still see the turn.
     await mods.turnStep({ turnId, index: 0, model: model || conv.model, messageCount: conv.messages.length }, async () => {
       const res = await call(p, 'session/prompt', { sessionId: p.sessionId, prompt: [{ type: 'text', text: userText }] });
@@ -131,7 +154,7 @@ async function send(convId, userText, emit, model) {
     if (run.ctxUsed) { const l = store.getConversation(convId); l.ctx = { used: run.ctxUsed, max: run.ctxSize || null, model: model || conv.model, at: Date.now() }; store.saveConversation(l); emit({ type: 'usage', convId, usage: l.usage || { in: 0, out: 0, cr: 0, cw: 0 }, last: { in: 0, out: 0, cr: 0, cw: 0 }, ctx: l.ctx }); }
     emit({ type: 'done', convId });
   } catch (e) {
-    emit({ type: runs.get(convId)?.stopped ? 'done' : 'error', convId, message: hasCli() ? e.message : `${e.message}\n${SETUP_NOTE}` });
+    emit({ type: runs.get(convId)?.stopped ? 'done' : 'error', convId, message: hasCli(isOpencode(model || conv.model) ? 'opencode' : 'claude') ? e.message : `${e.message}\n${isOpencode(model || conv.model) ? OC_SETUP_NOTE : SETUP_NOTE}` });
   } finally {
     const stopped = !!runs.get(convId)?.stopped;
     runs.delete(convId);
@@ -158,9 +181,13 @@ const isRunning = (convId) => runs.has(convId);
 const kill = (convId) => { procs.get(convId)?.child.kill(); procs.delete(convId); };
 
 const SETUP_NOTE = 'Grizzy needs the Claude Code CLI on this computer (install: npm i -g @anthropic-ai/claude-code, then run `claude /login`) and Node/npx.';
-const hasCli = () => shellEnv().PATH.split(':').some((d) => { try { require('fs').accessSync(d + '/claude', require('fs').constants.X_OK); return true; } catch { return false; } });
+const OC_SETUP_NOTE = 'OpenCode needs the opencode CLI on this computer (install: brew install sst/tap/opencode or npm i -g opencode-ai, then run `opencode auth login`).';
+const hasCli = (bin = 'claude') => shellEnv().PATH.split(':').some((d) => { try { require('fs').accessSync(d + '/' + bin, require('fs').constants.X_OK); return true; } catch { return false; } });
 
 const catalogGroup = () => ({ id: 'grizzy', label: NAME, hasKey: true, needsKey: false, note: hasCli() ? undefined : SETUP_NOTE, models: [{ value: PREFIX + 'claude-code', id: 'claude-code', name: `${NAME} (Claude Code CLI)`, ctx: 200000 },
   ...require('./providerdefs').BUILTINS.find((b) => b.id === 'anthropic').fallback.map((id) => ({ value: PREFIX + id, id, name: `${NAME} · ${id}`, ctx: 200000 }))] });
 
-module.exports = { NAME, PREFIX, isGrizzy, send, answer, stop, isRunning, kill, catalogGroup };
+const opencodeGroup = (lm = []) => ({ id: 'opencode', label: OC_NAME, hasKey: true, needsKey: false, note: hasCli('opencode') ? undefined : OC_SETUP_NOTE, models: [{ value: OC_PREFIX + 'default', id: 'default', name: `${OC_NAME} (default model)`, ctx: 200000 },
+  ...lm.map((m) => ({ value: OC_PREFIX + 'lmstudio/' + m.id, id: 'lmstudio/' + m.id, name: `${OC_NAME} · LM Studio · ${m.id}`, ctx: m.ctx || 0 }))] });
+
+module.exports = { NAME, PREFIX, OC_NAME, OC_PREFIX, isGrizzy, isOpencode, isAcp, opencodeGroup, loadedLmModels, send, answer, stop, isRunning, kill, catalogGroup };

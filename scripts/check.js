@@ -759,7 +759,7 @@ app.whenReady().then(() => srv.listen(0, async () => {
   // ===== providers: registry, toggles, custom providers, per-provider URLs / keys / model lists =====
   store.saveSettings({ provider: 'anthropic', baseUrl: '', apiKey: '', model: 'claude-sonnet-5-5', models: ['claude-sonnet-5-5'], keys: { anthropic: '', openrouter: '' }, providerCfg: { overrides: {}, custom: [] } });
   const plist = providers.list();
-  assert(plist.length === 10 && plist.filter((x) => x.builtin).length === 10 && plist.find((x) => x.id === 'anthropic').enabled && plist.find((x) => x.id === 'openrouter').enabled && !plist.find((x) => x.id === 'openai').enabled && !plist.find((x) => x.id === 'ollama').needsKey, 'providers: built-ins listed (Anthropic and OpenRouter on, others off, local ones need no key)');
+  assert(plist.length === 11 && plist.filter((x) => x.builtin).length === 11 && plist.find((x) => x.id === 'anthropic').enabled && plist.find((x) => x.id === 'openrouter').enabled && !plist.find((x) => x.id === 'openai').enabled && !plist.find((x) => x.id === 'ollama').needsKey && !plist.find((x) => x.id === 'omlx').needsKey, 'providers: built-ins listed (Anthropic and OpenRouter on, others off, local ones need no key)');
   assert(providers.save({ name: '', baseUrl: 'https://x.example/v1' }).error && providers.save({ name: 'Acme' }).error && providers.save({ name: 'Acme', baseUrl: 'ftp://x' }).error && providers.save({ name: 'anthropic', baseUrl: 'https://x.example' }).error, 'providers: custom provider validation (name, URL scheme, duplicate name)');
   // fake OpenAI-compatible server: /models list, chat stream; records the Authorization header
   let lastAuth = 'unset'; let modelsStatus = 200;
@@ -865,6 +865,16 @@ app.whenReady().then(() => srv.listen(0, async () => {
     store.saveSettings({ saveCompact: false, compactKeep: 8 });
     const small = store.newConversation({ mode: 'chat' }); small.messages = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }]; store.saveConversation(small);
     assert((await agent.compactNow(small.id)).error, 'compaction: a short conversation is not compacted');
+    // An agent run is mostly assistant tool_use + user tool_result pairs, so a long one can have no plain user turn
+    // near the end. That is a long conversation, not a short one, and it must still compact on the assistant turn.
+    const toolMsgs = [];
+    for (let i = 0; i < 30; i++) { toolMsgs.push({ role: 'assistant', content: [{ type: 'text', text: `step ${i} ` + 'filler text '.repeat(120) }, { type: 'tool_use', id: 'k' + i, name: 'bash', input: { command: 'ls' } }] }); toolMsgs.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k' + i, content: 'output ' + 'filler text '.repeat(60) }] }); }
+    let c6 = store.newConversation({ mode: 'chat' }); c6.messages = toolMsgs.map((m) => ({ ...m })); store.saveConversation(c6);
+    script = [textTurn('Earlier work: ran the same command over and over and read its output. ' + 'z'.repeat(80))];
+    const cr6 = await agent.compactNow(c6.id); c6 = store.getConversation(c6.id);
+    assert(cr6.ok && savings.isSummary(c6.messages[0]), 'compaction: a thread that is all tool calls still compacts (it said "not enough earlier conversation" before)');
+    const orphans = c6.messages.flatMap((m, i) => (m.role === 'user' && Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'tool_result' && !c6.messages.slice(0, i).some((x) => Array.isArray(x.content) && x.content.some((y) => y.type === 'tool_use' && y.id === b.tool_use_id))));
+    assert(!orphans.length && c6.messages.length < toolMsgs.length, 'compaction: no tool result is cut off from the tool call it answers');
     assert(cleanSettings({ saveOutputChars: 5, compactAtPct: 500 }).out.saveOutputChars === 2000 && cleanSettings({ compactAtPct: 500 }).out.compactAtPct === 95, 'settings: saver limits are clamped');
   }
 
@@ -1269,6 +1279,25 @@ export const register: Register = (on, options) => {
     assert(cw.files('T1').length === 2 && cw.preview('T1', 'a.md').kind === 'markdown' && cw.preview('T1', 'p.html').kind === 'html', 'grizzywork lists and previews task files');
     let esc = ''; try { cw.preview('T1', '../../etc/hosts'); } catch (e) { esc = e.message; } assert(/outside/.test(esc), 'grizzywork preview is confined to the task folder');
     const ex = cw.exportData(); assert(ex.tasks.some((t) => t.id === 'T1'), 'grizzywork export has tasks');
+    { // per-tool switches: connectors become an allow-list on top of the agent's own access, skills are filtered, other chats are untouched
+      const acc = require('../src/main/access'), mcpx = require('../src/main/mcp'), gv = { grizzywork: {} };
+      fsx.writeFileSync(pth.join(store.root(), 'mcp_config.json'), JSON.stringify({ mcpServers: { alpha: { command: 'x' }, beta: { command: 'y' } } }));
+      store.saveSettings({ grizzyworkTools: {}, grizzyworkPlugins: [] });
+      assert(cw.access(gv) === null && cw.access({}) === null && cw.skillAllowed(gv, 'docx'), 'grizzywork tools: everything outside a plugin is on by default');
+      cw.setTool('connectors', 'beta', false); const ac = cw.access(gv);
+      assert(ac && acc.check([ac], 'mcp__beta__t', {}, '/x') && !acc.check([ac], 'mcp__alpha__t', {}, '/x') && cw.access({}) === null, 'grizzywork tools: a switched-off connector is refused for GrizzyWork only');
+      assert(acc.check([acc.clean({ connectors: ['beta'] }), ac], 'mcp__beta__t', {}, '/x'), 'grizzywork tools: the agent\'s own access still applies on top');
+      cw.setTool('skills', 'docx', false); assert(!cw.skillAllowed(gv, 'docx') && cw.skillAllowed({}, 'docx') && !cw.filterSkills(gv, [{ id: 'docx' }, { id: 'pdf' }]).some((k) => k.id === 'docx'), 'grizzywork tools: a switched-off skill is hidden and refused');
+      cw.setTool('connectors', 'beta', true); cw.setTool('skills', 'docx', true); assert(cw.access(gv) === null, 'grizzywork tools: switching back on restores access');
+      store.saveSettings({ grizzyworkTools: {} });
+    }
+    { // agents that exist only in GrizzyWork
+      const ag = require('../src/main/agents'), r = ag.save({ name: 'GW Researcher', scope: 'grizzywork', instructions: 'Research.' }), a = r.agents.find((x) => x.name === 'GW Researcher');
+      assert(a && a.scope === 'grizzywork' && ag.list().find((x) => x.id === 'general').scope === 'all', 'gw agents: scope is saved and defaults to everywhere');
+      assert(!ag.allowedIn(a, {}) && !ag.allowedIn(a, { grizzywork: null }) && ag.allowedIn(a, { grizzywork: {} }) && ag.allowedIn(ag.get('general'), {}) && ag.allowedIn(null, {}), 'gw agents: only GrizzyWork tasks may use a GrizzyWork-only agent');
+      assert(ag.save({ id: a.id, name: 'GW Researcher', scope: 'bogus' }).agents.find((x) => x.id === a.id).scope === 'all', 'gw agents: an unknown scope means everywhere');
+      ag.remove(a.id);
+    }
     cw.deleteAll(); assert(!cw.listTasks().length && !fsx.existsSync(sc), 'grizzywork delete removes tasks and scratch workspaces');
   }
   {

@@ -72,7 +72,7 @@ const TEAM_TOOLS = [teamProposeTool.name, teamSearchTool.name, dismissTool.name]
 // opts.depth: how deep the calling agent is (0 = the main agent); opts.sub: a delegated agent, which never presents a plan.
 function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   const on = (k, d = true) => (caps[k] === undefined ? d : !!caps[k]);
-  let list = mode === 'code' ? (permissionMode === 'plan' ? defs.filter((d) => d.kind === 'read') : defs) : [];
+  let list = permissionMode === 'plan' ? defs.filter((d) => d.kind === 'read') : defs;
   list = list.filter((d) => (d.kind !== 'exec' || on('capShell')) && (d.kind !== 'edit' || on('capEdit')));
   const out = [...list];
   if (mode === 'code' && permissionMode === 'plan' && !opts.sub) out.push(planTool);
@@ -118,9 +118,8 @@ async function runRemote(name, input, host, cwd, signal) {
     case 'write_file': await ok(`mkdir -p "$(dirname ${shq(rp(input.path))})" && cat > ${shq(rp(input.path))}`, input.content); return `Wrote ${input.content.length} chars to ${rp(input.path)} on ${host}`;
     case 'edit_file': {
       const f = rp(input.path); const t = await ok(`cat ${shq(f)}`);
-      const n = t.split(input.old_string).length - 1;
-      if (n !== 1) throw new Error(n ? `old_string matches ${n} times; must be unique` : 'old_string not found');
-      await ok(`cat > ${shq(f)}`, t.replace(input.old_string, () => input.new_string)); return `Edited ${f} on ${host}`;
+      const list = Array.isArray(input.edits) && input.edits.length ? input.edits : [{ old_string: input.old_string, new_string: input.new_string, replace_all: input.replace_all }];
+      await ok(`cat > ${shq(f)}`, applyEdits(t, list)); return list.length > 1 ? `Edited ${f} on ${host} (${list.length} edits)` : `Edited ${f} on ${host}`;
     }
     case 'grep': return clip((await sshExec(host, `cd ${shq(cwd)} && ((command -v rg >/dev/null && rg -n --max-count 200 -e ${shq(input.pattern)} ${shq(rp(input.path))}) || grep -rnE ${shq(input.pattern)} ${shq(rp(input.path))} | head -200)`, '', signal)).out);
     case 'bash': { const r = await sshExec(host, `cd ${shq(cwd)} && ${input.command}`, '', signal); return clip(r.out + r.err) + (r.code ? `\n[exit ${r.code}]` : ''); }

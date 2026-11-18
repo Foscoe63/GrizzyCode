@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 const MODES = { default: 'Ask permissions', acceptEdits: 'Accept edits', plan: 'Plan mode', bypassPermissions: 'Bypass permissions' };
 let cur = null, live = null, settings = {}, order = [], atts = [], providerCache = [];
 let modInfo = { band: false, panes: [], status: [], commands: [], messageHooks: false, working: false };
-let viewMode = 'chat', homeFolder = null, useWt = false, homeSsh = null; const shut = new Set(), expanded = new Set();
+let viewMode = 'chat', homeFolder = null, homeOps = false, useWt = false, homeSsh = null; const shut = new Set(), expanded = new Set();
 try { viewMode = localStorage.getItem('gc.view') === 'code' ? 'code' : 'chat'; } catch {}
 const busy = new Set(); const hist = []; let hpos = -1; let lastHolder = null;
 
@@ -121,7 +121,7 @@ function renderConv(c) {
   $('msgs').innerHTML = '';
   $('title').textContent = c.title;
   if (typeof hidePage === 'function') hidePage();
-  setView(c.mode, false); homeFolder = c.mode === 'code' ? c.cwd : null; syncHome();
+  setView(c.mode, false); homeOps = !!c.ops; homeFolder = c.mode === 'code' ? c.cwd : null; syncHome();
   const results = {};
   for (const m of c.messages) if (Array.isArray(m.content)) for (const b of m.content) if (b.type === 'tool_result') results[b.tool_use_id] = b.content;
   for (const m of c.messages) {
@@ -154,15 +154,16 @@ function syncHome() {
   $('emptySub').textContent = code ? '' : 'Ask a question, or switch to Code to work in a folder.';
   $('envCard').hidden = !(empty && code && !cur);
   if (!$('envCard').hidden) renderEnv();
-  $('dirName').textContent = (cur?.cwd || homeSsh?.cwd || homeFolder || 'Choose folder').split('/').pop() || '/';
+  $('dirName').textContent = (cur ? cur.ops : homeOps) ? 'No folder' : (cur?.cwd || homeSsh?.cwd || homeFolder || 'Choose folder').split('/').pop() || '/';
 }
 function renderEnv() {
   const l = $('envList'); l.innerHTML = '';
+  { const d = document.createElement('div'); d.title = 'A general task on this computer, with no project folder'; if (homeOps) d.className = 'on'; d.innerHTML = `${ICON.laptop}<span>No folder (general task)</span>`; d.onclick = () => { homeOps = true; homeSsh = null; syncHome(); syncComposer(); $('input').focus(); }; l.appendChild(d); }
   const fs = [...new Set([...(settings.pinnedFolders || []), ...(settings.trustedFolders || [])])];
   for (const f of fs) {
-    const d = document.createElement('div'); d.title = f; if (f === homeFolder) d.className = 'on';
+    const d = document.createElement('div'); d.title = f; if (!homeOps && f === homeFolder) d.className = 'on';
     d.innerHTML = `${ICON.laptop}<span>${esc(f.split('/').pop() || f)}</span><button class="env-del" title="Remove" type="button">✕</button>`;
-    d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeFolder = f; syncHome(); $('input').focus(); };
+    d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeOps = false; homeFolder = f; syncHome(); $('input').focus(); };
     d.querySelector('.env-del').onclick = async (e) => { e.stopPropagation(); await removeEnv(f); };
     l.appendChild(d);
   }
@@ -200,18 +201,18 @@ async function refreshList() {
     d.oncontextmenu = (e) => { e.preventDefault(); ctxMenu(e, [
       ['Rename…', async () => { const t = prompt('Rename', it.title); if (t) { await gc.conv.update(it.id, { title: t }); refreshList(); if (cur?.id === it.id) $('title').textContent = t; } }],
       [it.pinned ? 'Unpin' : 'Pin', async () => { await gc.conv.update(it.id, { pinned: !it.pinned }); refreshList(); }],
-      ...(it.mode === 'code' && it.cwd ? [[settings.pinnedFolders.includes(it.cwd) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(it.cwd)], ['New session in this folder', () => newCode(it.cwd)]] : []),
+      ...(it.mode === 'code' && it.cwd && !it.ops ? [[settings.pinnedFolders.includes(it.cwd) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(it.cwd)], ['New session in this folder', () => newCode(it.cwd)]] : []),
       ['Open in new window', () => gc.newWindow(it.id)], ['Open side by side', () => gc.splitWindow(it.id)], null,
       ['Close session', () => closeSession(it.id)],
       ['Delete…', async () => { if (await gc.confirm('Delete this conversation?', 'This cannot be undone.', 'Delete')) { const r = await gc.conv.remove(it.id); if (cur?.id === it.id) goHome(); refreshList(); if (r && !r.removed) gc.confirm('Worktree kept', `The session’s worktree was left on disk (${r.reason}). Remove it manually with git worktree remove.`, 'OK'); } }],
     ]); };
     l.appendChild(d);
   };
-  const group = (key, html, { plus, folder } = {}) => {
+  const group = (key, html, { plus, folder, ops } = {}) => {
     const g = document.createElement('div'); g.className = 'group' + (shut.has(key) ? ' shut' : '');
     g.innerHTML = `<span class="gt">${html}</span>${plus ? '<button class="plus" title="New session" type="button">＋</button>' : ''}<span class="car">▾</span>`;
     g.onclick = () => { shut.has(key) ? shut.delete(key) : shut.add(key); refreshList(); };
-    if (plus) g.querySelector('.plus').onclick = (e) => { e.stopPropagation(); newCode(folder); };
+    if (plus) g.querySelector('.plus').onclick = (e) => { e.stopPropagation(); ops ? newCode(null, true) : newCode(folder); };
     if (folder) { g.title = folder; g.oncontextmenu = (e) => { e.preventDefault(); ctxMenu(e, [[settings.pinnedFolders.includes(folder) ? 'Unpin folder' : 'Pin folder', () => togglePinFolder(folder)], ['New session here', () => newCode(folder)]]); }; }
     l.appendChild(g); return !shut.has(key);
   };
@@ -221,9 +222,11 @@ async function refreshList() {
     if (list.length > limit) { const m = document.createElement('div'); m.className = 'more'; m.textContent = all ? 'Show less' : 'Show more'; m.onclick = () => { all ? expanded.delete(key) : expanded.add(key); refreshList(); }; l.appendChild(m); }
   };
   if (q) { items.forEach(add); return; }
-  const pinned = items.filter((i) => i.pinned), rest = items.filter((i) => !i.pinned);
+  const pinned = items.filter((i) => i.pinned); let rest = items.filter((i) => !i.pinned);
   if (pinned.length && group('pinned', 'Pinned')) run('pinned', pinned, 99);
   if (viewMode === 'chat') { if (rest.length && group('recents', 'Recents')) run('recents', rest, 12); return; }
+  const gen = rest.filter((i) => i.ops); rest = rest.filter((i) => !i.ops);
+  if (group('general', 'General <i>· no folder</i>', { plus: true, ops: true })) run('general', gen);
   const by = new Map(); for (const f of settings.pinnedFolders || []) by.set(f, []);
   for (const it of rest) { if (!by.has(it.cwd)) by.set(it.cwd, []); by.get(it.cwd).push(it); }
   for (const [f, list] of by) {
@@ -256,7 +259,8 @@ async function newChat() {
   setView('chat', false);
   const c = await gc.conv.create({ mode: 'chat' }); await open(c.id);
 }
-async function newCode(folder) {
+async function newCode(folder, ops) {
+  if (ops && !folder) { setView('code', false); const c = await gc.conv.create({ mode: 'code', ops: true }); await open(c.id); return; } // no folder to trust: the session starts in the home folder
   if (homeSsh && !folder) { setView('code', false); const c = await gc.conv.create({ mode: 'code', cwd: homeSsh.cwd, ssh: { host: homeSsh.host } }); await open(c.id); return; }
   const cwd = folder || await gc.pickFolder(); if (!cwd) return;
   if (!settings.trustedFolders.includes(cwd)) {
@@ -286,7 +290,7 @@ function syncComposer() {
   const code = cur?.mode === 'code';
   const codeUi = viewMode === 'code';
   $('envName').textContent = (cur?.ssh || homeSsh) ? 'SSH · ' + (cur?.ssh?.host || homeSsh.host) : 'This computer'; $('envChip').classList.toggle('on', !!(cur?.ssh || homeSsh));
-  $('wtChip').hidden = !codeUi || !!cur || !!homeSsh; $('wtChip').classList.toggle('on', useWt);
+  $('wtChip').hidden = !codeUi || !!cur || !!homeSsh || homeOps; $('wtChip').classList.toggle('on', useWt);
   const ms = $('modeSel'); ms.hidden = !codeUi; $('envChip').hidden = $('dirChip').hidden = !codeUi;
   if (cur) syncHome(); else $('dirName').textContent = (homeFolder || 'Choose folder').split('/').pop();
   ms.innerHTML = Object.entries(MODES).filter(([k]) => k !== 'bypassPermissions' || settings.allowBypass !== false || cur?.permissionMode === 'bypassPermissions').map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
@@ -312,7 +316,7 @@ $('modeSel').onchange = async () => {
   if (v === 'bypassPermissions' && !(await gc.confirm('Run coding task in bypass permissions mode?', 'GrizzyCode will edit files and run commands without asking. Only use this in folders you trust.', 'Bypass permissions'))) { $('modeSel').value = cur.permissionMode; return; }
   cur = await gc.conv.update(cur.id, { permissionMode: v }); syncComposer();
 };
-$('dirChip').onclick = async () => { if (cur) return; const f = await gc.pickFolder(); if (f) { homeFolder = f; homeSsh = null; syncHome(); syncComposer(); } };
+$('dirChip').onclick = async () => { if (cur) return; const f = await gc.pickFolder(); if (f) { homeFolder = f; homeOps = false; homeSsh = null; syncHome(); syncComposer(); } };
 $('envChoose').onclick = $('dirChip').onclick;
 $('envChip').onclick = async () => {
   if (cur) return;
@@ -370,7 +374,7 @@ const modelLabel = (v) => modelNames.get(v) || niceModel(bareId(v));
 const canonModel = (m) => (splitModel(m) ? m : catalogCanon(m));
 const currentModel = () => canonModel(cur?.model || settings.model);
 function catalogCanon(m) { // bare ids follow the default provider (mirrors the main process)
-  if (String(m).startsWith('grizzy:')) return m; // Grizzy agent (Claude Code CLI)
+  if (/^(grizzy|opencode):/.test(String(m))) return m; // Grizzy (Claude Code CLI) / OpenCode agents
   const base = settings.baseUrl || '';
   if (settings.provider === 'anthropic' && !base) return 'anthropic:' + m;
   if (/openrouter\.ai/i.test(base)) return 'openrouter:' + m;
@@ -516,7 +520,8 @@ async function send() {
   if (!cur) {
     if (viewMode === 'code') {
       if (homeSsh) await newCode();
-      else if (!homeFolder) { toast('Choose a folder for this code session first, or switch to Chat'); const c = $('dirChip'); c.classList.remove('nudge'); void c.offsetWidth; c.classList.add('nudge'); return; }
+      else if (homeOps) await newCode(null, true);
+      else if (!homeFolder) { homeOps = true; await newCode(null, true); } // no folder picked: start a general session instead of blocking
       else await newCode(homeFolder);
     } else await newChat();
     if (!cur) return;
@@ -1007,15 +1012,40 @@ $('impGo').onclick = async () => {
   if (r.error) { $('impMsg').className = 'mmsg bad'; $('impMsg').textContent = r.error; return; }
   $('mcpImpDlg').close(); refreshMcp(r.servers); toast(`Imported ${r.added.length}${r.skipped.length ? `, skipped ${r.skipped.length} existing` : ''}`);
 };
-async function renderSkills() {
-  const l = await gc.skills.list(); $('skillList').innerHTML = '';
-  for (const k of l) {
-    const r = document.createElement('div'); r.className = 'srow'; r.innerHTML = `<span><b>${esc(k.name)}</b><br><span class="hint">${esc(k.description.slice(0, 100))}</span></span>`;
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Remove'; b.onclick = async () => { await gc.skills.remove(k.id); renderSkills(); };
-    r.appendChild(b); $('skillList').appendChild(r);
+// Skills grouped into collapsible categories. Rows can be dragged onto a group header (or its list) to re-file them; new skills are auto-placed by keyword.
+async function renderSkillGroups(el, onChange) {
+  const st = await gc.skills.groups(), by = {};
+  for (const k of st.skills) (by[k.group] ||= []).push(k);
+  el.innerHTML = '';
+  if (!st.skills.length) { el.innerHTML = '<p class="hint">No skills installed.</p>'; return; }
+  const bar = document.createElement('div'); bar.className = 'sg-new';
+  bar.innerHTML = '<input class="grow" placeholder="New group name"><button type="button" class="outline">Add group</button><span class="hint">Drag a skill onto a group to move it.</span>';
+  const inp = bar.querySelector('input'), addG = async () => { if (!inp.value.trim()) return; await gc.skills.groupsUpdate({ addGroup: inp.value }); onChange(); };
+  bar.querySelector('button').onclick = addG; inp.onkeydown = (e) => { if (e.key === 'Enter') addG(); };
+  el.appendChild(bar);
+  for (const g of st.groups) {
+    const items = by[g.id] || [], custom = !!g.custom;
+    const d = document.createElement('details'); d.className = 'sgrp'; d.dataset.g = g.id; d.open = st.collapsed[g.id] === false;
+    const sm = document.createElement('summary');
+    sm.innerHTML = `<b>${esc(g.name)}</b> <span class="hint">${items.length}</span><span class="grow"></span>`;
+    if (custom) { const x = document.createElement('button'); x.type = 'button'; x.className = 'outline sg-x'; x.textContent = 'Delete group'; x.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); await gc.skills.groupsUpdate({ removeGroup: g.id }); onChange(); }; sm.appendChild(x); }
+    sm.addEventListener('click', () => setTimeout(() => gc.skills.groupsUpdate({ collapsed: { [g.id]: !d.open } }), 0));
+    d.appendChild(sm);
+    for (const k of items) {
+      const r = document.createElement('div'); r.className = 'srow sk'; r.draggable = true; r.dataset.id = k.id;
+      r.innerHTML = `<span><b>${esc(k.name)}</b>${k.pinned ? '' : ' <span class="mbadge" title="Placed automatically; drag to another group to pin it">auto</span>'}<br><span class="hint">${esc(k.description.slice(0, 100))}</span></span>`;
+      r.ondragstart = (e) => { e.dataTransfer.setData('text/skill', k.id); e.dataTransfer.effectAllowed = 'move'; };
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Remove'; b.onclick = async () => { await gc.skills.remove(k.id); onChange(); };
+      r.appendChild(b); d.appendChild(r);
+    }
+    if (!items.length) { const e = document.createElement('p'); e.className = 'hint sg-empty'; e.textContent = 'Empty – drop a skill here.'; d.appendChild(e); }
+    d.ondragover = (e) => { if (e.dataTransfer.types.includes('text/skill')) { e.preventDefault(); d.classList.add('drop'); } };
+    d.ondragleave = (e) => { if (!d.contains(e.relatedTarget)) d.classList.remove('drop'); };
+    d.ondrop = async (e) => { e.preventDefault(); d.classList.remove('drop'); const id = e.dataTransfer.getData('text/skill'); if (id) { await gc.skills.groupsUpdate({ assign: { [id]: g.id }, collapsed: { [g.id]: false } }); onChange(); } };
+    el.appendChild(d);
   }
-  if (!l.length) $('skillList').innerHTML = '<p class="hint">No skills installed.</p>';
 }
+function renderSkills() { return renderSkillGroups($('skillList'), renderSkills); }
 $('skillImport').onclick = async () => { const r = await gc.skills.import(); if (r?.error) alert(r.error); renderSkills(); };
 $('cliImport').onclick = async () => { $('cliResult').textContent = 'Importing…'; const r = await gc.importCli(); $('cliResult').textContent = r.none ? 'No CLI sessions found.' : `Imported ${r.imported} session${r.imported === 1 ? '' : 's'}${r.skipped ? `, skipped ${r.skipped}` : ''}.`; refreshList(); };
 $('openSettings').onclick = openSettings;
@@ -1231,7 +1261,7 @@ function renderAgentPicker() {
 }
 function openAgentMenu() {
   const m = $('agentMenu'), sel = currentAgent()?.id; m.innerHTML = '';
-  for (const a of agents.filter((x) => x.enabled)) {
+  for (const a of agents.filter((x) => x.enabled && (x.scope !== 'grizzywork' || cur?.grizzywork))) { // GrizzyWork-only agents show up only inside a GrizzyWork task
     const r = document.createElement('div'); r.className = 'ai' + (a.id === sel ? ' sel' : ''); r.setAttribute('role', 'option');
     r.innerHTML = `<span class="aic">${esc(a.icon || '🤖')}</span><span class="atx"><div class="an">${esc(a.name)}</div><div class="ad">${esc(a.description || '')}</div></span>${a.id === sel ? '<span class="ck">✓</span>' : ''}`;
     r.onclick = () => pickAgent(a.id); m.appendChild(r);
@@ -1243,7 +1273,7 @@ function openAgentMenu() {
 function closeAgentMenu() { $('agentMenu').hidden = true; $('agentBtn').classList.remove('on'); }
 async function pickAgent(id) {
   closeAgentMenu(); const a = agentById(id); if (!a) return;
-  settings = await gc.settings.set({ activeAgent: id });
+  if (a.scope !== 'grizzywork') settings = await gc.settings.set({ activeAgent: id }); // a GrizzyWork-only agent is never the app-wide default
   if (cur) cur = await gc.conv.update(cur.id, { agentId: id });
   if (a.model) { if (cur) cur = await gc.conv.update(cur.id, { model: a.model, modelPinned: false }); else settings = await gc.settings.set({ model: a.model }); syncComposer(); }
   if (a.permissionMode && viewMode === 'code') {
@@ -1260,9 +1290,9 @@ async function renderAgents() {
   for (const a of agents) {
     const r = document.createElement('div'); r.className = 'mcard'; const isActive = currentAgent()?.id === a.id;
     const bits = [a.model && `model ${esc(a.model)}`, a.permissionMode && `mode ${esc(a.permissionMode)}`, a.effort && `thinking ${esc(a.effort)}`, a.memory && 'remembers', a.steps && `${a.steps} steps`, a.gates?.length && `${a.gates.length} check${a.gates.length === 1 ? '' : 's'}`, a.guards?.length && `${a.guards.length} rule${a.guards.length === 1 ? '' : 's'}`, a.connectors && `${a.connectors.length} connector${a.connectors.length === 1 ? '' : 's'}`, a.tools && `${a.tools.length} tool${a.tools.length === 1 ? '' : 's'}`, a.paths?.length && `${a.paths.length} folder${a.paths.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
-    r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
+    r.innerHTML = `<div class="mhead"><b>${esc(a.icon || '🤖')} ${esc(a.name)}</b>${a.builtin ? '<span class="mbadge">built-in</span>' : ''}${a.scope === 'grizzywork' ? '<span class="mbadge">GrizzyWork only</span>' : ''}${isActive ? '<span class="mbadge">in use</span>' : ''}${a.enabled ? '' : '<span class="mbadge">off</span>'}</div><div class="msum" style="white-space:normal">${esc(a.description || '')}${bits ? ` <span class="hint">· ${bits}</span>` : ''}</div><div class="mact"></div>`;
     const act = r.querySelector('.mact'); const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.textContent = t; b.onclick = f; act.appendChild(b); };
-    if (a.enabled && !isActive) btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
+    if (a.enabled && !isActive && a.scope !== 'grizzywork') btn('Use', async () => { await pickAgent(a.id); renderAgents(); });
     btn('Edit', () => openAgent(a));
     if (!a.builtin) btn('Delete', async () => { if (await gc.confirm(`Delete “${a.name}”?`, 'This agent is removed.', 'Delete')) { await gc.agents.remove(a.id); settings = await gc.settings.get(); renderAgents(); syncComposer(); } });
     else if (a.modified) btn('Reset', async () => { await gc.agents.remove(a.id); renderAgents(); });
@@ -1270,14 +1300,16 @@ async function renderAgents() {
   }
 }
 // Every model from every enabled provider, grouped; a saved model that is no longer listed stays selectable.
-function fillAgentModels(cur) {
-  const groups = catalog.groups.filter((g) => g.models.length);
+function fillAgentModels(cur, filter = '') {
+  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = catalog.groups.map((g) => ({ ...g, models: g.models.filter((m) => words.every((w) => ((m.name || '') + ' ' + (m.id || '') + ' ' + (m.value || '') + ' ' + g.label).toLowerCase().includes(w))) })).filter((g) => g.models.length);
   const known = groups.some((g) => g.models.some((m) => (m.value || m.id) === cur));
   $('agModel').innerHTML = '<option value="">Default (current model)</option>'
     + (cur && !known ? `<option value="${esc(cur)}">${esc(cur)}</option>` : '')
     + groups.map((g) => `<optgroup label="${esc(g.label)}">${g.models.map((m) => `<option value="${esc(m.value || m.id || '')}">${esc(m.name || m.id)}</option>`).join('')}</optgroup>`).join('');
   $('agModel').value = cur;
 }
+$('agModelSearch').addEventListener('input', () => { const cur = $('agModel').value; fillAgentModels(cur, $('agModelSearch').value); });
 // Access: a mode select (all / only the ones picked) plus a checkbox list that shows while "picked" is chosen.
 const AG_TOOLS = [['read_file', 'Read files'], ['list_dir', 'List folders'], ['grep', 'Search'], ['write_file', 'Write files'], ['edit_file', 'Edit files'], ['bash', 'Shell'], ['web_fetch', 'Web fetch']];
 function fillAgentPick(mode, list, items, chosen) {
@@ -1302,9 +1334,11 @@ async function renderAgentNotes(a) {
 async function openAgent(a) {
   agEditing = a || null; $('agTitle').textContent = a ? `Edit “${a.name}”` : 'New agent';
   $('agName').value = a?.name || ''; $('agIcon').value = a?.icon || ''; $('agDesc').value = a?.description || ''; $('agInstr').value = a?.instructions || '';
-  fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agMsg').textContent = '';
+  $('agModelSearch').value = ''; fillAgentModels(a?.model || ''); $('agMode').value = a?.permissionMode || ''; $('agOn').checked = a ? a.enabled : true; $('agScope').value = a?.scope || 'all'; $('agMsg').textContent = '';
   const names = [...new Set([...((await gc.mcp.list().catch(() => [])) || []).map((c) => c.name), ...(a?.connectors || [])])];
   fillAgentPick('agConnMode', 'agConnList', names.map((n) => [n, n]), a?.connectors); fillAgentPick('agToolMode', 'agToolList', AG_TOOLS, a?.tools);
+  const skillIds = [...new Set([...((await gc.skills.list().catch(() => [])) || []).map((k) => k.id), ...(a?.skills || [])])];
+  fillAgentPick('agSkillMode', 'agSkillList', skillIds.map((n) => [n, n]), a?.skills);
   $('agPaths').value = (a?.paths || []).join('\n');
   $('agMem').checked = !!a?.memory; renderAgentNotes(a);
   $('agEffort').value = a?.effort || ''; $('agSteps').value = a?.steps || ''; $('agReport').value = a?.report || '';
@@ -1315,7 +1349,7 @@ async function openAgent(a) {
 }
 $('agNew').onclick = () => openAgent(null); $('agCancel').onclick = () => $('agDlg').close();
 $('agSave').onclick = async () => {
-  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
+  const r = await gc.agents.save({ id: agEditing?.id, name: $('agName').value, icon: $('agIcon').value, description: $('agDesc').value, instructions: $('agInstr').value, model: $('agModel').value, permissionMode: $('agMode').value, scope: $('agScope').value, connectors: agPicked('agConnMode', 'agConnList'), tools: agPicked('agToolMode', 'agToolList'), skills: agPicked('agSkillMode', 'agSkillList'), paths: $('agPaths').value.split('\n'), memory: $('agMem').checked, effort: $('agEffort').value, steps: Number($('agSteps').value) || 0, report: $('agReport').value, guards: [...$('agGuardList').querySelectorAll('input:checked')].map((i) => i.value), gates: [...$('agGateList').querySelectorAll('input:checked')].map((i) => i.value), enabled: $('agOn').checked });
   if (r.error) { $('agMsg').textContent = r.error; $('agMsg').className = 'mmsg bad'; return; }
   $('agDlg').close(); renderAgents();
 };
@@ -1804,6 +1838,7 @@ function makeResizable(handle, { cssVar, key, def, min, max, fromRight }) {
   makeResizable($('rzRs'), { cssVar: '--rs-w', key: 'rsW', def: 300, min: 240, max: 640, fromRight: true });
   makeResizable($('rzDiff'), { cssVar: '--diff-w', key: 'diffW', def: 420, min: 280, max: 800, fromRight: true });
   homeFolder = settings.pinnedFolders?.[0] || settings.trustedFolders?.[0] || null;
+  if (!homeFolder) homeOps = true;
   if (settings.rsOpen) { $('rside').hidden = false; $('rsBtn').classList.add('on'); }
   applyFont(settings.font); applyAppearance(); applyCaps(); loadPluginCmds(); loadProviders(); gc.mods.info().then((i) => { modInfo = i; scheduleModRender(); });
   document.body.classList.toggle('nosidebar', !!settings.sidebarHidden);

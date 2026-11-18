@@ -10,14 +10,15 @@ const access = require('./access');
 const MODES = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
 const BUILTIN = [
   { id: 'general', icon: '🐻', name: 'GrizzyCode', description: 'The default assistant.', instructions: '', model: '', permissionMode: '' },
+  { id: 'opencode', icon: '🟩', name: 'OpenCode', description: 'The OpenCode CLI (needs `opencode` installed and logged in).', instructions: '', model: 'opencode:default', permissionMode: '' },
   { id: 'grizzy', icon: '🐻‍❄️', name: 'Grizzy', description: 'The real Claude Code CLI (needs `claude` installed and logged in).', instructions: '', model: 'grizzy:claude-code', permissionMode: '' },
   // Beyond a persona, each of these is a runtime profile: its own tool set, step budget, completion gates (the run is not allowed to
   // finish until they pass) and a report contract. `gates` are names from GATES below; `steps` is the delegated step budget.
   { id: 'engineer', icon: '🛠️', name: 'Engineer', description: 'Writes and refactors code in small, verified steps; will not finish an edit without running something to check it.', instructions: 'Act as a senior software engineer. Read the surrounding code before changing it, match its conventions, make the smallest correct change, and verify it (run tests or the build) before reporting done.', model: '', permissionMode: '', steps: 40, effort: 'medium', memory: true, guards: ['readBeforeEdit'], gates: ['evidence', 'verify'], report: 'Finish with: the files you changed and why, the command you ran to verify and its result, and anything left undone.' },
-  { id: 'reviewer', icon: '🔍', name: 'Reviewer', description: 'Reviews code for bugs, security and clarity without changing it; must read the code and rank findings.', instructions: 'Act as a meticulous code reviewer. Look for correctness bugs, security issues, missing edge cases and unclear code. Report findings ranked by severity with file and line references. Do not modify files unless asked.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], steps: 20, effort: 'high', memory: true, gates: ['evidence', 'findings'], report: 'Finish with findings ranked Critical / High / Medium / Low / Nit, each as `path:line — problem — suggested fix`. If you found nothing, say "No issues found" and list what you checked.' },
-  { id: 'planner', icon: '🗺️', name: 'Planner', description: 'Investigates the code first, then proposes a concrete numbered plan with files and risks.', instructions: 'Act as a technical planner. Investigate the codebase, ask about anything ambiguous, and produce a concrete step-by-step plan with the files involved and risks. Do not implement until the plan is approved.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], steps: 20, effort: 'high', gates: ['evidence', 'plan'], report: 'Finish with a numbered plan (each step names the files it touches), then a "Risks" section and an "Open questions" section.' },
+  { id: 'reviewer', icon: '🔍', name: 'Reviewer', description: 'Reviews code for bugs, security and clarity without changing it; must read the code and rank findings.', instructions: 'Act as a meticulous code reviewer. Look for correctness bugs, security issues, missing edge cases and unclear code. Report findings ranked by severity with file and line references. Do not modify files unless asked.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], connectors: ['codegraph'], steps: 20, effort: 'high', memory: true, gates: ['evidence', 'findings'], report: 'Finish with findings ranked Critical / High / Medium / Low / Nit, each as `path:line — problem — suggested fix`. If you found nothing, say "No issues found" and list what you checked.' },
+  { id: 'planner', icon: '🗺️', name: 'Planner', description: 'Investigates the code first, then proposes a concrete numbered plan with files and risks.', instructions: 'Act as a technical planner. Investigate the codebase, ask about anything ambiguous, and produce a concrete step-by-step plan with the files involved and risks. Do not implement until the plan is approved.', model: '', permissionMode: 'plan', tools: ['read_file', 'list_dir', 'grep'], connectors: ['codegraph'], steps: 20, effort: 'high', gates: ['evidence', 'plan'], report: 'Finish with a numbered plan (each step names the files it touches), then a "Risks" section and an "Open questions" section.' },
   { id: 'researcher', icon: '📚', name: 'Researcher', description: 'Gathers evidence from files and the web (read-only), then reports findings with sources and what it could not verify.', instructions: 'Act as a careful researcher. Gather evidence before concluding, distinguish facts from inference, cite where each claim comes from, and say what you could not verify.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'web_fetch'], steps: 30, effort: 'medium', memory: true, gates: ['evidence', 'sources'], report: 'Finish with: the answer first, then the evidence (each claim with its source URL or path:line), then an "Unverified" section for anything you could not confirm.' },
-  { id: 'writer', icon: '✍️', name: 'Writer', description: 'Drafts and edits prose in files (no shell or web); re-reads what it wrote before reporting.', instructions: 'Act as an editor and writer. Prefer plain, concise language, keep the author\'s voice, and explain notable edits briefly.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file'], steps: 15, guards: ['readBeforeEdit'], gates: ['readback'], report: 'Finish with the file(s) you wrote or edited and a short note on the notable edits.' },
+  { id: 'writer', icon: '✍️', name: 'Writer', description: 'Drafts and edits prose in files (no shell or web); re-reads what it wrote before reporting.', instructions: 'Act as an editor and writer. Prefer plain, concise language, keep the author\'s voice, and explain notable edits briefly.', model: '', permissionMode: '', tools: ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file'], connectors: [], skills: [], steps: 15, guards: ['readBeforeEdit'], gates: ['readback'], report: 'Finish with the file(s) you wrote or edited and a short note on the notable edits.' },
 ];
 
 
@@ -127,8 +128,10 @@ const write = (d) => { fs.mkdirSync(store.root(), { recursive: true }); fs.write
 function list() {
   const d = load();
   return [...BUILTIN.map((b) => ({ ...b, ...(d.overrides[b.id] || {}), id: b.id, builtin: true, modified: !!d.overrides[b.id] })), ...d.custom.map((c) => ({ ...c, builtin: false }))]
-    .map((a) => ({ ...a, enabled: a.enabled !== false }));
+    .map((a) => ({ ...a, enabled: a.enabled !== false, scope: a.scope === 'grizzywork' ? 'grizzywork' : 'all' }));
 }
+// May this conversation use the agent? A GrizzyWork-only agent is for GrizzyWork tasks alone.
+const allowedIn = (a, conv) => !a || a.scope !== 'grizzywork' || !!conv?.grizzywork;
 const get = (id) => (id ? list().find((a) => a.id === id) : null);
 
 function clean(p) {
@@ -146,6 +149,7 @@ function clean(p) {
     ...(p.steps ? { steps: Math.max(1, Math.min(100, Number(p.steps) || 25)) } : {}),
     ...(Array.isArray(p.gates) ? { gates: p.gates.filter((g) => GATES[g]) } : {}),
     ...(p.report != null ? { report: String(p.report).slice(0, 1000) } : {}),
+    scope: p.scope === 'grizzywork' ? 'grizzywork' : 'all', // 'grizzywork' = only GrizzyWork tasks can use this agent
     enabled: p.enabled !== false,
   };
 }
@@ -202,4 +206,4 @@ function blockFor(a, cwd) {
   const rep = String(a.report || '').trim();
   return `\n\nYou are working as the agent “${a.name}”. Follow these agent instructions:\n${a.instructions.trim()}${rep ? `\n\nReport format: ${rep}` : ''}${(a.guards || []).map((g) => GUARD_INFO[g]).filter(Boolean).length ? '\n\nRules enforced on your tool calls: ' + a.guards.map((g) => GUARD_INFO[g]).filter(Boolean).join('; ') + '. A call that breaks one is refused.' : ''}${memoryBlock(a, cwd)}${(a.gates || []).length ? '\n\nYou cannot finish until your report meets this format and your work is verified; GrizzyCode checks the report against what you actually did (cited files and lines must exist, checks must have run) and sends an incomplete one back to you.' : ''}`;
 }
-module.exports = { list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };
+module.exports = { allowedIn, list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };

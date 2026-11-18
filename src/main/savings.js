@@ -38,7 +38,7 @@ function catalog(mcpDefs) {
   const by = new Map();
   for (const d of mcpDefs) { const { server, tool } = split(d.name); (by.get(server) || by.set(server, []).get(server)).push([tool, String(d.description || '').replace(/^\[[^\]]*\]\s*/, '').replace(/\s+/g, ' ').slice(0, 70)]); }
   return '\n\nConnector (MCP) tools are not listed individually to save context. Use mcp_tools to see parameter schemas and mcp_invoke to call one. Catalog:\n' +
-    [...by].map(([srv, ts]) => `- ${srv}: ${ts.map(([n, d]) => (d ? `${n} (${d})` : n)).join('; ')}`).join('\n');
+    [...by].map(([srv, ts]) => ts.length > 8 ? `- ${srv} (${ts.length} tools; mcp_tools with server "${srv}" gives descriptions): ${ts.map(([n]) => n).join(', ')}` : `- ${srv}: ${ts.map(([n, d]) => (d ? `${n} (${d.slice(0, 50)})` : n)).join('; ')}`).join('\n');
 }
 // -> { defs: tool definitions to send, exec: the full list used to validate a call, system: text to add, active }
 function routeMcp(mcpDefs, s, conv) {
@@ -60,13 +60,32 @@ function describeTools(mcpDefs, input = {}) {
   return pick.map((r) => JSON.stringify({ tool: r.d.name, description: r.d.description, input_schema: r.d.input_schema }, null, 1)).join('\n\n');
 }
 // mcp_invoke -> the call it stands for (so permissions, approval cards and mods see the real tool). Returns null if it is not a router call.
+// Models write "rea.inspect_artifact", "rea/inspect_artifact" or "rea:inspect_artifact"; the real name is "rea__inspect_artifact".
+const normName = (n) => String(n || '').trim().replace(/^mcp[._/:]+/, 'mcp__').replace(/^([A-Za-z0-9-]+)[./:]+(?=[A-Za-z0-9_])/, '$1__');
 function unwrapInvoke(call, mcpDefs) {
   if (call.name !== 'mcp_invoke') return null;
-  const t = String(call.input?.tool || '').trim();
+  let t = String(call.input?.tool || '').trim();
+  if (!mcpDefs.some((d) => d.name === t || d.name === `mcp__${t}` || d.name.replace(/^mcp__/, '') === t)) t = normName(t);
   const real = mcpDefs.find((d) => d.name === t || d.name === `mcp__${t}` || d.name.replace(/^mcp__/, '') === t);
-  if (!real) throw new Error(`Unknown connector tool "${t}". Call mcp_tools to list the tools.`);
+  if (!real) {
+    const { server } = split(t.startsWith('mcp__') ? t : `mcp__${t}`);
+    const known = [...new Set(mcpDefs.map((d) => split(d.name).server))];
+    throw new Error(`Unknown connector tool "${t}". ${server && !known.includes(server) ? `There is no connector named "${server}"; connectors are: ${known.join(', ') || 'none'}. ` : ''}Built-in tools (todo_write, read_file, grep, ...) are called directly, not through mcp_invoke. Call mcp_tools to list connector tools.`);
+  }
   return { ...call, name: real.name, input: call.input?.input && typeof call.input.input === 'object' ? call.input.input : {} };
 }
+
+// A model that names a connector tool directly ("inspect_desktop_application", "hindsight__recall") instead of going through mcp_invoke:
+// run the real tool when exactly one connector tool matches. Returns null when the name is not a connector tool.
+function resolveBare(call, mcpDefs) {
+  const raw = String(call.name || '');
+  if (!raw || raw === 'mcp_invoke' || raw === 'mcp_tools' || mcpDefs.some((d) => d.name === raw)) return null;
+  const n = normName(raw);
+  const hits = mcpDefs.filter((d) => d.name === n || d.name === `mcp__${n}` || split(d.name).tool === n || split(d.name).tool === raw);
+  return hits.length === 1 ? { ...call, name: hits[0].name } : null;
+}
+// Extra hint for a tool name that does not exist: connector tools are reached through mcp_invoke.
+const unknownToolHint = (name, mcpDefs) => (mcpDefs.length ? ` If you meant a connector tool, call mcp_tools to list them and mcp_invoke with {"tool": "<server>__<tool>", "input": {...}} — "${name}" is not a tool name.` : '');
 
 // ---------- 2. Output compression ----------
 const outDir = () => path.join(store.root(), 'outputs');
@@ -158,7 +177,8 @@ const pinBlock = (list) => (list && list.length ? '\n\nPinned facts (always true
 const SUMMARY_TAG = '[Summary of the earlier conversation';
 const isSummary = (m) => m && m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_TAG);
 const hasToolResult = (m) => Array.isArray(m.content) && m.content.some((b) => b.type === 'tool_result');
-const msgTokens = (msgs) => tok(msgs.map((m) => (typeof m.content === 'string' ? m.content : m.content.map((b) => (b.type === 'image' ? '[image]' : b))))); // images are not counted as text
+const noImages = (x) => (typeof x === 'string' ? x : (Array.isArray(x) ? x.map((b) => (b && b.type === 'image' ? '[image]' : b)) : x)); // images are not counted as text: base64 is not tokens
+const msgTokens = (msgs) => tok(msgs.map(noImages));
 function transcript(msgs) {
   const lines = [];
   for (const m of msgs) {
@@ -173,10 +193,19 @@ function transcript(msgs) {
   }
   const t = lines.join('\n\n'); return t.length > 240000 ? '…\n' + t.slice(-240000) : t;
 }
-// Index of the first message to keep: at least `keepRecent` from the end, starting at a user message that is not a tool result.
+// Index of the first message to keep, at least `keepRecent` from the end. A real user turn is the clean cut, but an
+// agent run is mostly `assistant tool_use` + `user tool_result` pairs, so a long stretch of tool calls can leave no
+// user turn near the end at all — that is not "not enough conversation", it just needs a different boundary. An
+// assistant message works: the tool results that answer it follow it, so the pair stays in the kept tail. Cutting
+// before a tool_result would strand it from the tool_use it answers, which every provider rejects, so those are never a cut.
 function cutPoint(msgs, keepRecent) {
-  for (let i = Math.max(1, msgs.length - keepRecent); i < msgs.length; i++) if (msgs[i].role === 'user' && !hasToolResult(msgs[i]) && !isSummary(msgs[i])) return i;
-  return -1;
+  let assistant = -1;
+  for (let i = Math.max(1, msgs.length - keepRecent); i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m.role === 'user') { if (!hasToolResult(m) && !isSummary(m)) return i; }
+    else if (assistant < 0 && Array.isArray(m.content) && m.content.length) assistant = i;
+  }
+  return assistant;
 }
 // summarize(prompt) -> text. Mutates conv.messages. Returns { compacted, before, after, tokensSaved } or { skipped: reason }.
 async function compact(conv, s, summarize, { force = false, usedRatio = 0 } = {}) {
@@ -192,12 +221,16 @@ async function compact(conv, s, summarize, { force = false, usedRatio = 0 } = {}
   let text = ''; try { text = String(await summarize(prompt) || '').trim(); } catch (e) { return { skipped: 'summary failed: ' + e.message }; }
   if (text.length < 40) return { skipped: 'the summary came back empty' };
   try { fs.mkdirSync(outDir(), { recursive: true }); fs.writeFileSync(path.join(outDir(), `compact-${conv.id}-${Date.now()}.json`), JSON.stringify(older)); } catch {}
-  conv.messages = [{ role: 'user', content: `${SUMMARY_TAG}, written by GrizzyCode to save context. Treat it as what happened so far.]\n\n${text}` }, { role: 'assistant', content: 'Understood. I have the summary of the earlier conversation and will continue from it.' }, ...tail];
-  const after = msgTokens(conv.messages.slice(0, 2)); const saved = before - after;
+  const summary = { role: 'user', content: `${SUMMARY_TAG}, written by GrizzyCode to save context. Treat it as what happened so far.]\n\n${text}` };
+  // The acknowledgment is an assistant turn, so it only fits when the tail starts with a user message; starting on an
+  // assistant message would put two assistant turns in a row, which providers reject — the summary alone opens those.
+  const ack = tail[0] && tail[0].role === 'user' ? [{ role: 'assistant', content: 'Understood. I have the summary of the earlier conversation and will continue from it.' }] : [];
+  conv.messages = [summary, ...ack, ...tail];
+  const after = msgTokens(conv.messages.slice(0, ack.length + 1)); const saved = before - after;
   record(conv, 'compact', saved, 'compactions');
   return { compacted: older.length, before, after, tokensSaved: saved };
 }
 
 // Tools offered to the model: reading back compressed output (only when compression is on) and pinning facts.
 const defs = (s) => [...(on(s, 'saveOutputs', true) ? [retrieveDef] : []), pinDef];
-module.exports = { tok, record, stats, totals, resetStats, routeMcp, describeTools, unwrapInvoke, routerDefs, compressOutput, retrieve, retrieveDef, pinDef, pin, unpin, pins, pinBlock, compact, isSummary, cutPoint, defs, ROUTER_MIN_TOOLS };
+module.exports = { resolveBare, unknownToolHint, tok, record, stats, totals, resetStats, routeMcp, describeTools, unwrapInvoke, routerDefs, compressOutput, retrieve, retrieveDef, pinDef, pin, unpin, pins, pinBlock, compact, isSummary, cutPoint, defs, ROUTER_MIN_TOOLS, noImages };

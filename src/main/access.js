@@ -1,5 +1,5 @@
 // Per-agent access: which built-in tools, connectors and folders an agent may use.
-// connectors / tools: null = no restriction, [] = none. paths: [] = no restriction.
+// connectors / tools / skills: null = no restriction, [] = none. paths: [] = no restriction.
 // Several access lists can apply at once (a delegated agent gets its parent's and its own); a call must pass every one.
 const fs = require('fs');
 const os = require('os');
@@ -12,9 +12,12 @@ const connectorOf = (name) => (/^mcp__(.+?)__/.exec(name) || [])[1] || '';
 const strList = (v, max, len) => (Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim().slice(0, len)).filter(Boolean))].slice(0, max) : null);
 function clean(p = {}) {
   const tools = strList(p.tools, BUILTIN.length, 40);
-  return { connectors: strList(p.connectors, 100, 80), tools: tools && tools.filter((t) => BUILTIN.includes(t)), paths: strList(p.paths, 50, 500) || [] };
+  return { connectors: strList(p.connectors, 100, 80), tools: tools && tools.filter((t) => BUILTIN.includes(t)), skills: strList(p.skills, 300, 80), paths: strList(p.paths, 50, 500) || [] };
 }
-const isOpen = (a) => !a || (a.connectors == null && a.tools == null && !(a.paths || []).length);
+const isOpen = (a) => !a || (a.connectors == null && a.tools == null && a.skills == null && !(a.paths || []).length);
+// Skills an access list allows (null = all). Used to trim the skill list in the prompt and to refuse use_skill on a hidden one.
+const allowsSkill = (a, id) => !a || a.skills == null || a.skills.includes(id);
+const keepSkills = (lists, defs) => defs.filter((k) => lists.every((a) => allowsSkill(a, k.id)));
 
 const home = (p) => (p === '~' ? os.homedir() : p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p);
 // Resolve symlinks of the nearest existing ancestor, so a link inside an allowed folder cannot lead out of it.
@@ -40,6 +43,7 @@ const keep = (lists, defs) => defs.filter((d) => lists.every((a) => allowsName(a
 function check(lists, name, input, cwd) {
   for (const a of lists) {
     if (isOpen(a)) continue;
+    if (name === 'use_skill' && !allowsSkill(a, String((input && input.id) || ''))) return `This agent is not allowed to use the skill "${input && input.id}".`;
     if (!allowsName(a, name)) return name === 'bash' && a.paths.length && (a.tools == null || a.tools.includes('bash')) ? 'This agent is limited to certain folders, so it cannot run shell commands.' : `This agent is not allowed to use ${name}.`;
     if (a.paths.length && PATH_TOOLS.includes(name)) {
       const base = cwd || os.homedir(), target = real(path.resolve(base, home(String((input && input.path) || '.'))));
@@ -74,4 +78,4 @@ function checkAcp(lists, tc = {}, cwd) {
   return check(lists, name, input, cwd);
 }
 
-module.exports = { BUILTIN, clean, isOpen, keep, check, promptBlock, cliDenied, checkAcp, connectorOf };
+module.exports = { BUILTIN, clean, isOpen, keep, keepSkills, allowsSkill, check, promptBlock, cliDenied, checkAcp, connectorOf };

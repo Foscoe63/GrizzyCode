@@ -348,7 +348,7 @@ function ipc() {
   h('conv:list', (q) => store.searchConversations(q));
   h('conv:get', (id) => store.getConversation(id));
   h('conv:new', (o) => store.newConversation(o));
-  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'modelPinned', 'title', 'pinned', 'projectId', 'agentId', 'effort', 'fast', 'archived', 'closedAt']) if (k in patch) c[k] = patch[k]; store.saveConversation(c); return c; });
+  h('conv:update', (id, patch) => { const c = store.getConversation(id); for (const k of ['permissionMode', 'model', 'modelPinned', 'title', 'pinned', 'projectId', 'agentId', 'effort', 'fast', 'archived', 'closedAt']) if (k in patch && !(k === 'agentId' && !agents.allowedIn(agents.get(patch[k]), c))) c[k] = patch[k]; store.saveConversation(c); return c; });
   h('conv:close', (id) => { const c = store.getConversation(id); c.archived = true; c.closedAt = Date.now(); store.saveConversation(c); });
   h('conv:reopen', () => { const m = store.lastClosed(); if (!m) return null; const c = store.getConversation(m.id); c.archived = false; c.closedAt = 0; store.saveConversation(c); return c; });
   h('conv:delete', async (id) => { const c = store.getConversation(id); term.kill(id); require('./acp').kill(id); bgtasks.stopAll(id); require('./checkpoints').drop(id); const r = c?.worktree ? await git.worktreeRemove(c.worktree) : null; store.deleteConversation(id); return r; });
@@ -438,6 +438,8 @@ function ipc() {
     try { return { id: skills.importBundle(r.filePaths[0]) }; } catch (e) { return { error: e.message }; }
   });
   h('skills:remove', (id) => skills.remove(id));
+  h('skills:groups', () => skills.groupState());
+  h('skills:groupsUpdate', (p) => skills.updateGroups(p));
 
   // --- IPC: CLI import ---
   h('cli:import', () => importer.importAll());
@@ -614,6 +616,12 @@ function ipc() {
   h('artifacts:templates', async () => ({ templates: artifacts.templates(), types: artifacts.types() }));
   h('artifacts:save-html', async (id) => { const a = artifacts.get(String(id)); if (!a) return false; const r = await dialog.showSaveDialog(focused(), { defaultPath: a.title.replace(/[^\w. -]+/g, '_') + '.html' }); if (r.canceled) return false; fs.writeFileSync(r.filePath, artifacts.standalone(a.id)); return true; });
   h('artifacts:open-browser', async (id) => { const a = artifacts.get(String(id)); if (!a) return false; const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'gc-art-')); const f = path.join(dir, 'artifact.html'); fs.writeFileSync(f, artifacts.standalone(a.id)); await shell.openPath(f); return true; });
+  h('projects:pickFiles', async () => {
+    const r = await dialog.showOpenDialog(focused(), { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Text files', extensions: ['md', 'txt', 'json', 'csv', 'js', 'ts', 'py', 'swift', 'html', 'css', 'yml', 'yaml', 'xml', 'log'] }] });
+    if (r.canceled) return [];
+    const out = []; for (const f of r.filePaths) { try { if (fs.statSync(f).size > 2e6) continue; out.push({ name: path.basename(f), text: fs.readFileSync(f, 'utf8') }); } catch {} }
+    return out;
+  });
   h('projects:list', () => store.listProjects());
   h('projects:save', (p) => store.saveProject(p));
   h('projects:delete', (id) => store.deleteProject(id));
@@ -636,7 +644,8 @@ function ipc() {
   h('grizzywork:memory', () => grizzywork.memList());
   h('grizzywork:memAdd', (t) => T(grizzywork.memAdd)(t));
   h('grizzywork:memRemove', (id) => grizzywork.memRemove(id));
-  h('grizzywork:plugins', () => grizzywork.pluginList());
+  h('grizzywork:plugins', () => grizzywork.toolGroups());
+  h('grizzywork:setTool', (k, id, on) => T(grizzywork.setTool)(k, id, on));
   h('grizzywork:setPlugin', (n, on) => grizzywork.setPlugin(n, on));
   h('grizzywork:export', async () => { const r = await dialog.showSaveDialog(focused(), { defaultPath: 'grizzywork-export.json' }); if (r.canceled || !r.filePath) return false; fs.writeFileSync(r.filePath, JSON.stringify(grizzywork.exportData(), null, 2)); return true; });
   h('grizzywork:deleteAll', () => grizzywork.deleteAll());

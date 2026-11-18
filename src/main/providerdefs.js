@@ -11,6 +11,7 @@ const BUILTINS = [
   { id: 'deepseek', name: 'DeepSeek', type: 'openai', baseUrl: 'https://api.deepseek.com/v1', needsKey: true, enabled: false, keyUrl: 'https://platform.deepseek.com/api_keys', fallback: [] },
   { id: 'ollama', name: 'Ollama (local)', type: 'openai', baseUrl: 'http://localhost:11434/v1', needsKey: false, enabled: false, keyUrl: '', fallback: [] },
   { id: 'lmstudio', name: 'LM Studio (local)', type: 'openai', baseUrl: 'http://localhost:1234/v1', needsKey: false, enabled: false, keyUrl: '', fallback: [] },
+  { id: 'omlx', name: 'oMLX (local)', type: 'openai', baseUrl: 'http://localhost:8000/v1', needsKey: false, enabled: false, keyUrl: '', fallback: [] },
 ];
 const norm = (u) => String(u || '').trim().replace(/\/+$/, '').toLowerCase();
 // Which built-in provider an endpoint URL belongs to (OpenRouter by host, the rest by exact URL), or null.

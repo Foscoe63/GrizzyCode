@@ -47,13 +47,18 @@ async function pgProjects() {
     <label class="fld">Instructions<textarea id="pInst" rows="7" placeholder="How should GrizzyCode behave in this project? Tone, context, rules…">${esc(p.instructions)}</textarea></label>
     <div class="fld">Default folder <span class="hint">(optional — chats become code sessions in this folder)</span>
       <div class="inl"><code id="pFolder">${esc(p.folder || 'None')}</code><button class="outline" id="pPick">Choose…</button>${p.folder ? '<button class="outline" id="pClear">Clear</button>' : ''}</div></div>
+    <div class="fld">Knowledge files <span class="hint">(text files every chat in this project can draw on)</span>
+      <div id="pFiles"></div><div class="inl"><button class="outline" id="pAddFiles">Add files…</button></div></div>
     <div class="pg-actions"><button class="primary" id="pSave">Save</button>${p.id ? '<button class="outline" id="pChat">New chat in project</button><span class="grow"></span><button class="outline danger" id="pDel">Delete project</button>' : ''}</div>
     ${p.id ? `<h3>Chats in this project</h3>${convs.length ? convs.map((c) => `<div class="rowi" data-id="${c.id}" data-closed="${c.archived ? 1 : ''}"><span>${esc(c.title)}</span><i>${c.archived ? 'closed · ' : ''}${when(c.updatedAt)}</i></div>`).join('') : '<p class="hint">No chats yet.</p>'}` : ''}`);
-  let folder = p.folder;
+  let folder = p.folder; let files = [...(p.files || [])];
+  const drawFiles = () => { P('#pFiles').innerHTML = files.length ? files.map((f, i) => `<div class="rowi"><span>${esc(f.name)}</span><i>${Math.ceil(f.text.length / 1000)} KB · <a href="#" data-rm="${i}">remove</a></i></div>`).join('') : '<p class="hint">None yet.</p>'; P('#pFiles').querySelectorAll('[data-rm]').forEach((a) => (a.onclick = (e) => { e.preventDefault(); files.splice(+a.dataset.rm, 1); drawFiles(); })); };
+  drawFiles();
+  P('#pAddFiles').onclick = async () => { for (const f of await gc.projects.pickFiles()) if (!files.some((x) => x.name === f.name)) files.push(f); drawFiles(); };
   P('#pBack').onclick = () => { projSel = null; pgProjects(); };
   P('#pPick').onclick = async () => { const f = await gc.pickFolder(); if (f) { folder = f; P('#pFolder').textContent = f; } };
   P('#pClear')?.addEventListener('click', () => { folder = null; P('#pFolder').textContent = 'None'; });
-  const save = async () => { const r = await gc.projects.save({ id: p.id, name: P('#pName').value, instructions: P('#pInst').value, folder }); projSel = r.id; return r; };
+  const save = async () => { const r = await gc.projects.save({ id: p.id, name: P('#pName').value, instructions: P('#pInst').value, folder, files }); projSel = r.id; return r; };
   P('#pSave').onclick = async () => { await save(); toast('Project saved'); pgProjects(); };
   if (p.id) {
     P('#pChat').onclick = async () => {
@@ -243,19 +248,21 @@ async function pgDispatch() {
 
 // ---------------- GrizzyWork ----------------
 let cwTab = 'tasks', cwTask = null, cwFile = null;
-let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits' }, cwEditing = false;
+let cwDraft = { prompt: '', folder: null, spaceId: '', mode: 'acceptEdits', agentId: '', model: '' }, cwEditing = false;
 async function pgGrizzyWork() {
   if (cwTask) return pgCwTask();
   const tabs = `<div class="seg" id="cwTabs">${[['tasks', 'Tasks'], ['network', 'Network'], ['memory', 'Memory'], ['plugins', 'Plugins'], ['data', 'Data & policy']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwTab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const bindTabs = () => $('page').querySelectorAll('#cwTabs button').forEach((b) => (b.onclick = () => { cwTab = b.dataset.v; pgGrizzyWork(); }));
   if (cwTab !== 'tasks') { await ({ network: cwNetwork, memory: cwMemory, plugins: cwPlugins, data: cwData }[cwTab])(tabs); bindTabs(); return; }
-  const [tasks, spaces] = await Promise.all([gc.grizzywork.tasks(), gc.grizzywork.spaces()]);
+  const [tasks, spaces, agentList, cat] = await Promise.all([gc.grizzywork.tasks(), gc.grizzywork.spaces(), gc.agents.list().catch(() => []), gc.models.list(false).catch(() => ({ groups: [] }))]);
   const keep = $('page').querySelector('#cText')?.value; if (keep != null) cwDraft.prompt = keep;
   const spName = (id) => spaces.find((s) => s.id === id)?.name;
   $('page').innerHTML = shell('GrizzyWork', '<button class="outline" id="cNewSpace">New Space</button>', `${tabs}
     <div class="card3"><textarea id="cText" rows="3" placeholder="What should Claude work on? Reports, research, spreadsheets, file organizing…">${esc(cwDraft.prompt)}</textarea>
       <div class="inl"><button class="chip-b" id="cDir">${esc(cwDraft.folder ? folderName(cwDraft.folder) : 'Scratch workspace')}</button>${cwDraft.folder ? '<button class="outline" id="cScratch">Use scratch</button>' : ''}
         <select id="cSpace"><option value="">No Space</option>${spaces.map((s) => `<option value="${s.id}" ${s.id === cwDraft.spaceId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+        <select id="cAgent" title="Agent"><option value="">Default agent</option>${agentList.filter((a) => a.enabled).map((a) => `<option value="${esc(a.id)}" ${a.id === cwDraft.agentId ? 'selected' : ''}>${esc((a.icon ? a.icon + ' ' : '') + a.name + (a.scope === 'grizzywork' ? ' (GrizzyWork only)' : ''))}</option>`).join('')}</select>
+        <select id="cModel" title="Model"><option value="">Default model</option>${(cat.groups || []).filter((g) => g.models.length).map((g) => `<optgroup label="${esc(g.label)}">${g.models.map((m) => `<option value="${esc(m.value)}" ${m.value === cwDraft.model ? 'selected' : ''}>${esc(m.name || m.id)}</option>`).join('')}</optgroup>`).join('')}</select>
         <div class="seg" id="cMode">${[['acceptEdits', 'Accept edits'], ['default', 'Ask first'], ['plan', 'Plan only']].map(([v, l]) => `<button type="button" data-v="${v}" class="${cwDraft.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
         <span class="grow"></span><button class="primary" id="cGo">Start task</button></div></div>
     ${spaces.length ? `<h3>Spaces</h3>${spaces.map((s) => `<div class="task" data-sp="${s.id}"><div class="grow"><b>${esc(s.name)}</b><p>${s.folders.length} folder${s.folders.length === 1 ? '' : 's'} · ${s.links.length} link${s.links.length === 1 ? '' : 's'}${s.instructions ? ' · instructions' : ''}</p></div><button class="outline sp-use">Use</button><button class="outline sp-edit">Edit</button></div>`).join('')}` : ''}
@@ -269,6 +276,8 @@ async function pgGrizzyWork() {
   P('#cDir').onclick = async () => { cwDraft.prompt = P('#cText').value; const f = await gc.pickFolder(); if (f) cwDraft.folder = f; pgGrizzyWork(); };
   P('#cScratch')?.addEventListener('click', () => { cwDraft.prompt = P('#cText').value; cwDraft.folder = null; pgGrizzyWork(); });
   P('#cSpace').onchange = (e) => { cwDraft.spaceId = e.target.value; };
+  P('#cAgent').onchange = (e) => { cwDraft.agentId = e.target.value; };
+  P('#cModel').onchange = (e) => { cwDraft.model = e.target.value; };
   $('page').querySelectorAll('#cMode button').forEach((b) => (b.onclick = () => { cwDraft.prompt = P('#cText').value; cwDraft.mode = b.dataset.v; pgGrizzyWork(); }));
   P('#cGo').onclick = async () => {
     const prompt = P('#cText').value.trim(); if (!prompt) return toast('Describe the task first');
@@ -276,7 +285,7 @@ async function pgGrizzyWork() {
       if (!(await gc.confirm(`Allow Claude to work in ${cwDraft.folder}?`, 'It can read files in this folder and, depending on the permission mode, change them.', 'Allow'))) return;
       settings = await gc.settings.set({ trustedFolders: [...settings.trustedFolders, cwDraft.folder] });
     }
-    const r = await gc.grizzywork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode });
+    const r = await gc.grizzywork.start({ prompt, folder: cwDraft.folder, spaceId: cwDraft.spaceId, permissionMode: cwDraft.mode, agentId: cwDraft.agentId, model: cwDraft.model });
     if (r?.error) return toast(r.error);
     cwDraft.prompt = ''; P('#cText').value = ''; toast('Task started'); pgGrizzyWork(); refreshList();
   };
@@ -381,10 +390,17 @@ async function cwMemory(tabs) {
   $('page').querySelectorAll('.m-del').forEach((b) => (b.onclick = async () => { await gc.grizzywork.memRemove(b.closest('.task').dataset.id); pgGrizzyWork(); }));
 }
 async function cwPlugins(tabs) {
-  const l = await gc.grizzywork.plugins();
-  $('page').innerHTML = shell('GrizzyWork', '', `${tabs}<p class="hint">Plugins installed under Customize. Switch on the ones GrizzyWork tasks should use.</p>
-    ${l.length ? l.map((p) => `<div class="task" data-n="${esc(p.name)}"><div class="grow"><b>${esc(p.name)}</b><p>${esc(p.description)} ${p.skills.length ? '· ' + p.skills.length + ' skills' : ''} ${p.commands.length ? '· ' + p.commands.length + ' commands' : ''}</p></div><label><input type="checkbox" ${p.enabled ? 'checked' : ''}> Use in GrizzyWork</label></div>`).join('') : '<p class="hint">No plugins installed.</p>'}`);
-  $('page').querySelectorAll('.task input').forEach((i) => (i.onchange = async () => { await gc.grizzywork.setPlugin(i.closest('.task').dataset.n, i.checked); toast(i.checked ? 'Plugin on' : 'Plugin off'); }));
+  const groups = await gc.grizzywork.plugins();
+  const ROWS = [['skills', 'Skills'], ['connectors', 'Connectors'], ['commands', 'Commands']];
+  const tog = (g, k, i) => `<label class="tg" title="${esc(i.description || i.label)}"><span class="grow">${esc(i.label)}</span><input type="checkbox" class="switch" data-g="${esc(g.name)}" data-k="${k}" data-id="${esc(i.id)}" ${i.enabled ? 'checked' : ''}></label>`;
+  $('page').innerHTML = shell('GrizzyWork', '', `${tabs}<p class="hint">Switch each skill, connector and command on or off for GrizzyWork tasks. Whichever agent runs a task can only use what is on here, on top of its own access.</p>
+    ${groups.length ? groups.map((g) => { const all = ROWS.flatMap(([k]) => g[k]); return `<div class="card3 pg" data-g="${esc(g.name)}"><div class="inl"><div class="grow"><b>${esc(g.name || 'Other tools')}</b><p class="hint">${esc(g.description)}</p></div><span class="hint cnt">${all.filter((i) => i.enabled).length} of ${all.length} on</span><button type="button" class="outline pg-on">All on</button><button type="button" class="outline pg-off">All off</button></div>
+      ${ROWS.filter(([k]) => g[k].length).map(([k, l]) => `<div class="tgrow"><h4>${l} <span class="hint">${g[k].length}</span></h4><div class="tgrid">${g[k].map((i) => tog(g, k, i)).join('')}</div></div>`).join('')}</div>`; }).join('') : '<p class="hint">No skills, connectors or plugins installed.</p>'}`);
+  $('page').querySelectorAll('.pg input.switch').forEach((i) => (i.onchange = async () => { await gc.grizzywork.setTool(i.dataset.k, i.dataset.id, i.checked); const c = i.closest('.pg'), all = [...c.querySelectorAll('input.switch')]; c.querySelector('.cnt').textContent = `${all.filter((x) => x.checked).length} of ${all.length} on`; }));
+  $('page').querySelectorAll('.pg').forEach((c) => {
+    const set = (on) => async () => { for (const i of c.querySelectorAll('input.switch')) if (i.checked !== on) await gc.grizzywork.setTool(i.dataset.k, i.dataset.id, on); pgGrizzyWork(); };
+    c.querySelector('.pg-on').onclick = set(true); c.querySelector('.pg-off').onclick = set(false);
+  });
 }
 async function cwData(tabs) {
   const pol = { enabled: true, allowedFolders: [], ...(settings.grizzyworkPolicy || {}) };
@@ -401,12 +417,12 @@ async function cwData(tabs) {
 
 // ---------------- Customize ----------------
 async function pgCustomize() {
-  const [sk, st, cfg] = await Promise.all([gc.skills.list(), gc.mcp.status(), gc.mcp.config()]);
+  const [st, cfg] = await Promise.all([gc.mcp.status(), gc.mcp.config()]);
   const s = settings = await gc.settings.get();
   $('page').innerHTML = shell('Customize', '<button class="outline" id="cSettings">All settings</button>', `
     <h3>Instructions</h3><p class="hint">Added to every conversation. Project instructions apply on top of these.</p>
     <textarea id="cInst" rows="5">${esc(s.systemPrompt)}</textarea><div class="pg-actions"><button class="primary" id="cInstSave">Save instructions</button></div>
-    <h3>Skills</h3>${sk.length ? sk.map((k) => `<div class="rowi" data-id="${esc(k.id)}"><span><b>${esc(k.name)}</b><br><i>${esc(k.description.slice(0, 120))}</i></span><button class="outline c-rm">Remove</button></div>`).join('') : '<p class="hint">No skills installed.</p>'}
+    <h3>Skills</h3><div id="cSkillGroups"></div>
     <div class="pg-actions"><button class="outline" id="cSkill">Import .skill / folder…</button></div>
     <h3>Connectors</h3><p class="hint">MCP servers; their tools are available in Code sessions.</p>
     ${st.length ? st.map((m) => `<div class="rowi"><span><b>${esc(m.name)}</b></span><i>${esc(m.status)}${m.error ? ' – ' + esc(m.error) : ''} · ${m.tools.length} tools</i></div>`).join('') : '<p class="hint">No servers running.</p>'}
@@ -415,6 +431,6 @@ async function pgCustomize() {
   P('#cSettings').onclick = openSettings;
   P('#cInstSave').onclick = async () => { settings = await gc.settings.set({ systemPrompt: P('#cInst').value }); toast('Instructions saved'); };
   P('#cSkill').onclick = async () => { const r = await gc.skills.import(); if (r?.error) toast(r.error); pgCustomize(); };
-  $('page').querySelectorAll('.c-rm').forEach((b) => (b.onclick = async () => { await gc.skills.remove(b.closest('.rowi').dataset.id); pgCustomize(); }));
+  renderSkillGroups(P('#cSkillGroups'), pgCustomize);
   P('#cMcpSave').onclick = async () => { try { await gc.mcp.save(JSON.parse(P('#cMcp').value)); toast('Connectors saved'); pgCustomize(); } catch (e) { toast('Invalid JSON: ' + e.message); } };
 }

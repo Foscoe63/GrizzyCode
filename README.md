@@ -25,7 +25,7 @@
 | 💬 | **Chat** | Conversations with any model from any provider you turn on. |
 | 👨‍💻 | **Code sessions** | Pick a folder; the agent reads, searches, edits and runs commands. Risky tools ask first. |
 | 🔐 | **Permission modes** | Ask · Accept edits · Plan · Bypass. Plan mode is read-only until you approve the plan. |
-| 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, or any compatible endpoint. |
+| 🔌 | **Providers** | Anthropic, OpenRouter, OpenAI, Gemini, Groq, Mistral, xAI, DeepSeek, Ollama, LM Studio, oMLX, or any compatible endpoint. |
 | 🧰 | **Connectors (MCP)** | Local commands or remote URLs, with a Test button, JSON import and OAuth sign-in. |
 | 📧 | **Google apps** | Built-in Gmail, Calendar, Sheets, Docs and Drive tools behind one Google sign-in. |
 | 🎓 | **Skills** | Installable instruction folders the model loads when relevant. |
@@ -81,6 +81,7 @@ Settings → **Providers**. Each provider has its own base URL, key, model list 
 | 🤖 OpenAI | built in | 🌬️ Mistral | built in |
 | ✨ Google Gemini | built in | 🦙 Ollama | local, no key |
 | ⚡ Groq | built in | 🖥️ LM Studio | local, no key |
+| 🍎 oMLX | local, no key | | |
 
 Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
 
@@ -89,6 +90,8 @@ Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
 Pick **Grizzy** in the model picker to run the real Claude Code CLI through `npx -y @zed-industries/claude-code-acp`.
 
 > [!IMPORTANT]
+Pick **OpenCode** to run the OpenCode CLI through `opencode acp` (install it with `brew install sst/tap/opencode` or `npm i -g opencode-ai`, then `opencode auth login`; its models are whatever you configured in OpenCode).
+
 > On a new computer, install the Claude Code CLI first: `npm i -g @anthropic-ai/claude-code`, then `claude /login`. Make sure Node and `npx` are available. GrizzyCode shows a reminder in the model picker when `claude` isn't found.
 
 ## 📁 Projects
@@ -173,7 +176,7 @@ Engineer, Reviewer, Planner, Researcher and Writer (and any agent you make under
 
 - 🧠 Optional **memory**: an agent with memory keeps short notes (`agent_note`) per project folder, sees them in the next conversation there, and you can review or delete them in the agent's settings.
 
-Grizzy (the Claude Code CLI) is separate and is not configured here.
+Grizzy (the Claude Code CLI) and OpenCode are separate and are not configured here.
 
 ## 🧑‍🤝‍🧑 Team map: departments of agents
 
