@@ -178,7 +178,7 @@ async function removeEnv(f) {
 const ICON = { laptop: '<svg viewBox="0 0 16 16"><rect x="3" y="3.5" width="10" height="7" rx="1"/><path d="M2 12.5h12"/></svg>' };
 function goHome() {
   if (typeof hidePage === 'function') hidePage();
-  cur = null; live = null; $('sessMenuBtn').hidden = true; $('msgs').innerHTML = ''; $('title').textContent = viewMode === 'code' ? 'New session' : ''; modSession(); rsRefresh();
+  cur = null; live = null; $('msgs').innerHTML = ''; $('title').textContent = viewMode === 'code' ? 'New session' : ''; modSession(); rsRefresh();
   $('branch').hidden = true; syncHome(); syncComposer(); refreshList(); refreshDiff();
 }
 function typing(on) {
@@ -245,8 +245,10 @@ async function togglePinFolder(f) {
   settings = await gc.settings.set({ pinnedFolders: [...set] }); refreshList();
 }
 $('sessMenuBtn').onclick = (e) => {
-  e.stopPropagation(); if (!cur) return; const id = cur.id, r = e.currentTarget.getBoundingClientRect();
-  ctxMenu({ clientX: r.right - 200, clientY: r.bottom + 4 }, [
+  e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(), pos = { clientX: r.right - 200, clientY: r.bottom + 4 };
+  if (!cur) return ctxMenu(pos, [['No active session', () => {}]]);
+  const id = cur.id;
+  ctxMenu(pos, [
     ['Clear session', async () => { if (await gc.confirm('Clear this session?', 'All messages are removed; the session itself stays.', 'Clear')) { const c = await gc.conv.clear(id); if (cur?.id === id) renderConv(c); } }],
     ['Export as Markdown', () => gc.conv.export(id, 'md')],
     ['Export as JSON', () => gc.conv.export(id, 'json')],
