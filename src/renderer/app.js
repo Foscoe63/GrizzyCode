@@ -161,7 +161,7 @@ function renderEnv() {
   { const d = document.createElement('div'); d.title = 'A general task on this computer, with no project folder'; if (homeOps) d.className = 'on'; d.innerHTML = `${ICON.laptop}<span>No folder (general task)</span>`; d.onclick = () => { homeOps = true; homeSsh = null; syncHome(); syncComposer(); $('input').focus(); }; l.appendChild(d); }
   const fs = [...new Set([...(settings.pinnedFolders || []), ...(settings.trustedFolders || [])])];
   for (const f of fs) {
-    const d = document.createElement('div'); d.title = f; if (f === homeFolder) d.className = 'on';
+    const d = document.createElement('div'); d.title = f; if (!homeOps && f === homeFolder) d.className = 'on';
     d.innerHTML = `${ICON.laptop}<span>${esc(f.split('/').pop() || f)}</span><button class="env-del" title="Remove" type="button">✕</button>`;
     d.onclick = (e) => { if (e.target.closest('.env-del')) return; homeOps = false; homeFolder = f; syncHome(); $('input').focus(); };
     d.querySelector('.env-del').onclick = async (e) => { e.stopPropagation(); await removeEnv(f); };
