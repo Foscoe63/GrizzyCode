@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('gc', {
   term: { open: inv('term:open'), input: inv('term:input'), resize: inv('term:resize'), run: inv('term:run'), kill: inv('term:kill'), onEvent: on('term:event') },
   google: { client: inv('google:client'), setClient: inv('google:setClient') },
   mcp: { status: inv('mcp:status'), config: inv('mcp:config'), save: inv('mcp:saveConfig'), list: inv('mcp:list'), saveServer: inv('mcp:save'), remove: inv('mcp:remove'), toggle: inv('mcp:toggle'), toolToggle: inv('mcp:toolToggle'), toolPolicy: inv('mcp:toolPolicy'), signIn: inv('mcp:signIn'), signOut: inv('mcp:signOut'), cancelSignIn: inv('mcp:cancelSignIn'), restart: inv('mcp:restart'), test: inv('mcp:test'), importJson: inv('mcp:import') },
-  skills: { list: inv('skills:list'), import: inv('skills:import'), remove: inv('skills:remove') },
+  skills: { list: inv('skills:list'), import: inv('skills:import'), remove: inv('skills:remove'), groups: inv('skills:groups'), groupsUpdate: inv('skills:groupsUpdate') },
   importCli: inv('cli:import'),
   find: inv('find'), findStop: inv('find:stop'),
   newWindow: inv('window:new'), build: inv('app:build'),

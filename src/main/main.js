@@ -438,6 +438,8 @@ function ipc() {
     try { return { id: skills.importBundle(r.filePaths[0]) }; } catch (e) { return { error: e.message }; }
   });
   h('skills:remove', (id) => skills.remove(id));
+  h('skills:groups', () => skills.groupState());
+  h('skills:groupsUpdate', (p) => skills.updateGroups(p));
 
   // --- IPC: CLI import ---
   h('cli:import', () => importer.importAll());

@@ -417,12 +417,12 @@ async function cwData(tabs) {
 
 // ---------------- Customize ----------------
 async function pgCustomize() {
-  const [sk, st, cfg] = await Promise.all([gc.skills.list(), gc.mcp.status(), gc.mcp.config()]);
+  const [st, cfg] = await Promise.all([gc.mcp.status(), gc.mcp.config()]);
   const s = settings = await gc.settings.get();
   $('page').innerHTML = shell('Customize', '<button class="outline" id="cSettings">All settings</button>', `
     <h3>Instructions</h3><p class="hint">Added to every conversation. Project instructions apply on top of these.</p>
     <textarea id="cInst" rows="5">${esc(s.systemPrompt)}</textarea><div class="pg-actions"><button class="primary" id="cInstSave">Save instructions</button></div>
-    <h3>Skills</h3>${sk.length ? sk.map((k) => `<div class="rowi" data-id="${esc(k.id)}"><span><b>${esc(k.name)}</b><br><i>${esc(k.description.slice(0, 120))}</i></span><button class="outline c-rm">Remove</button></div>`).join('') : '<p class="hint">No skills installed.</p>'}
+    <h3>Skills</h3><div id="cSkillGroups"></div>
     <div class="pg-actions"><button class="outline" id="cSkill">Import .skill / folder…</button></div>
     <h3>Connectors</h3><p class="hint">MCP servers; their tools are available in Code sessions.</p>
     ${st.length ? st.map((m) => `<div class="rowi"><span><b>${esc(m.name)}</b></span><i>${esc(m.status)}${m.error ? ' – ' + esc(m.error) : ''} · ${m.tools.length} tools</i></div>`).join('') : '<p class="hint">No servers running.</p>'}
@@ -431,6 +431,6 @@ async function pgCustomize() {
   P('#cSettings').onclick = openSettings;
   P('#cInstSave').onclick = async () => { settings = await gc.settings.set({ systemPrompt: P('#cInst').value }); toast('Instructions saved'); };
   P('#cSkill').onclick = async () => { const r = await gc.skills.import(); if (r?.error) toast(r.error); pgCustomize(); };
-  $('page').querySelectorAll('.c-rm').forEach((b) => (b.onclick = async () => { await gc.skills.remove(b.closest('.rowi').dataset.id); pgCustomize(); }));
+  renderSkillGroups(P('#cSkillGroups'), pgCustomize);
   P('#cMcpSave').onclick = async () => { try { await gc.mcp.save(JSON.parse(P('#cMcp').value)); toast('Connectors saved'); pgCustomize(); } catch (e) { toast('Invalid JSON: ' + e.message); } };
 }

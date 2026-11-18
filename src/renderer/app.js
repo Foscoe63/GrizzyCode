@@ -1012,15 +1012,40 @@ $('impGo').onclick = async () => {
   if (r.error) { $('impMsg').className = 'mmsg bad'; $('impMsg').textContent = r.error; return; }
   $('mcpImpDlg').close(); refreshMcp(r.servers); toast(`Imported ${r.added.length}${r.skipped.length ? `, skipped ${r.skipped.length} existing` : ''}`);
 };
-async function renderSkills() {
-  const l = await gc.skills.list(); $('skillList').innerHTML = '';
-  for (const k of l) {
-    const r = document.createElement('div'); r.className = 'srow'; r.innerHTML = `<span><b>${esc(k.name)}</b><br><span class="hint">${esc(k.description.slice(0, 100))}</span></span>`;
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Remove'; b.onclick = async () => { await gc.skills.remove(k.id); renderSkills(); };
-    r.appendChild(b); $('skillList').appendChild(r);
+// Skills grouped into collapsible categories. Rows can be dragged onto a group header (or its list) to re-file them; new skills are auto-placed by keyword.
+async function renderSkillGroups(el, onChange) {
+  const st = await gc.skills.groups(), by = {};
+  for (const k of st.skills) (by[k.group] ||= []).push(k);
+  el.innerHTML = '';
+  if (!st.skills.length) { el.innerHTML = '<p class="hint">No skills installed.</p>'; return; }
+  const bar = document.createElement('div'); bar.className = 'sg-new';
+  bar.innerHTML = '<input class="grow" placeholder="New group name"><button type="button" class="outline">Add group</button><span class="hint">Drag a skill onto a group to move it.</span>';
+  const inp = bar.querySelector('input'), addG = async () => { if (!inp.value.trim()) return; await gc.skills.groupsUpdate({ addGroup: inp.value }); onChange(); };
+  bar.querySelector('button').onclick = addG; inp.onkeydown = (e) => { if (e.key === 'Enter') addG(); };
+  el.appendChild(bar);
+  for (const g of st.groups) {
+    const items = by[g.id] || [], custom = !!g.custom;
+    const d = document.createElement('details'); d.className = 'sgrp'; d.dataset.g = g.id; d.open = st.collapsed[g.id] === false;
+    const sm = document.createElement('summary');
+    sm.innerHTML = `<b>${esc(g.name)}</b> <span class="hint">${items.length}</span><span class="grow"></span>`;
+    if (custom) { const x = document.createElement('button'); x.type = 'button'; x.className = 'outline sg-x'; x.textContent = 'Delete group'; x.onclick = async (e) => { e.preventDefault(); e.stopPropagation(); await gc.skills.groupsUpdate({ removeGroup: g.id }); onChange(); }; sm.appendChild(x); }
+    sm.addEventListener('click', () => setTimeout(() => gc.skills.groupsUpdate({ collapsed: { [g.id]: !d.open } }), 0));
+    d.appendChild(sm);
+    for (const k of items) {
+      const r = document.createElement('div'); r.className = 'srow sk'; r.draggable = true; r.dataset.id = k.id;
+      r.innerHTML = `<span><b>${esc(k.name)}</b>${k.pinned ? '' : ' <span class="mbadge" title="Placed automatically; drag to another group to pin it">auto</span>'}<br><span class="hint">${esc(k.description.slice(0, 100))}</span></span>`;
+      r.ondragstart = (e) => { e.dataTransfer.setData('text/skill', k.id); e.dataTransfer.effectAllowed = 'move'; };
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Remove'; b.onclick = async () => { await gc.skills.remove(k.id); onChange(); };
+      r.appendChild(b); d.appendChild(r);
+    }
+    if (!items.length) { const e = document.createElement('p'); e.className = 'hint sg-empty'; e.textContent = 'Empty – drop a skill here.'; d.appendChild(e); }
+    d.ondragover = (e) => { if (e.dataTransfer.types.includes('text/skill')) { e.preventDefault(); d.classList.add('drop'); } };
+    d.ondragleave = (e) => { if (!d.contains(e.relatedTarget)) d.classList.remove('drop'); };
+    d.ondrop = async (e) => { e.preventDefault(); d.classList.remove('drop'); const id = e.dataTransfer.getData('text/skill'); if (id) { await gc.skills.groupsUpdate({ assign: { [id]: g.id }, collapsed: { [g.id]: false } }); onChange(); } };
+    el.appendChild(d);
   }
-  if (!l.length) $('skillList').innerHTML = '<p class="hint">No skills installed.</p>';
 }
+function renderSkills() { return renderSkillGroups($('skillList'), renderSkills); }
 $('skillImport').onclick = async () => { const r = await gc.skills.import(); if (r?.error) alert(r.error); renderSkills(); };
 $('cliImport').onclick = async () => { $('cliResult').textContent = 'Importing…'; const r = await gc.importCli(); $('cliResult').textContent = r.none ? 'No CLI sessions found.' : `Imported ${r.imported} session${r.imported === 1 ? '' : 's'}${r.skipped ? `, skipped ${r.skipped}` : ''}.`; refreshList(); };
 $('openSettings').onclick = openSettings;

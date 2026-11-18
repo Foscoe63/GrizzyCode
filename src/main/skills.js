@@ -77,4 +77,39 @@ function importBundle(file) {
 
 function remove(id) { fs.rmSync(path.join(dir(), path.basename(id)), { recursive: true, force: true }); }
 
-module.exports = { seedBundled, list, read, importBundle, remove, dir };
+// ---- Skill groups: a user-editable set of categories. Unassigned skills are placed by keyword; dragging a skill pins it to a group.
+const gfile = () => path.join(store.root(), 'skill-groups.json');
+const DEFAULT_GROUPS = [
+  { id: 'testing', name: 'Testing & debugging', re: /\b(test|tdd|debug|verif|lint|qa)/i },
+  { id: 'ui', name: 'UI & design', re: /\b(design|ui|ux|layout|icon|frontend|css|brand)/i },
+  { id: 'swift', name: 'Swift & Apple', re: /\b(swift|swiftui|xcode|ios|macos|mac-app|appkit)/i },
+  { id: 'planning', name: 'Planning & workflow', re: /\b(plan|brainstorm|workflow|flow|ship|start|build|research|improve|architecture|performance)/i },
+  { id: 'git', name: 'Git & review', re: /\b(git|commit|review|pr|issue|merge|branch|repo)/i },
+  { id: 'docs', name: 'Documents', re: /\b(docx|pdf|pptx|xlsx|readme|document|diagram|gif)/i },
+  { id: 'other', name: 'Other', re: /./ },
+];
+function readGroups() { try { return JSON.parse(fs.readFileSync(gfile(), 'utf8')); } catch { return {}; } }
+function groupState() {
+  const st = readGroups();
+  const custom = (st.custom || []).filter((g) => g && g.id && g.name);
+  const groups = [...DEFAULT_GROUPS.filter((g) => g.id !== 'other').map(({ id, name }) => ({ id, name })), ...custom.map((g) => ({ ...g, custom: true })), { id: 'other', name: 'Other' }];
+  const ids = new Set(groups.map((g) => g.id)), assign = st.assign || {};
+  const items = list().map((k) => {
+    let g = ids.has(assign[k.id]) ? assign[k.id] : null;
+    if (!g) { const hay = `${k.id} ${k.name} ${k.description}`; g = DEFAULT_GROUPS.find((d) => d.id !== 'other' && d.re.test(k.id + ' ' + k.name)) ?.id || DEFAULT_GROUPS.find((d) => d.id !== 'other' && d.re.test(hay))?.id || 'other'; }
+    return { ...k, group: g, pinned: !!assign[k.id] };
+  });
+  return { groups, skills: items, collapsed: st.collapsed || {} };
+}
+// patch: { assign: {skillId: groupId}, collapsed: {groupId: bool}, addGroup: name, removeGroup: id }
+function updateGroups(patch = {}) {
+  const st = readGroups(); st.assign = st.assign || {}; st.collapsed = st.collapsed || {}; st.custom = st.custom || [];
+  if (patch.assign) for (const [k, g] of Object.entries(patch.assign)) st.assign[path.basename(k)] = String(g);
+  if (patch.collapsed) Object.assign(st.collapsed, patch.collapsed);
+  if (patch.addGroup) { const name = String(patch.addGroup).trim().slice(0, 40); if (name) st.custom.push({ id: 'g' + Date.now().toString(36), name }); }
+  if (patch.removeGroup) { st.custom = st.custom.filter((g) => g.id !== patch.removeGroup); for (const k of Object.keys(st.assign)) if (st.assign[k] === patch.removeGroup) delete st.assign[k]; }
+  fs.writeFileSync(gfile(), JSON.stringify(st, null, 2));
+  return groupState();
+}
+
+module.exports = { groupState, updateGroups, seedBundled, list, read, importBundle, remove, dir };
