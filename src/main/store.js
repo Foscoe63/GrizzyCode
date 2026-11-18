@@ -184,9 +184,9 @@ function listConversations(includeArchived = false) {
 function getConversation(id) { return JSON.parse(fs.readFileSync(convPath(id), 'utf8')); }
 
 function newConversation({ mode = 'chat', cwd = null, permissionMode, projectId = null, worktree = null, ssh = null, ops = false } = {}) {
-  if (ops && !cwd) cwd = require('os').homedir(); // a general (no-folder) session works from the home folder
+  if ((ops || mode === 'chat') && !cwd) cwd = require('os').homedir(); // a general (no-folder) session works from the home folder
   const c = { id: crypto.randomUUID(), title: 'New conversation', mode, cwd, projectId, worktree, ssh, ops: !!ops, messages: [], createdAt: Date.now(), updatedAt: Date.now(),
-    permissionMode: permissionMode || getSettings().permissionMode, agentId: getSettings().activeAgent || '', model: null, allow: [], usage: { in: 0, out: 0, cr: 0, cw: 0 }, ctx: null };
+    permissionMode: mode === 'chat' ? 'default' : (permissionMode || getSettings().permissionMode), agentId: getSettings().activeAgent || '', model: null, allow: [], usage: { in: 0, out: 0, cr: 0, cw: 0 }, ctx: null };
   saveConversation(c);
   return c;
 }

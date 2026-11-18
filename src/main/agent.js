@@ -41,6 +41,7 @@ function buildSystem(s, conv, lists = []) {
     if (conv.ops) sys += `\n\nThis is a general task, not a software project: there is no project folder (the shell starts in ${conv.cwd}). It may be about this computer, its services, files or settings, wherever they are. Inspect before you change anything, say what you found, and tell the user the plan before moving, deleting or reconfiguring things. Copy or back up before you move or overwrite data, and keep the user's originals until the new setup is verified.`;
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
+  if (conv.mode !== 'code') sys += `\n\nYou have file, shell and other tools in this chat, working from ${conv.cwd || 'the home folder'}. Use them whenever the user asks you to do something on this computer, such as installing, fetching or changing files; each call that changes anything asks the user first. Do not use them for plain questions. If asked to install a plugin or skill from a GitHub URL, clone or copy it to the right place for the app or project the user names. If asked to build or install a mod for GrizzyCode, put it in ~/.GrizzyCode/mods/<name>/ and never use ~/.claude.`;
   if (s.displayName?.trim()) sys += `\n\nThe user's name is ${s.displayName.trim()}.`;
   else if (s.profileName?.trim()) sys += `\n\nThe user's name is ${s.profileName.trim()}.`;
   if (ROLE_TEXT[s.profileRole]) sys += `\nThe user works in ${ROLE_TEXT[s.profileRole]}; pitch explanations and examples accordingly.`;
@@ -144,7 +145,7 @@ function takePatch(convId) {
 // Why a tool is missing: file, shell and web tools exist only in Code mode, so an agent's own tool list cannot add them in a chat.
 const FILE_TOOLS = ['read_file', 'list_dir', 'grep', 'write_file', 'edit_file', 'bash'];
 const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
-  ? `The tool ${name} is not available: file and shell tools only exist in a Code-mode conversation (open a folder in Code), and an agent's own tool list cannot add them to a chat.`
+  ? `The tool ${name} is not available: it is switched off in Settings → Capabilities or excluded by the agent's access limits.`
   : `The tool ${name} is not enabled. It can be turned on in Settings → Capabilities (or the agent's access limits may exclude it).`);
 
 // One tool call under the permission rules: check, ask the user when needed, run. `who` names a delegated agent in approval cards.
@@ -287,7 +288,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
     for (let step = 0; step < limit; step++) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
       lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def), require('./grizzywork').access(root)].filter(Boolean); // never more than the agent it works for, nor than GrizzyWork's tool switches
-      const mcpDefs = sc.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, root);
+      const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, root);
       const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory, team: teams.hasTeamTools(sub.def.id), dismiss: teams.isLead(sub.def.id) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
@@ -343,6 +344,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
 
   const ac = new AbortController();
   active.set(convId, ac);
+  if (!conv.cwd) conv.cwd = os.homedir(); // older chats were saved without a folder
   emit({ type: 'start', convId, title: conv.title });
   const turnId = randomUUID(), t0 = Date.now(); let lastText = '', aborted = false;
   const gs = agents.gateState([], { cwd: conv.cwd, ssh: !!conv.ssh, followUp: conv.messages.length > 2 }), run = { guards: [], read: new Set(), agentId: '', teamId: '' };
@@ -361,7 +363,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       { const ad = agents.get(aid), gsd = agents.guardState(ad && ad.enabled ? ad : null); run.guards = gsd.guards; run.agentId = gsd.agentId; run.teamId = aid; }
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(aid)?.model || s.model;
       const lists = [agents.accessOf(agents.get(aid)), require('./grizzywork').access(conv)].filter(Boolean);
-      const mcpDefs = conv.mode === 'code' ? access.keep(lists, mcp.toolDefs()) : [], route = savings.routeMcp(mcpDefs, s, conv);
+      const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, conv);
       const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(aid)?.enabled && agents.get(aid).memory), team: teams.hasTeamTools(aid), dismiss: teams.isLead(aid) }), ...mods.toolDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown

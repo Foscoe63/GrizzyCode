@@ -72,7 +72,7 @@ const TEAM_TOOLS = [teamProposeTool.name, teamSearchTool.name, dismissTool.name]
 // opts.depth: how deep the calling agent is (0 = the main agent); opts.sub: a delegated agent, which never presents a plan.
 function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   const on = (k, d = true) => (caps[k] === undefined ? d : !!caps[k]);
-  let list = mode === 'code' ? (permissionMode === 'plan' ? defs.filter((d) => d.kind === 'read') : defs) : [];
+  let list = permissionMode === 'plan' ? defs.filter((d) => d.kind === 'read') : defs;
   list = list.filter((d) => (d.kind !== 'exec' || on('capShell')) && (d.kind !== 'edit' || on('capEdit')));
   const out = [...list];
   if (mode === 'code' && permissionMode === 'plan' && !opts.sub) out.push(planTool);
