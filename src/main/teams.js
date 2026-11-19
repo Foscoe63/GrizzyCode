@@ -11,6 +11,7 @@ const path = require('path');
 const crypto = require('crypto');
 const store = require('./store');
 const agents = require('./agents');
+const teamImport = require('./teamimport');
 
 const GENERAL = 'general';
 const NAME_MAX = 60, INSTR_MAX_BYTES = 24000;
@@ -459,7 +460,38 @@ function createFromTemplate(templateId, rawName) {
 }
 function uniqueAgentName(want) { const taken = new Set(agents.list().map((a) => a.name.toLowerCase())); let n = want.slice(0, 40), i = 2; while (taken.has(n.toLowerCase())) n = `${want.slice(0, 36)} ${i++}`; return n; }
 
+// ---------------- import ----------------
+// Teams and bots written for other tools (OpenMausBot playbooks, botteams listings). The person sees a preview first; confirming creates new
+// agents (each a copy owned by the import) and, for more than one agent, a department. Nothing is connected, scheduled or switched on.
+async function importPreview(source) {
+  try {
+    const text = String(source || '').trim(); if (!text) return { error: 'Paste a link or the file’s text.' };
+    if (/^https?:\/\//i.test(text) && !/\s/.test(text)) {
+      if (teamImport.isRepoLink(text)) return { ok: true, library: await teamImport.listRepo(text) };
+      const pkg = teamImport.convert(await teamImport.download(text)); if (!pkg) return { error: 'That file is not an OpenMausBot or botteams team.' };
+      return { ok: true, package: pkg };
+    }
+    const pkg = teamImport.convert(text); return pkg ? { ok: true, package: pkg } : { error: 'That text is not an OpenMausBot or botteams team.' };
+  } catch (e) { return { error: e.message || String(e) }; }
+}
+function uniqueDeptName(s, want) { let n = cleanName(want) || 'Imported team', i = 2; const free = (x) => { try { checkName(s, x); return true; } catch { return false; } }; const base = n; while (!free(n)) n = `${base.slice(0, NAME_MAX - 4)} ${i++}`; return n; }
+function importPackage(pkg) {
+  if (loadError()) return { error: loadError() };
+  if (!pkg || !Array.isArray(pkg.agents) || !pkg.agents.length) return { error: 'There is nothing to import.' };
+  const made = []; let lead = '';
+  for (const a of pkg.agents.slice(0, teamImport.MAX_AGENTS)) {
+    const name = uniqueAgentName(cleanName(a.name) || 'Imported agent');
+    const res = agents.save({ name, icon: '🤖', description: String(a.description || a.title || '').slice(0, 200), instructions: String(a.instructions || ''), enabled: true });
+    if (res.error) { for (const id of made) agents.remove(id); return res; }
+    const rec = res.agents.find((x) => x.name === name && !x.builtin); made.push(rec.id); if (a.lead) lead = rec.id;
+  }
+  if (made.length < 2) return { ok: true, agentIds: made, departmentId: '' };
+  const r = createDepartment(uniqueDeptName(read(), pkg.name), { agentIds: made, leadId: lead });
+  if (r.error) { for (const id of made) agents.remove(id); return r; }
+  return { ok: true, agentIds: made, leadId: lead, departmentId: r.id };
+}
+
 module.exports = { GENERAL, TEMPLATES, TeamError, MEM, INSTR_MAX_BYTES, snapshot, loadError, sectionsOf: () => sectionsOf(read()), deptOfAgent: (id) => deptOf(read(), id), createDepartment, renameDepartment, deleteDepartment, moveAgent, setLead, setPosition, forgetAgent,
   setInstructions, getInstructions: (id) => { const r = deptRec(read(), id); return r && r.instructions; }, instructionsPrompt, facts, factById, memoryAdd, memoryResolve, memoryUpdate, memoryRemove, memoryUndo, memoryPropose, memorySearch, memorySelection, canUndoFact, pendingTotal,
-  isLead, hasAuthority, setManaged, authorityNote, agentBlock, hasTeamTools, parseTags, route, DELEGATE_NUDGE, usage, deptFor, createFromTemplate,
+  isLead, hasAuthority, setManaged, authorityNote, agentBlock, hasTeamTools, parseTags, route, DELEGATE_NUDGE, usage, deptFor, createFromTemplate, importPreview, importPackage,
   __test: { normalizeState, promptSelection, searchFacts, propose, addFact, resolveFact, updateFact, removeFact, undoAccept, redactSecrets, blank, file } };
