@@ -19,7 +19,7 @@ async function pgTeam() {
   tmNames = tmNameList(secs); tmNamesAt = Date.now();
   const maxTok = Math.max(1, ...usage.map((u) => u.tokens));
   $('page').innerHTML = `<div class="tm">
-    <div class="pg-head"><h1>Team map</h1><span class="hint">Departments of agents. Tag one in any message: <code>@App-Coder build a login page</code> goes to its lead, who hands the work to the team and reports one result.</span><span class="grow"></span><button class="primary" id="tmNew">New department</button></div>
+    <div class="pg-head"><h1>Team map</h1><span class="hint">Departments of agents. Tag one in any message: <code>@App-Coder build a login page</code> goes to its lead, who hands the work to the team and reports one result.</span><span class="grow"></span><button class="outline" id="tmImport">Import…</button><button class="primary" id="tmNew">New department</button></div>
     ${snap.error ? `<div class="tm-warn">${esc(snap.error)}</div>` : ''}
     <div class="tm-canvas" id="tmCanvas"></div>
     <div class="tm-msg"><div class="tm-msgrow"><input id="tmText" placeholder="Message the team, e.g. @App-Coder build a todo app" autocomplete="off" value="${esc(tmDraft.text)}"><button class="outline" id="tmFolder" title="Code sessions can read and write files in a folder">${tmDraft.folder ? '📁 ' + esc(folderName(tmDraft.folder)) : 'Chat (no folder)'}</button>${tmDraft.folder ? '<button class="outline" id="tmNoFolder" title="Back to chat without a folder">✕</button>' : ''}<button class="primary" id="tmSend">Send</button></div>
@@ -59,6 +59,7 @@ function tmCard(a, sec, secs) {
 function tmWire(snap) {
   const secs = snap.sections, byId = (id) => secs.find((x) => x.id === id), cv = $('tmCanvas');
   P('#tmNew').onclick = () => tmNewDialog(snap);
+  P('#tmImport').onclick = () => tmImportDialog();
   P('#tmDays').querySelectorAll('button').forEach((b) => (b.onclick = () => { tmDays = Number(b.dataset.d); pgTeam(); }));
   P('#tmFolder').onclick = async () => { const f = await gc.pickFolder(); if (f) { tmDraft.folder = f; tmDraft.text = P('#tmText').value; pgTeam(); } };
   P('#tmNoFolder')?.addEventListener('click', () => { tmDraft.folder = null; tmDraft.text = P('#tmText').value; pgTeam(); });
@@ -109,6 +110,31 @@ function tmNewDialog(snap) {
   const q = (s) => d.querySelector(s); q('#tdName').focus(); q('#tdCancel').onclick = () => d.close();
   const go = async () => { const r = await gc.teams.create(q('#tdName').value, d.querySelector('input[name=tdT]:checked').value); if (!tmErr(r)) { d.close(); toast(`Created ${q('#tdName').value.trim()}.`); pgTeam(); } };
   q('#tdOk').onclick = go; q('#tdName').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+}
+// Import a team or bot from OpenMausBot / botteams: a file's link (or a GitHub repo, which lists its teams) or pasted text, then a preview before anything is created.
+function tmImportDialog(initial = '') {
+  const d = tmDialog(`<h2>Import a team</h2><p class="hint">Paste a link to an OpenMausBot or botteams file, a GitHub repository to browse, or the file’s text. You see what it adds before anything is created.</p>
+    <textarea id="tiSrc" rows="4" spellcheck="false" placeholder="https://github.com/milind-soni/openmausbot-teams">${esc(initial)}</textarea><div id="tiOut"></div>
+    <div class="foot" style="padding:12px 0 0;display:flex;gap:8px;justify-content:flex-end"><button class="outline" id="tiC" type="button">Cancel</button><button class="primary" id="tiGo" type="button">Preview</button></div>`, 640);
+  const q = (s) => d.querySelector(s), out = q('#tiOut'); q('#tiC').onclick = () => d.close();
+  q('#tiGo').onclick = async () => {
+    out.innerHTML = '<p class="hint">Working…</p>'; const r = await gc.teams.importPreview(q('#tiSrc').value);
+    if (r.error) { out.innerHTML = `<p class="hint">${esc(r.error)}</p>`; return; }
+    if (r.library) {
+      out.innerHTML = `<div class="sub">Teams in this repository</div>${r.library.map((t, i) => `<div class="srow"><span>${esc(t.name)}</span><button class="outline" data-i="${i}" type="button">Review…</button></div>`).join('')}`;
+      out.querySelectorAll('button[data-i]').forEach((b) => (b.onclick = () => { q('#tiSrc').value = r.library[Number(b.dataset.i)].url; q('#tiGo').click(); }));
+      return;
+    }
+    const p = r.package;
+    out.innerHTML = `<div class="sub">${esc(p.name)}</div>${p.summary ? `<p class="hint">${esc(p.summary)}</p>` : ''}
+      <ul>${p.agents.map((a) => `<li><b>${esc(a.name)}</b>${a.lead ? ' (lead)' : ''}${a.title ? ' — ' + esc(a.title) : ''}</li>`).join('')}</ul>
+      ${p.agents.length > 1 ? `<p class="hint">Creates ${p.agents.length} agents and a department called “${esc(p.name)}”.</p>` : '<p class="hint">Creates 1 agent.</p>'}
+      ${p.connectors.length ? `<p class="hint">Works best with: ${p.connectors.map((c) => esc(c.name)).join(', ')}. Nothing is connected for you.</p>` : ''}
+      ${p.routines ? `<p class="hint">${p.routines} scheduled routine${p.routines === 1 ? '' : 's'} in the file ${p.routines === 1 ? 'is' : 'are'} not imported.</p>` : ''}
+      <p class="hint">Agents ask before they act, like any new agent. Review their instructions under Settings → Agents.</p>
+      <div style="display:flex;justify-content:flex-end"><button class="primary" id="tiOk" type="button">Import</button></div>`;
+    q('#tiOk').onclick = async () => { const c = await gc.teams.importConfirm(p); if (!tmErr(c)) { d.close(); toast(`Imported ${p.name}.`); pgTeam(); } };
+  };
 }
 function tmRename(sec) {
   const d = tmDialog(`<h2>Rename department</h2><label class="fld">Name<input id="trName" value="${esc(sec.name)}" autocomplete="off"></label><div class="foot" style="padding:12px 0 0;display:flex;gap:8px;justify-content:flex-end"><button class="outline" id="trC" type="button">Cancel</button><button class="primary" id="trOk" type="button">Rename</button></div>`, 420);

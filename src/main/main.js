@@ -469,6 +469,8 @@ function ipc() {
   // --- Team map: departments, shared instructions, shared memory, authority, usage ---
   h('teams:snapshot', () => teams.snapshot());
   h('teams:create', (name, templateId, agentIds) => (templateId ? teams.createFromTemplate(templateId, name) : teams.createDepartment(name, { agentIds: Array.isArray(agentIds) ? agentIds : [] })));
+  h('teams:importPreview', (src) => teams.importPreview(src));
+  h('teams:importConfirm', (pkg) => teams.importPackage(pkg));
   h('teams:rename', (id, name) => teams.renameDepartment(id, name));
   h('teams:delete', (id) => teams.deleteDepartment(id));
   h('teams:move', (agentId, deptId, index) => teams.moveAgent(agentId, deptId, index));
