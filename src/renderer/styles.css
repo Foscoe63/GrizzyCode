@@ -129,7 +129,7 @@ body.home.chatview #composer{max-width:700px}
 .card:focus-within{border-color:var(--line-strong)}
 #atts{display:flex;gap:8px;flex-wrap:wrap}#atts:not(:empty){margin-bottom:8px}
 .att-t{position:relative}.att-t img{height:56px;border-radius:8px;border:1px solid var(--line);display:block}
-.att-t button{position:absolute;top:-6px;right:-6px;width:18px;height:18px;padding:0;border-radius:50%;background:var(--text);color:var(--bg);font-size:11px;line-height:18px}
+.att-t button{position:absolute;top:-6px;right:-6px;width:18px;height:18px;padding:0;border-radius:50%;background:var(--text);color:var(--bg);font-size:clamp(10px,3cqw,12px);line-height:18px}
 #input{display:block;width:100%;resize:none;max-height:220px;border:0;background:transparent;padding:2px 2px 8px;box-shadow:none!important;font-size:14px;min-height:42px}
 .bar{display:flex;align-items:center;gap:4px}
 .bar .spacer{flex:1}
@@ -234,7 +234,16 @@ body.paged #termBtn,body.paged #diffBtn{display:none}
 @keyframes nudge{0%,100%{box-shadow:0 0 0 0 transparent}30%{box-shadow:0 0 0 3px var(--clay)}}.nudge{animation:nudge .9s ease 2}
 
 /* connectors */
-.mcard{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;background:var(--bg-raised)}
+#mcpList.two-col{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:0 10px;align-items:start}
+.mcard{position:relative;container-type:inline-size;overflow:hidden;min-width:0;border:1px solid var(--line);border-radius:calc(var(--r) + 6px);padding:13px 16px 12px;margin:8px 0;background:var(--bg-raised);box-shadow:var(--shadow);transition:border-color .12s,background .12s}
+.mcard:hover{border-color:var(--line-strong)}
+.mcard .mhead{flex-wrap:wrap;row-gap:6px;min-width:0}.mcard .mhead b{font-size:clamp(13px,4.2cqw,16px);font-weight:600;white-space:nowrap}
+.mcard .mhead .spacer{flex:1 1 0;min-width:0}
+.mcard .mbadge{white-space:nowrap;background:var(--hover);border-color:transparent;color:var(--text-2);font-size:clamp(10px,3cqw,12px);line-height:18px}
+.mcard .mhead>:last-child:not(.mbadge):not(b){white-space:nowrap;font-size:12px;color:var(--text-3)}
+.mcard .msum{margin:6px 0 4px;font-size:clamp(11px,3.4cqw,13px)}.mcard .mtools{font-size:clamp(11px,3.4cqw,13px)}.mcard .mact button{font-size:clamp(11px,3.4cqw,13px)}.mcard .mact{flex-wrap:wrap}
+.mcard .mact{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+#settings [data-pane="mcp"]>*{max-width:1080px}
 .mhead{display:flex;align-items:center;gap:8px}.mhead .spacer{flex:1}
 .mdot{width:8px;height:8px;border-radius:50%;background:var(--line-strong);flex:none}.mdot.ok{background:var(--git-add)}.mdot.bad{background:var(--git-del)}.mdot.wait{background:#d9a441}
 .mbadge{font-size:11px;color:var(--text-3);border:1px solid var(--line);border-radius:999px;padding:0 7px}
@@ -246,6 +255,15 @@ body.paged #termBtn,body.paged #diffBtn{display:none}
 .mmsg{font-size:12px;margin-top:10px;white-space:pre-wrap;color:var(--text-2);min-height:1em}.mmsg.ok{color:var(--git-add)}.mmsg.bad{color:var(--git-del)}
 #mcpDlg,#mcpImpDlg{width:560px}#mType button.on{background:var(--active)}
 #mcpAdv{margin-top:16px}
+.mcp-quick-add{margin:12px 0 16px}.mcp-quick-add b{display:block;margin:0 0 6px;font-size:12px;color:var(--text-2)}
+.mcp-grid{display:grid;grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));gap:10px}
+.mcp-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;padding:11px 14px 11px 17px;border:1px solid var(--line);border-radius:calc(var(--r) + 5px);background:var(--bg-raised);color:var(--text);box-shadow:var(--shadow);cursor:pointer;overflow:hidden;font-family:var(--font);transition:background .12s,border-color .12s,transform .12s}
+.mcp-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--clay);opacity:.55;transition:opacity .12s}
+.mcp-card:hover{background:color-mix(in srgb,var(--clay) 8%,var(--bg-raised));border-color:var(--clay);color:var(--text);transform:translateY(-1px)}
+.mcp-card:hover::before{opacity:1}
+.mcp-card .mc-name{font-size:13px;font-weight:600;color:var(--text)}
+.mcp-card:hover .mc-name{color:var(--clay)}
+.mcp-card .mc-desc{font-size:12px;line-height:1.35;color:var(--text-2)}
 
 /* model picker */
 #modelWrap{position:relative}

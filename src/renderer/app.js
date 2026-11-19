@@ -742,6 +742,7 @@ function showTab(t) {
   if (t === 'appearance') applyAppearance(); if (t === 'capabilities') renderSavings();
   if (t === 'account') { renderAccount(); if (!anPoll && $('anOpen').dataset.armed) startAnPoll(); }
   else if (t === 'mods') renderMods2(); else if (t === 'providers') renderProviders(); else if (t === 'billing') renderBilling(); else if (t === 'memory') renderMemory(); else if (t === 'agents') renderAgents(); else if (t === 'extensions') renderExtensions(); else if (t === 'browser') renderBrowser(); else if (t === 'plugins') renderPlugins(); else if (t === 'design') renderDesign(); else if (t === 'system') renderSystem(); else if (t === 'usage') renderUsage();
+  if (t === 'mcp') renderMcpQuickAdd();
 }
 document.querySelectorAll('#settings .rail button').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
 $('setSearch').addEventListener('input', () => { const q = $('setSearch').value.toLowerCase(); document.querySelectorAll('#settings .rail button').forEach((b) => (b.hidden = !!q && !b.textContent.toLowerCase().includes(q))); });
@@ -878,6 +879,14 @@ const MCP_PRESETS = [
   { label: 'Fetch', name: 'fetch', type: 'stdio', command: 'uvx', args: ['mcp-server-fetch'], note: 'Needs uv installed.' },
   { label: 'Remote URL', name: '', type: 'http', url: '' },
 ];
+
+// Popular servers from the official MCP registry
+const MCP_POPULAR = [
+  { name: 'Git', description: 'Git repository operations', command: 'npx', args: ['-y', '@modelcontextprotocol/server-git'] },
+  { name: 'Time', description: 'Current date and time', command: 'npx', args: ['-y', '@modelcontextprotocol/server-time'] },
+  { name: 'Sequential Thinking', description: 'Step-by-step reasoning', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
+  { name: 'Everything', description: 'Everything MCP server', command: 'npx', args: ['-y', '@modelcontextprotocol/server-everything'] },
+];
 // Connector tool policy: like Claude's connector settings, each tool is Always allow, Needs approval or Blocked, grouped by what the tool says it does.
 const POLICIES = [['allow', 'Always allow'], ['ask', 'Needs approval'], ['block', 'Blocked']];
 const GROUPS = [['read', 'Read-only tools'], ['write', 'Write/delete tools'], ['other', 'Other tools']];
@@ -896,6 +905,7 @@ const dot = { running: 'ok', error: 'bad', starting: 'wait', stopped: 'off', dis
 async function refreshMcp(list) {
   list ||= await gc.mcp.list();
   const box = $('mcpList'); box.innerHTML = '';
+  box.classList.toggle('two-col', list.length > 5);
   if (!list.length) box.innerHTML = '<p class="hint">No connectors yet. Add one to give Code sessions more tools.</p>';
   for (const s of list) {
     const d = document.createElement('div'); d.className = 'mcard';
@@ -1018,6 +1028,34 @@ $('mSave').onclick = async () => {
 $('mcpReload').onclick = async () => { $('mcpReload').disabled = true; await gc.mcp.save(await gc.mcp.config()); await refreshMcp(); $('mcpReload').disabled = false; toast('Connectors reloaded'); };
 $('mcpImport').onclick = () => { $('impText').value = ''; $('impName').value = ''; $('impOver').checked = false; $('impMsg').textContent = ''; $('mcpImpDlg').showModal(); $('impText').focus(); };
 $('impCancel').onclick = () => $('mcpImpDlg').close();
+
+// Populate quick add section with popular MCP servers
+function renderMcpQuickAdd() {
+  const quickBox = $('mcpQuickAdd');
+  if (!quickBox) return;
+  const grid = quickBox.querySelector('.mcp-grid');
+  if (!grid) return;
+  
+  if (MCP_POPULAR && MCP_POPULAR.length > 0) {
+    quickBox.hidden = false;
+    const n = MCP_POPULAR.length;
+    grid.style.setProperty('--cols', Math.max(2, Math.ceil(n / 2)));
+    grid.innerHTML = MCP_POPULAR.map((server, i) => `
+      <button type="button" class="mcp-card" data-quick="${i}">
+        <span class="mc-name">${esc(server.name)}</span><span class="mc-desc">${esc(server.description)}</span>
+      </button>
+    `).join('');
+    
+    grid.onclick = (e) => {
+      const b = e.target.closest('[data-quick]');
+      if (!b) return;
+      const server = MCP_POPULAR[b.dataset.quick];
+      fillMcp(server.name, { command: server.command, args: server.args });
+    };
+  } else {
+    quickBox.hidden = true;
+  }
+}
 $('impGo').onclick = async () => {
   $('impGo').disabled = true; $('impMsg').className = 'mmsg'; $('impMsg').textContent = 'Importing…';
   const r = await gc.mcp.importJson($('impText').value, { overwrite: $('impOver').checked, name: $('impName').value.trim() || undefined }); $('impGo').disabled = false;

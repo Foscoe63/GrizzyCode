@@ -356,7 +356,11 @@
 
     <section data-pane="mcp" hidden><h2>Connectors</h2>
       <p class="hint">MCP servers give Code sessions extra tools. Run a local program or connect to a remote URL. For each tool choose <b>Always allow</b> (no prompt), <b>Needs approval</b> or <b>Blocked</b> (never offered to the model); plan mode only uses tools that declare themselves read-only.</p>
-      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add custom connector</button><button class="outline" id="mcpMarket" type="button">Browse connectors</button><button class="outline" id="mcpBrowse" type="button">Browse extensions</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
+      <div class="pg-actions"><button class="primary" id="mcpAdd" type="button">Add connector</button><button class="outline" id="mcpMarket" type="button">Browse registry</button><button class="outline" id="mcpBrowse" type="button">Browse extensions</button><button class="outline" id="mcpImport" type="button">Import JSON…</button><button class="outline" id="mcpReload" type="button">Reload all</button></div>
+      <div id="mcpQuickAdd" class="mcp-quick-add" hidden>
+        <b>Popular servers</b>
+        <div class="mcp-grid"></div>
+      </div>
       <div id="mcpList"></div>
       <details id="mcpAdv"><summary>Edit as JSON</summary>
         <textarea id="mcpCfg" rows="10" spellcheck="false"></textarea><div class="pg-actions"><button class="outline" id="mcpSave" type="button">Save JSON</button><span class="hint" id="mcpJsonMsg"></span></div></details>
