@@ -143,6 +143,35 @@ app.whenReady().then(() => srv.listen(0, async () => {
   agents.remove(r.agentIds[2]); assert(!sec('Shop').members.some((m) => m.id === r.agentIds[2]), 'deleting an agent removes it from its department');
   for (const n of ['Shop', 'Words', 'Lab', 'Desk', 'Void']) teams.deleteDepartment(sec(n).id);
 
+  // ---------- import: OpenMausBot playbooks and botteams listings ----------
+  {
+    const maus = ['---', 'botmrr: 1', 'name: Campaign Crew', 'summary: Growth crew.', 'agents:', '  - key: maya', '    name: Maya', '    title: Growth Lead', '    description: Plans bets.', '    playbooks:', '      - brief',
+      '  - key: lens', '    name: Lens', '    title: Analyst', '    description: Measures.', 'chiefOfStaff: maya', 'rooms:', '  - name: Room', '    members:', '      - maya', '      - lens', '    bulletin: Never invent data.',
+      'playbooks:', '  - key: brief', '    name: Brief', '    instructions: Clarify the audience.', '---', ''].join('\n');
+    const bot = ['---', 'name: Ramp planner', 'section: Workplace', 'bot_roster:', '  - name: Ramp Bot', '    persona: Plans the first 90 days.', 'suggest:', '  - text: Never send mail.', '    on: true', '---', ''].join('\n');
+    const pv = await teams.importPreview(maus);
+    assert(pv.ok && pv.package.agents.length === 2 && pv.package.agents[0].lead && /Clarify the audience/.test(pv.package.agents[0].instructions), 'import preview reads an OpenMausBot team from pasted text');
+    assert((await teams.importPreview('# just notes')).error && (await teams.importPreview('')).error, 'text that is not a team, and empty input, are refused');
+    const n0 = agents.list().length, ir = teams.importPackage(pv.package);
+    assert(ok(ir) && ir.agentIds.length === 2 && agents.list().length === n0 + 2 && ir.departmentId, 'importing creates the agents and a department');
+    const isec = sec('Campaign Crew');
+    assert(isec && isec.lead && isec.lead.name === 'Maya' && isec.members.map((m) => m.name).join() === 'Lens', 'the file’s chief of staff leads the imported department');
+    assert(/Never invent data/.test(agents.get(isec.lead.id).instructions) && agents.get(isec.lead.id).permissionMode !== 'bypassPermissions', 'room rules arrive in instructions and the agent is not given extra permissions');
+    const again = teams.importPackage(pv.package);
+    assert(ok(again) && sec('Campaign Crew 2') && agents.list().filter((a) => a.name === 'Maya').length === 1 && agents.list().some((a) => a.name === 'Maya 2'), 'importing twice never collides on names');
+    const single = teams.importPackage((await teams.importPreview(bot)).package);
+    assert(ok(single) && single.agentIds.length === 1 && !single.departmentId && teams.deptOfAgent(single.agentIds[0]) === teams.GENERAL, 'a single bot becomes one agent in General, no department');
+    assert(teams.importPackage({ agents: [] }).error, 'an empty package is refused');
+    const realFetch = global.fetch;
+    global.fetch = async (u) => ({ ok: true, status: 200, text: async () => (/^https:\/\/raw\.githubusercontent\.com\/o\/r\/main\/bots\/x\.md$/.test(u) ? bot : '') });
+    const viaLink = await teams.importPreview('https://github.com/o/r/blob/main/bots/x.md');
+    global.fetch = realFetch;
+    assert(viaLink.ok && viaLink.package.agents[0].name === 'Ramp Bot', 'a GitHub file page link is fetched as the raw file');
+    assert((await teams.importPreview('http://example.com/x.md')).error, 'only https links are fetched');
+    for (const id of [...ir.agentIds, ...again.agentIds, ...single.agentIds]) agents.remove(id);
+    for (const n of ['Campaign Crew', 'Campaign Crew 2']) { const x = sec(n); if (x) teams.deleteDepartment(x.id); }
+  }
+
   // ---------- end to end: ＠App-Coder build X through the real agent loop ----------
   const w = tmp(); fs.writeFileSync(path.join(w, 'README.md'), 'A tiny workspace.\n');
   const dr = teams.createFromTemplate('software', 'App Team'); const [tl, trs, tcd] = dr.agentIds; const dep = dr.id;
