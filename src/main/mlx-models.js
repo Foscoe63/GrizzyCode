@@ -44,7 +44,7 @@ function isValidMLXBundle(dirPath) {
     if (!fs.existsSync(configPath)) return false;
     
     // Must have tokenizer files
-    const tokenizerFiles = ['tokenizer.json', 'tokenizer.model', 'spiece.model'];
+    const tokenizerFiles = ['tokenizer.json', 'tokenizer.model', 'spiece.model', 'tokenizer_config.json'];
     const hasTokenizer = tokenizerFiles.some(f => fs.existsSync(path.join(dirPath, f)));
     if (!hasTokenizer) return false;
     
@@ -102,58 +102,53 @@ function formatBytes(bytes) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Scan a single root directory
-function scanRoot(root) {
-  const models = [];
-  const skipped = [];
-  
-  if (!fs.existsSync(root.path)) return { models, skipped };
-  
+// True when the first .safetensors file declares format "mlx" (or the folder name says mlx).
+function looksMLX(dirPath) {
   try {
-    const items = fs.readdirSync(root.path);
-    
-    for (const item of items) {
-      const itemPath = path.join(root.path, item);
-      const stat = fs.statSync(itemPath);
-      
-      if (!stat.isDirectory()) continue;
-      
-      // Check if this is a valid model bundle
-      if (isValidMLXBundle(itemPath)) {
-        const modelInfo = getModelInfo(itemPath);
-        const size = getDirectorySize(itemPath);
-        
-        models.push({
-          id: item, // Use folder name as ID
-          name: item,
-          path: itemPath,
-          source: root.source,
-          sizeBytes: size,
-          modelType: modelInfo.modelType,
-          quantizationBits: modelInfo.quantizationBits,
-          summary: getSummary(modelInfo, size, root.source)
-        });
-      } else {
-        // Check if it's a candidate (has some model-like files)
-        const files = fs.readdirSync(itemPath);
-        const hasConfig = files.some(f => f === 'config.json');
-        const hasSafetensors = files.some(f => f.endsWith('.safetensors'));
-        const hasTokenizer = files.some(f => ['tokenizer.json', 'tokenizer.model', 'spiece.model'].includes(f));
-        
-        if (hasConfig || hasSafetensors || hasTokenizer) {
-          skipped.push({
-            path: itemPath,
-            reason: 'invalid_bundle',
-            detail: 'Missing required files for MLX model'
-          });
-        }
-      }
+    if (/mlx/i.test(dirPath)) return true;
+    const f = fs.readdirSync(dirPath).find((x) => x.endsWith('.safetensors'));
+    if (!f) return false;
+    const fd = fs.openSync(path.join(dirPath, f), 'r');
+    try {
+      const len = Buffer.alloc(8); fs.readSync(fd, len, 0, 8, 0);
+      const n = Number(len.readBigUInt64LE(0)); if (!n || n > 64 << 20) return false;
+      const buf = Buffer.alloc(n); fs.readSync(fd, buf, 0, n, 8);
+      return JSON.parse(buf.toString('utf8')).__metadata__?.format === 'mlx';
+    } finally { fs.closeSync(fd); }
+  } catch { return false; }
+}
+
+const MAX_DEPTH = 4;
+// Scan a root recursively: any folder that is a valid MLX bundle is a model; Hugging Face cache
+// folders (models--org--name/snapshots/<rev>) are resolved to their newest snapshot.
+function scanRoot(root) {
+  const models = [], skipped = [];
+  if (!fs.existsSync(root.path)) return { models, skipped };
+  const add = (dir, id) => {
+    const info = getModelInfo(dir), size = getDirectorySize(dir);
+    models.push({ id, name: id, path: dir, source: root.source, sizeBytes: size, modelType: info.modelType, quantizationBits: info.quantizationBits, summary: getSummary(info, size, root.source) });
+  };
+  const walk = (dir, depth) => {
+    let items; try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    if (isValidMLXBundle(dir)) {
+      if (looksMLX(dir)) {
+        const hf = dir.match(/models--[^/]+--([^/]+)\/snapshots\//);
+        add(dir, hf ? hf[1] : path.basename(dir));
+      } else skipped.push({ path: dir, reason: 'not_mlx', detail: 'Has weights but they are not in MLX format' });
+      return;
     }
-  } catch (err) {
-    console.error(`Error scanning ${root.path}:`, err.message);
-  }
-  
-  return { models, skipped };
+    if (depth >= MAX_DEPTH) return;
+    for (const it of items) {
+      if (it.name.startsWith('.') || it.name === 'blobs' || it.name === 'refs') continue;
+      const p = path.join(dir, it.name);
+      let isDir = it.isDirectory(); if (!isDir && it.isSymbolicLink()) { try { isDir = fs.statSync(p).isDirectory(); } catch {} }
+      if (isDir) walk(p, depth + 1);
+    }
+  };
+  walk(root.path, 0);
+  // keep one entry per id (newest HF snapshot wins by path order is fine)
+  const seen = new Set();
+  return { models: models.filter((m) => !seen.has(m.id) && seen.add(m.id)), skipped };
 }
 
 // Generate human-readable summary
@@ -203,6 +198,7 @@ function scan(customFolders = []) {
     scannedRoots.push(root.path);
   }
   
+  { const seen = new Set(); for (let i = allModels.length - 1; i >= 0; i--) { /* keep first */ } const keep = allModels.filter((m) => !seen.has(m.id) && seen.add(m.id)); allModels.length = 0; allModels.push(...keep); }
   // Sort models by ID
   allModels.sort((a, b) => a.id.localeCompare(b.id));
   
