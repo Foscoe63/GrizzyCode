@@ -1598,6 +1598,7 @@ async function fillProviderBody(body, p) {
       <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline fmd">Use as default model</button><button type="button" class="outline fmr">Refresh list</button><span class="hint fms"></span></div></div>
     <div class="pg-actions"><button type="button" class="outline ftest">Test connection</button><span class="hint ftr"></span>${p.builtin ? '' : '<span class="spacer" style="flex:1"></span><button type="button" class="danger fdel">Delete provider</button>'}</div>`;
   const q = (c) => body.querySelector(c);
+  if (p.id === 'localmlx') fillMlxBody(body, () => loadModels(true));
   const loadModels = async (force) => {
     q('.fmc').textContent = 'loading…'; const r = await gc.providers.models(p.id, force);
     q('.fmc').textContent = `${r.models.length} available${r.error ? ' · ' + r.error : ''}`; q('.fmc').style.color = r.error && !r.models.length ? 'var(--git-del)' : '';
@@ -1623,6 +1624,50 @@ async function fillProviderBody(body, p) {
   q('.fm').onchange = () => chooseModel(false); q('.fmd').onclick = () => chooseModel(true);
   q('.ftest').onclick = async () => { q('.ftr').textContent = 'Testing…'; q('.ftr').style.color = ''; const r = await gc.providers.test(p.id); q('.ftr').textContent = r.ok ? `Connected ✓ ${r.count} models` : r.error; q('.ftr').style.color = r.ok ? 'var(--git-add)' : 'var(--git-del)'; };
   if (q('.fdel')) q('.fdel').onclick = async () => { if (!(await gc.confirm(`Delete ${p.name}?`, 'The provider and its saved key are removed.', 'Delete'))) return; const r = await gc.providers.remove(p.id); if (r.error) return toast(r.error); provOpen.delete(p.id); await refreshAfterProviderChange(); };
+}
+function fillMlxBody(body, reload) {
+  const box = document.createElement('div'); box.className = 'fld';
+  box.innerHTML = `<label>Built-in MLX runtime <span class="hint mst">checking…</span></label>
+    <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline minst">Install / repair runtime</button></div>
+    <label style="margin-top:12px">Model storage <span class="hint">downloads go here</span></label>
+    <div class="pg-actions" style="margin:6px 0 0"><code class="mdir" style="flex:1;word-break:break-all"></code><button type="button" class="outline mchg">Choose…</button><button type="button" class="outline mdef" hidden>Use default</button></div>
+    <label style="margin-top:12px">Also scan these folders <span class="hint mfc"></span></label>
+    <div class="mex"></div>
+    <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline madd">Add folder…</button><button type="button" class="outline mrs">Rescan</button><span class="hint mrr"></span></div>
+    <label style="margin-top:12px">Get a model <span class="hint">from Hugging Face (mlx-community)</span><input class="mq" placeholder="Search, e.g. qwen 7b 4bit, or paste owner/repo" spellcheck="false"></label>
+    <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline mgo">Search</button><span class="hint mms"></span></div><div class="mres"></div>`;
+  body.prepend(box);
+  const q = (c) => box.querySelector(c);
+  const status = async () => { const r = await gc.mlx.status().catch((e) => ({ available: false, message: e.message })); q('.mst').textContent = r.available ? 'Ready ✓' : r.message; q('.mst').style.color = r.available ? 'var(--git-add)' : ''; q('.minst').hidden = !!r.available || r.status === 'UNSUPPORTED'; };
+  const locs = (r) => {
+    const l = r.locations; q('.mdir').textContent = l.downloadDir; q('.mdef').hidden = !l.customDir;
+    q('.mfc').textContent = l.extra.length ? '' : 'Hugging Face cache, LM Studio and GrizzyBot are scanned automatically';
+    q('.mex').innerHTML = ''; for (const f of l.extra) { const row = document.createElement('div'); row.className = 'pg-actions'; row.style.margin = '3px 0'; row.innerHTML = `<code style="flex:1;word-break:break-all">${esc(f)}</code><button type="button" class="outline">Remove</button>`; row.querySelector('button').onclick = async () => { locs(await gc.mlx.locations({ extra: l.extra.filter((x) => x !== f) })); reload(); }; q('.mex').appendChild(row); }
+    if (r.models) { q('.mrr').textContent = `${r.models.models.length} model${r.models.models.length === 1 ? '' : 's'} found${r.models.models.length ? ': ' + r.models.models.map((m) => m.id).slice(0, 6).join(', ') + (r.models.models.length > 6 ? '…' : '') : ''}`; }
+  };
+  const lc = async (patch) => { const r = await gc.mlx.locations(patch); locs({ locations: r.locations, models: r.models }); if (patch) reload(); };
+  lc();
+  q('.mchg').onclick = async () => { const d = await gc.pickFolder(); if (d) lc({ dir: d }); };
+  q('.mdef').onclick = () => lc({ dir: '' });
+  q('.madd').onclick = async () => { const d = await gc.pickFolder(); if (!d) return; const cur = (await gc.mlx.locations()).locations.extra; lc({ extra: [...cur, d] }); };
+  q('.mrs').onclick = async () => { q('.mrr').textContent = 'Scanning…'; await lc(); reload(); };
+  status();
+  q('.minst').onclick = async () => { q('.minst').disabled = true; q('.mst').textContent = 'Installing… (one-time, about a minute)'; try { await gc.mlx.install(); } catch (e) { toast(e.message); } q('.minst').disabled = false; status(); };
+  const get = async (repo, btn) => {
+    btn.disabled = true; q('.mms').textContent = `Downloading ${repo}… this can take several minutes`;
+    const r = await gc.mlx.download(repo).catch((e) => ({ ok: false, error: e.message }));
+    btn.disabled = false; q('.mms').textContent = r.ok ? `Downloaded ${r.id} ✓` : r.error; q('.mms').style.color = r.ok ? 'var(--git-add)' : 'var(--git-del)';
+    if (r.ok) { status(); reload(); }
+  };
+  const search = async () => {
+    const v = q('.mq').value.trim();
+    if (/^[\w.-]+\/[\w.-]+$/.test(v)) return get(v, q('.mgo'));
+    q('.mms').textContent = 'Searching…'; q('.mms').style.color = '';
+    const r = await gc.mlx.search(v); q('.mms').textContent = r.error || `${r.models.length} results`;
+    const res = q('.mres'); res.innerHTML = '';
+    for (const m of r.models) { const row = document.createElement('div'); row.className = 'pg-actions'; row.style.margin = '4px 0'; row.innerHTML = `<span style="flex:1">${esc(m.repo)} <span class="hint">${m.downloads.toLocaleString()} downloads</span></span><button type="button" class="outline">Download</button>`; const b = row.querySelector('button'); b.onclick = () => get(m.repo, b); res.appendChild(row); }
+  };
+  q('.mgo').onclick = search; q('.mq').addEventListener('keydown', (e) => { if (e.key === 'Enter') search(); });
 }
 $('provAdd').onclick = () => { $('pdName').value = ''; $('pdUrl').value = ''; $('pdKey').value = ''; $('pdMsg').textContent = ''; $('pdType').dataset.v = 'openai'; document.querySelectorAll('#pdType button').forEach((b) => b.classList.toggle('on', b.dataset.v === 'openai')); $('provDlg').showModal(); $('pdName').focus(); };
 document.querySelectorAll('#pdType button').forEach((b) => (b.onclick = () => { $('pdType').dataset.v = b.dataset.v; document.querySelectorAll('#pdType button').forEach((x) => x.classList.toggle('on', x === b)); }));

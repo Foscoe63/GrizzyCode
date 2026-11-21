@@ -1,3 +1,6 @@
+// MLX provider support
+const mlx = require('./mlx');
+
 // Streaming adapters. Internal message format = Anthropic content blocks:
 //  {role, content: string | [{type:'text'|'tool_use'|'tool_result', ...}]}
 async function* sse(res) {
@@ -136,8 +139,25 @@ async function streamOpenAI(s, { system, messages, tools }, onText, signal) {
 }
 
 function stream(settings, req, onText, signal) {
+  // Check for Local MLX provider
+  if (settings.provider === 'localmlx' || settings.baseUrl?.startsWith('mlx://')) {
+    return streamMLX(settings, req, onText, signal);
+  }
+  
   if (!settings.apiKey && !settings.keyless) throw new Error('No API key set. Open Settings → Providers and add one.');
   return (settings.provider === 'openai' ? streamOpenAI : streamAnthropic)(settings, req, onText, signal);
+}
+
+// Local MLX: GrizzyCode's managed mlx_lm.server speaks the OpenAI protocol, so reuse streamOpenAI
+// (this also gives tool calling for free).
+async function streamMLX(settings, req, onText, signal) {
+  const mlx = require('./mlx');
+  if (!mlx.isAppleSilicon()) throw new Error(mlx.MLXProvider.unsupportedHardwareMessage);
+  const id = settings.model || (settings.baseUrl || '').replace('mlx://', '');
+  const modelPath = mlx.resolveModelPath(id);
+  if (!modelPath) throw new Error(`Model "${id}" not found. Download or scan an MLX model in Settings → Providers.`);
+  const baseUrl = await mlx.ensureServer(modelPath);
+  return streamOpenAI({ ...settings, baseUrl, model: modelPath, apiKey: '' }, req, onText, signal);
 }
 
 module.exports = { stream, toOpenAI, withCache, thinkingFor };

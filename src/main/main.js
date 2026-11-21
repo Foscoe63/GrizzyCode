@@ -293,6 +293,11 @@ function buildTray() {
 function ipc() {
   const h = (n, f) => ipcMain.handle(n, (_e, ...a) => f(...a));
   // Event broadcast helper: forwards ipcMain events to renderer listeners
+  h('mlx:status', async () => { const x = require('./mlx'); return { ...(await x.checkMLXAvailability()), models: x.scanModels(), locations: x.locations() }; });
+  h('mlx:locations', (patch) => { const x = require('./mlx'); return { locations: patch ? x.setLocations(patch) : x.locations(), models: x.scanModels() }; });
+  h('mlx:search', (q) => require('./mlx').searchHub(q).then((models) => ({ models }), (e) => ({ models: [], error: e.message })));
+  h('mlx:download', (repo) => require('./mlx').downloadModel(repo, store.getSettings({ reveal: true }).keys?.hf).catch((e) => ({ ok: false, error: e.message })));
+  h('mlx:install', () => require('./mlx').ensureRuntime());
   const onEvt = (ch, f) => ipcMain.on(ch, (_e, ...a) => f(...a));
 
   // --- Core tool IPC (existing) ---
@@ -763,5 +768,5 @@ app.whenReady().then(() => {
   }, 15000);
   app.on('activate', () => { if (!wins.size) createMain(); else showMain(); });
 });
-app.on('will-quit', () => { bgtasks.stopAll(); features.stop(); term.killAll(); modsGlue.host.stopAll(); globalShortcut.unregisterAll(); mcp.stopAll(); });
+app.on('will-quit', () => { bgtasks.stopAll(); features.stop(); term.killAll(); modsGlue.host.stopAll(); globalShortcut.unregisterAll(); mcp.stopAll(); try { require('./mlx').stopServer(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' || !store.getSettings().runInTray) app.quit(); });

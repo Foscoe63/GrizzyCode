@@ -79,6 +79,7 @@ const per = (v) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n
 
 // -> { models: [{ id, name, ctx? }], error? } — live from the provider, then the user's own entries, then built-in fallbacks.
 async function fetchModels(p, key, { force = false } = {}) {
+  if (String(p.baseUrl).startsWith('mlx://')) { const ms = require('./mlx').scanModels().models; return { models: ms.map((m) => ({ id: m.id, name: m.id })), error: ms.length ? undefined : 'no MLX models found — download one below' }; }
   const fallback = (BUILTINS.find((b) => b.id === p.id)?.fallback || []).map((id) => ({ id, name: id }));
   const own = p.models.map((id) => ({ id, name: id }));
   const live = await cached(`${p.id}|${p.baseUrl}|${(key || '').slice(-6)}`, force, async () => {

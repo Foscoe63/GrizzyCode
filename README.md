@@ -81,7 +81,7 @@ Settings → **Providers**. Each provider has its own base URL, key, model list 
 | 🤖 OpenAI | built in | 🌬️ Mistral | built in |
 | ✨ Google Gemini | built in | 🦙 Ollama | local, no key |
 | ⚡ Groq | built in | 🖥️ LM Studio | local, no key |
-| 🍎 oMLX | local, no key | | |
+| 🍎 oMLX | local, no key | 🍏 Local MLX | built in |
 
 Add any OpenAI- or Anthropic-compatible endpoint as a custom provider.
 
