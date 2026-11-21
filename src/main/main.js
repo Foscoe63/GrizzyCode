@@ -296,7 +296,7 @@ function ipc() {
   h('mlx:status', async () => { const x = require('./mlx'); return { ...(await x.checkMLXAvailability()), models: x.scanModels(), locations: x.locations() }; });
   h('mlx:locations', (patch) => { const x = require('./mlx'); return { locations: patch ? x.setLocations(patch) : x.locations(), models: x.scanModels() }; });
   h('mlx:search', (q) => require('./mlx').searchHub(q).then((models) => ({ models }), (e) => ({ models: [], error: e.message })));
-  h('mlx:download', (repo) => require('./mlx').downloadModel(repo, store.getSettings({ reveal: true }).keys?.hf).catch((e) => ({ ok: false, error: e.message })));
+  h('mlx:download', (repo) => require('./mlx').downloadModel(repo, store.getSettings({ reveal: true }).keys?.hf, (p) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send('mlx:progress', p); }).catch((e) => ({ ok: false, error: e.message })));
   h('mlx:install', () => require('./mlx').ensureRuntime());
   const onEvt = (ch, f) => ipcMain.on(ch, (_e, ...a) => f(...a));
 

@@ -1635,7 +1635,7 @@ function fillMlxBody(body, reload) {
     <div class="mex"></div>
     <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline madd">Add folder…</button><button type="button" class="outline mrs">Rescan</button><span class="hint mrr"></span></div>
     <label style="margin-top:12px">Get a model <span class="hint">from Hugging Face (mlx-community)</span><input class="mq" placeholder="Search, e.g. qwen 7b 4bit, or paste owner/repo" spellcheck="false"></label>
-    <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline mgo">Search</button><span class="hint mms"></span></div><div class="mres"></div>`;
+    <div class="pg-actions" style="margin:6px 0 0"><button type="button" class="outline mgo">Search</button><span class="hint mms"></span></div><div class="mbar" hidden style="height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin:6px 0"><div class="mfill" style="height:100%;width:0;background:var(--clay);transition:width .3s"></div></div><div class="mres"></div>`;
   body.prepend(box);
   const q = (c) => box.querySelector(c);
   const status = async () => { const r = await gc.mlx.status().catch((e) => ({ available: false, message: e.message })); q('.mst').textContent = r.available ? 'Ready ✓' : r.message; q('.mst').style.color = r.available ? 'var(--git-add)' : ''; q('.minst').hidden = !!r.available || r.status === 'UNSUPPORTED'; };
@@ -1654,8 +1654,11 @@ function fillMlxBody(body, reload) {
   status();
   q('.minst').onclick = async () => { q('.minst').disabled = true; q('.mst').textContent = 'Installing… (one-time, about a minute)'; try { await gc.mlx.install(); } catch (e) { toast(e.message); } q('.minst').disabled = false; status(); };
   const get = async (repo, btn) => {
-    btn.disabled = true; q('.mms').textContent = `Downloading ${repo}… this can take several minutes`;
+    btn.disabled = true; q('.mms').textContent = `Downloading ${repo}…`; q('.mms').style.color = ''; q('.mbar').hidden = false; q('.mfill').style.width = '0';
+    const mb = (n) => (n / 1048576 >= 1024 ? (n / 1073741824).toFixed(2) + ' GB' : Math.round(n / 1048576) + ' MB');
+    const off = gc.mlx.onProgress((p) => { if (p.repo !== repo) return; q('.mfill').style.width = p.total ? `${Math.min(100, (p.done / p.total) * 100).toFixed(1)}%` : '100%'; q('.mms').textContent = p.total ? `Downloading ${repo}: ${mb(p.done)} / ${mb(p.total)} (${Math.floor((p.done / p.total) * 100)}%)` : `Downloading ${repo}: ${mb(p.done)}`; });
     const r = await gc.mlx.download(repo).catch((e) => ({ ok: false, error: e.message }));
+    off(); q('.mbar').hidden = true;
     btn.disabled = false; q('.mms').textContent = r.ok ? `Downloaded ${r.id} ✓` : r.error; q('.mms').style.color = r.ok ? 'var(--git-add)' : 'var(--git-del)';
     if (r.ok) { status(); reload(); }
   };

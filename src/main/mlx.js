@@ -141,7 +141,7 @@ async function searchHub(query) {
 }
 
 const downloading = new Map();
-function downloadModel(repo, token) {
+function downloadModel(repo, token, onProgress = () => {}) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo))) return Promise.reject(new Error('Use a Hugging Face repo like mlx-community/Qwen2.5-7B-Instruct-4bit.'));
   if (downloading.has(repo)) return downloading.get(repo);
   const p = (async () => {
@@ -149,7 +149,16 @@ function downloadModel(repo, token) {
     const dest = path.join(downloadDir(), repo.split('/')[1]);
     fs.mkdirSync(dest, { recursive: true });
     const code = 'import sys\nfrom huggingface_hub import snapshot_download\nsnapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2], token=(sys.argv[3] or None))';
-    const r = await run(venvPython(), ['-c', code, repo, dest, token || ''], { timeout: 4 * 3600 * 1000 });
+    // Total size from the Hub, then poll the destination folder (incl. partial files) for progress.
+    let total = 0;
+    try {
+      const j = await (await fetch(`https://huggingface.co/api/models/${repo}?blobs=true`, { signal: AbortSignal.timeout(10000), headers: token ? { authorization: 'Bearer ' + token } : {} })).json();
+      total = (j.siblings || []).reduce((n, x) => n + (x.size || 0), 0);
+    } catch {}
+    const dirBytes = (d) => { let n = 0; try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); n += e.isDirectory() ? dirBytes(p) : fs.statSync(p).size; } } catch {} return n; };
+    const tick = () => onProgress({ repo, done: Math.min(dirBytes(dest), total || Infinity), total });
+    const timer = setInterval(tick, 700); tick();
+    let r; try { r = await run(venvPython(), ['-c', code, repo, dest, token || ''], { timeout: 4 * 3600 * 1000 }); } finally { clearInterval(timer); }
     if (!r.ok) throw new Error('Download failed: ' + r.err.slice(-300));
     return { ok: true, id: repo.split('/')[1], path: dest };
   })().finally(() => downloading.delete(repo));

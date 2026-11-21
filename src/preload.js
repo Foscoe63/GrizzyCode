@@ -11,7 +11,7 @@ const on = (ch) => (cb) => { const f = (_e, ...a) => cb(...a); ipcRenderer.on(ch
 const opt = (n) => (...a) => ipcRenderer.invoke(n, ...a).catch(() => undefined);
 
 contextBridge.exposeInMainWorld('gc', {
-  mlx: { status: inv('mlx:status'), install: inv('mlx:install'), locations: inv('mlx:locations'), search: inv('mlx:search'), download: inv('mlx:download') },
+  mlx: { status: inv('mlx:status'), install: inv('mlx:install'), locations: inv('mlx:locations'), search: inv('mlx:search'), download: inv('mlx:download'), onProgress: on('mlx:progress') },
   settings: { get: inv('settings:get'), set: inv('settings:set') },
   savings: { stats: inv('savings:stats'), reset: inv('savings:reset'), compact: inv('savings:compact'), pin: inv('savings:pin'), unpin: inv('savings:unpin') },
   usage: inv('usage:get'), clearUsage: inv('usage:clear'),
