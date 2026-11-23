@@ -299,6 +299,15 @@ function ipc() {
   h('mlx:download', (repo) => require('./mlx').downloadModel(repo, store.getSettings({ reveal: true }).keys?.hf, (p) => { for (const w of wins) if (!w.isDestroyed()) w.webContents.send('mlx:progress', p); }).catch((e) => ({ ok: false, error: e.message })));
   h('mlx:install', () => require('./mlx').ensureRuntime());
   const onEvt = (ch, f) => ipcMain.on(ch, (_e, ...a) => f(...a));
+  // Moving the window by dragging the top bar. The CSS drag regions are meant to do this, but where Chromium does not honour them the window could be
+  // resized and never moved, so the renderer also reports a drag that starts on the bar and the main process moves the window itself.
+  const dragStart = new WeakMap();
+  ipcMain.on('win:dragStart', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && !w.isFullScreen()) dragStart.set(w, w.getPosition()); });
+  ipcMain.on('win:dragMove', (e, dx, dy) => {
+    const w = BrowserWindow.fromWebContents(e.sender), p = w && dragStart.get(w);
+    if (p && Number.isFinite(dx) && Number.isFinite(dy) && Math.abs(dx) < 20000 && Math.abs(dy) < 20000) w.setPosition(Math.round(p[0] + dx), Math.round(p[1] + dy));
+  });
+  ipcMain.on('win:zoom', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && !w.isFullScreen()) (w.isMaximized() ? w.unmaximize() : w.maximize()); });
 
   // --- Core tool IPC (existing) ---
   const withUsable = (st) => ({ ...st, usable: !!st.hasKey || /^https?:\/\/(localhost|127\.0\.0\.1)/.test(st.baseUrl || '') || providers.list(st).some((p) => p.enabled && (p.hasKey || !p.needsKey)) });

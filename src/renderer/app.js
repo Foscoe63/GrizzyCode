@@ -1953,3 +1953,18 @@ function makeResizable(handle, { cssVar, key, def, min, max, fromRight }) {
   if (q) return open(q);
   goHome();
 })();
+
+// Drag the window by its top bar. The `.drag` CSS regions should do this natively; this is the fallback for when they do not (it only sees a
+// mouse-down the native regions did not take). Double-click zooms, as a title bar does.
+(() => {
+  const skip = 'button,input,textarea,select,a,summary,.nodrag,[contenteditable="true"]';
+  let on = false, sx = 0, sy = 0;
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !e.target.closest || !e.target.closest('.drag') || e.target.closest(skip) || !window.gc?.winDrag) return;
+    if (e.detail === 2) { window.gc.winDrag.zoom(); return; }
+    on = true; sx = e.screenX; sy = e.screenY; window.gc.winDrag.start(); e.preventDefault();
+  }, true);
+  document.addEventListener('mousemove', (e) => { if (on) { if (e.buttons & 1) window.gc.winDrag.move(e.screenX - sx, e.screenY - sy); else on = false; } }, true);
+  const stop = () => { on = false; };
+  document.addEventListener('mouseup', stop, true); window.addEventListener('blur', stop);
+})();

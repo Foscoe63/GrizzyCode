@@ -24,7 +24,7 @@
 ::-webkit-scrollbar-thumb:hover{background:var(--text-3);background-clip:content-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:var(--fs,13px)/1.55 var(--font);-webkit-font-smoothing:antialiased}
 body{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;overflow:hidden}
-.drag{-webkit-app-region:drag}button,input,textarea,select,.nodrag{-webkit-app-region:no-drag}
+.drag{-webkit-app-region:no-drag}button,input,textarea,select,.nodrag{-webkit-app-region:no-drag}
 button,input,textarea,select{font:inherit;color:inherit}
 button{background:transparent;border:0;border-radius:var(--r);padding:5px 9px;cursor:pointer;color:var(--text-2)}
 button:hover{background:var(--hover);color:var(--text)}button:disabled{opacity:.4;cursor:default}
