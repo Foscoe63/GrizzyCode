@@ -238,7 +238,7 @@ const findAgent = (ref, conv) => { const r = String(ref || 'general').trim().toL
 function roster(s, depth, convId) {
   if (s.capAgents === false) return '';
   const can = depth < tools.MAX_AGENT_DEPTH;
-  let t = '\n\nAgents: ' + (can ? 'you can hand self-contained subtasks to specialised agents with delegate_agent. They work independently with their own context and return a report; several delegate_agent calls in one turn run in parallel. Delegate when it helps (wide searches, independent parts, a second opinion or review) and do small things yourself. ' : '');
+  let t = '\n\nAgents: ' + (can ? 'you can hand self-contained subtasks to specialised agents with delegate_agent. They work independently with their own context and return a report; several delegate_agent calls in one turn run in parallel. Delegate when it helps (wide searches, independent parts, a second opinion or review) and do small things yourself. Pass background:true to keep working while an agent runs; its report arrives as a <background-result> message, so do not poll. Never give two agents the same file. ' : '');
   t += 'Use message_agent with an agent id to send it a follow-up, or to pass it another agent\'s findings.';
   if (can) t += ' Available agents:\n' + usable(store.getConversation(convId)).map((a) => `- ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}: ${a.description || 'no description'}`).join('\n');
   const alive = [...registry(convId).values()];
@@ -247,7 +247,7 @@ function roster(s, depth, convId) {
 }
 
 // Always resolves to a string, so a failed or cancelled agent shows up as that call's result instead of an unhandled rejection.
-function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, caller = 'the main agent') {
+function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, caller = 'the main agent', onStart = null) {
   return (async () => {
     if (!toolDefs.some((t) => t.name === c.name)) throw new Error(notEnabled(c.name, root.mode));
     const reg = registry(convId);
@@ -259,6 +259,7 @@ function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, calle
       if (reg.size >= MAX_AGENTS) throw new Error(`Too many agents in this conversation (${MAX_AGENTS}). Reuse one with message_agent.`);
       sub = { id: 'agent_' + randomUUID().slice(0, 6), def, name: def.name, messages: [{ role: 'user', content: task }], running: false, depth: depth + 1 };
       reg.set(sub.id, sub);
+      if (onStart) onStart(sub);
     } else {
       sub = reg.get(String(c.input.id || '').trim());
       if (!sub) throw new Error(`No agent with id "${c.input.id}". Existing agents: ${[...reg.values()].map((x) => `${x.id} (${x.name})`).join(', ') || 'none'}`);
@@ -266,6 +267,7 @@ function startAgentCall(root, convId, c, depth, s, emit, signal, toolDefs, calle
       const msg = `Message from ${caller}: ${String(c.input.message || '').trim()}`, last = sub.messages.at(-1);
       if (last?.role === 'user') last.content = [...(Array.isArray(last.content) ? last.content : [{ type: 'text', text: last.content }]), { type: 'text', text: msg }];
       else sub.messages.push({ role: 'user', content: msg });
+      if (onStart) onStart(sub);
     }
     try {
       const text = await runSub(root, convId, sub, c.id, s, emit, signal);
@@ -354,8 +356,16 @@ async function send(convId, userText, emit, images = [], opts = {}) {
   mods.setSession({ convId, cwd: conv.cwd || '' });
   await mods.turnStart({ text: userText, turnId });
   try {
+    const bg = new Map(), bgDone = []; // agents started with background:true: running (id -> promise) and finished-but-not-yet-delivered reports
+    const bgBlock = () => bgDone.splice(0).map((r) => ({ type: 'text', text: `<background-result agent="${r.id}" name="${r.name}">\n${r.text}\n</background-result>` }));
+    const deliverBg = (c) => { // append to the last user message (a tool-result turn) so two user messages never sit side by side
+      const blocks = bgBlock(), last = c.messages.at(-1);
+      if (last && last.role === 'user' && Array.isArray(last.content)) last.content.push(...blocks); else c.messages.push({ role: 'user', content: blocks });
+      store.saveConversation(c);
+    };
     const a0 = agents.get(troute && troute.actingId ? troute.actingId : conv.agentId), maxSteps = Math.max(1, Math.min(200, Number(s.maxSteps) || 40, a0 && a0.enabled && a0.steps ? a0.steps : 200)); // an agent's own step budget caps the run
     for (let turn = 0; turn < maxSteps; turn++) {
+      if (bgDone.length) deliverBg(conv); // reports from agents that finished in the background since the last step
       const live = store.getConversation(convId); // pick up mode/allow changes made mid-run
       conv.permissionMode = live.permissionMode; conv.allow = live.allow; conv.model = live.model; conv.agentId = live.agentId;
       conv.pinned = live.pinned; conv.backlog = live.backlog; conv.effort = live.effort; conv.fast = live.fast;
@@ -402,13 +412,18 @@ async function send(convId, userText, emit, images = [], opts = {}) {
         if (troute && troute.mustDelegate && !routeNudged && turn + 1 < maxSteps && !gs.calls.some((c) => tools.AGENT_TOOLS.includes(c.name))) { // a department message must go through the team
           routeNudged = true; conv.messages.push({ role: 'user', content: teams.DELEGATE_NUDGE(troute) }); store.saveConversation(conv); continue;
         }
+        if (bg.size && turn + 1 < maxSteps && !ac.signal.aborted) { // background agents still running: the reply is not final until their reports are in
+          emit({ type: 'info', convId, text: `Waiting for ${bg.size} background agent${bg.size === 1 ? '' : 's'}…` });
+          await Promise.race([Promise.all([...bg.values()]), new Promise((r) => ac.signal.addEventListener('abort', r, { once: true }))]);
+          if (bgDone.length) { conv.messages.push({ role: 'user', content: bgBlock() }); store.saveConversation(conv); continue; }
+        }
         const nudge = adef && adef.enabled && turn + 1 < maxSteps ? agents.gate(adef, gs) : ''; // the chosen agent's completion gates
         if (nudge) { conv.messages.push({ role: 'user', content: nudge }); store.saveConversation(conv); continue; }
         break;
       }
-      const results = [], agentRuns = new Map();
+      const results = [], agentRuns = new Map(), started = {};
       // Agent calls start together so several delegated agents work in parallel; their reports are collected in call order below.
-      for (const c of calls) if (tools.AGENT_TOOLS.includes(c.name)) { emit({ type: 'tool_call', convId, id: c.id, name: c.name, input: c.input }); agentRuns.set(c.id, startAgentCall(conv, convId, c, 0, s, emit, ac.signal, toolDefs)); }
+      for (const c of calls) if (tools.AGENT_TOOLS.includes(c.name)) { emit({ type: 'tool_call', convId, id: c.id, name: c.name, input: c.input }); agentRuns.set(c.id, startAgentCall(conv, convId, c, 0, s, emit, ac.signal, toolDefs, undefined, (sub) => { started[c.id] = sub; })); }
       for (const c of calls) {
         if (!agentRuns.has(c.id)) emit({ type: 'tool_call', convId, id: c.id, name: c.name, input: c.input });
         let out;
@@ -418,6 +433,10 @@ async function send(convId, userText, emit, images = [], opts = {}) {
             const d = await ask(emit, convId, c, { plan: true });
             if (d === 'approve') { conv.permissionMode = 'acceptEdits'; const l = store.getConversation(convId); l.permissionMode = 'acceptEdits'; store.saveConversation(l); emit({ type: 'mode', convId, permissionMode: 'acceptEdits' }); out = 'Plan approved. Permission mode is now Accept edits. Proceed with the implementation.'; }
             else out = 'The user wants to keep planning. Revise the plan based on their feedback.';
+          } else if (agentRuns.has(c.id) && c.input && c.input.background === true && started[c.id]) { // background: return now, deliver the report when it finishes
+            const sub = started[c.id], p = agentRuns.get(c.id);
+            bg.set(sub.id, p.then((text) => { bg.delete(sub.id); bgDone.push({ id: sub.id, name: sub.name, text }); }));
+            out = `${sub.name} (${sub.id}) is working in the background. Its report will arrive as a <background-result> message when it finishes (and you will not be done until it has). Do not poll or check on it and do not repeat its work; carry on with non-overlapping work, or tell the user what you launched and end your reply. Send it a follow-up with message_agent id=${sub.id}.`;
           } else if (agentRuns.has(c.id)) out = await agentRuns.get(c.id);
           else out = await execTool(conv, convId, c, toolDefs, s, emit, ac.signal, '', lists, run);
         } catch (e) { out = 'ERROR: ' + e.message; }
