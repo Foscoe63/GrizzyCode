@@ -15,6 +15,7 @@ const mods = require('./mods/host');
 const acp = require('./acp');
 const project = require('./project');
 const hooks = require('./hooks');
+const reviewer = require('./reviewer');
 const artifacts = require('./artifacts');
 const savings = require('./savings');
 const checkpoints = require('./checkpoints');
@@ -192,6 +193,15 @@ async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', li
     else if (d !== 'once') throw new Error('User denied this tool call.');
   }
   if (!conv.ssh && (c.name === 'write_file' || c.name === 'edit_file') && c.input?.path) checkpoints.record(convId, turnIdx.get(convId) ?? 0, path.resolve(conv.cwd || os.homedir(), c.input.path));
+  if (!conv.ssh && c.name === 'bash' && c.input?.command) { // the reviewer's rules file, if there is one, gets a say before a shell command runs
+    const rm = (s.reviewerModel && String(s.reviewerModel).trim()) || (s.compactModel && String(s.compactModel).trim()) || conv.model || s.model;
+    const rv = await reviewer.check({ convId, command: String(c.input.command), cwd: conv.cwd, root: store.root(), signal, ask: async (system, user, sig) => {
+      const res = await llm.stream({ ...s, ...models.route(s, rm), maxTokens: 120 }, { system, messages: [{ role: 'user', content: user }], tools: [] }, () => {}, sig);
+      store.addUsage(res.usage, { model: models.canon(s, rm), mode: conv.mode, conv: convId, price: models.priceOf(s, rm) });
+      return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    } });
+    if (rv.block) throw new Error(`Blocked by the command reviewer: ${rv.reason}. Do not retry this command; choose another approach or tell the user what you could not do.`);
+  }
   const hk = !conv.ssh && !mods.isModTool(c.name) ? await hooks.run('PreToolUse', c.name, c.input, conv.cwd, signal, undefined, c.id) : {};
   if (hk.block) throw new Error(hk.block);
   const ctx = { convId, setTodos: (list) => { conv.todos = list; patchConversation(convId, { todos: list }); emit({ type: 'todos', convId, todos: list }); }, addFollowup: (t, d) => { if (!t.trim()) return null; const l = store.getConversation(convId); (l.backlog ||= []).push({ id: randomUUID(), title: t, detail: d, at: Date.now(), done: false }); store.saveConversation(l); conv.backlog = l.backlog; emit({ type: 'backlog', convId }); return { title: t }; } };
