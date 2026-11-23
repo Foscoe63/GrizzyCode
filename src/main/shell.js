@@ -16,14 +16,20 @@ function parseDeepLink(raw) {
   return null;
 }
 
-// Keep saved bounds only if a good part of the window is still on a connected display.
+// Keep saved bounds only if a good part of the window is still on a connected display, and nudge them so the title bar (the strip you drag)
+// is on that display: a window saved above the top edge or on a screen that has since moved could otherwise open with no way to grab it.
 function boundsOnScreen(b, displays) {
   if (!b || ![b.x, b.y, b.width, b.height].every(Number.isFinite) || b.width < 400 || b.height < 300) return null;
-  const ok = displays.some((d) => {
+  let best = null, bestArea = 0;
+  for (const d of displays) {
     const a = d.workArea, w = Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x), h = Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y);
-    return w >= 200 && h >= 120;
-  });
-  return ok ? { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) } : null;
+    if (w >= 200 && h >= 120 && w * h > bestArea) { best = a; bestArea = w * h; }
+  }
+  if (!best) return null;
+  const width = Math.min(Math.round(b.width), best.width), height = Math.min(Math.round(b.height), best.height);
+  const y = Math.max(best.y, Math.min(Math.round(b.y), best.y + best.height - 80)); // title bar below the top of the screen, and not past the bottom
+  const x = Math.max(best.x + 200 - width, Math.min(Math.round(b.x), best.x + best.width - 200)); // at least 200px of the title bar on the screen
+  return { x, y, width, height };
 }
 
 // Per-window hardening. `ctx` supplies electron pieces so this module stays testable.

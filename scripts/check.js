@@ -1298,6 +1298,8 @@ export const register: Register = (on, options) => {
     assert(!sh.parseDeepLink('https://x.com') && !sh.parseDeepLink('grizzycode://open?id=../etc') && !sh.parseDeepLink('grizzycode://run?cmd=ls') && !sh.parseDeepLink('nonsense'), 'deep links reject unknown actions and bad ids');
     const d = [{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }];
     assert(sh.boundsOnScreen({ x: 100, y: 80, width: 1000, height: 700 }, d) && !sh.boundsOnScreen({ x: 5000, y: 80, width: 1000, height: 700 }, d) && !sh.boundsOnScreen({ x: 0, y: 0, width: 100, height: 100 }, d) && !sh.boundsOnScreen(null, d), 'saved window bounds must be on a display');
+    const above = sh.boundsOnScreen({ x: 100, y: -300, width: 1000, height: 700 }, d), big = sh.boundsOnScreen({ x: 0, y: 0, width: 3000, height: 2000 }, d);
+    assert(above && above.y === 0 && above.x === 100 && big && big.width === 1440 && big.height === 900 && !sh.boundsOnScreen({ x: 100, y: 880, width: 1000, height: 700 }, d) && !sh.boundsOnScreen({ x: -900, y: 80, width: 1000, height: 700 }, d), 'saved window bounds are nudged so the title bar stays on screen');
     let req = []; const fake = { setPermissionRequestHandler: (f) => { f(null, 'media', (v) => { req.push(v); }); f(null, 'clipboard-sanitized-write', (v) => { req.push(v); }); }, setPermissionCheckHandler() {}, on() {} };
     sh.lockSession(fake); assert(req[0] === false && req[1] === true, 'permissions denied except clipboard write');
   }
