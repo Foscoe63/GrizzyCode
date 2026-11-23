@@ -74,7 +74,7 @@ const DEFAULTS = {
   notifyApproval: 'banner', notifyDone: 'banner', dockBounce: false, keepAwakeBattery: true,
   fastModel: '', outputStyle: 'default', customStyle: '', lastUpdateNotified: '', promptSuggestions: false, archiveDays: 0, worktreeReapHours: 0, newTaskPrompt: '', sandboxShell: 'off', autoResume: true, checkUpdates: false,
   // Token savers: MCP tool router, tool-output compression, history compaction (off by default: it costs a summary call)
-  saveRouter: true, saveOutputs: true, saveOutputChars: 12000, saveCompact: false, compactAtPct: 60, compactKeep: 8, compactModel: '', reviewerModel: '',
+  saveRouter: true, saveOutputs: true, saveOutputChars: 12000, saveCompact: false, compactAtPct: 60, compactKeep: 8, compactModel: '', reviewerModel: '', completionChecks: true,
   // Mods: { name: true } for each mod the user turned on
   modsEnabled: {},
   // Providers: per-built-in overrides ({ id: { enabled, baseUrl, name, defaultModel, models } }) and user-added providers

@@ -34,12 +34,14 @@ const STYLES = {
   learning: 'Act as a collaborative teacher. Explain concepts as they come up, and for small, well-scoped pieces leave a clearly marked TODO(human) with guidance so the user writes that part themselves.',
 };
 const ROLE_TEXT = { software: 'software engineering', design: 'design', research: 'research', writing: 'writing and editing', data: 'data and analytics', product: 'product and business', education: 'teaching', student: 'study as a student', other: '' };
+const lastUserText = (conv) => { for (let i = conv.messages.length - 1; i >= 0; i--) { const m = conv.messages[i]; if (m.role !== 'user') continue; const t = typeof m.content === 'string' ? m.content : (m.content || []).filter((b) => b.type === 'text').map((b) => b.text).join(' '); if (t && !/^(A Stop hook says|\[System)/.test(t)) return t; } return ''; };
 function buildSystem(s, conv, lists = []) {
   let sys = s.systemPrompt;
   if (conv.mode === 'code') {
     sys += `\n\nYou are operating as a coding agent. Working directory: ${conv.cwd}${conv.ssh ? ` on remote host ${conv.ssh.host} (all file and shell tools run there over SSH)` : ''}. Use the tools to inspect and modify files and run commands. For multi-step work keep a visible task list with todo_write. Prefer glob and grep over shell find/grep to locate code. Prefer small, verified steps.`;
     sys += '\n\nIf asked to build or install a mod for GrizzyCode: put it in ~/.GrizzyCode/mods/<name>/ (same as ~/.grizzycode) and keep its saved data under ~/.grizzycode/mods-data/<name>/. Never use ~/.claude or `claude plugin install` for it; load the mod-authoring skill first.';
     if (conv.ops) sys += `\n\nThis is a general task, not a software project: there is no project folder (the shell starts in ${conv.cwd}). It may be about this computer, its services, files or settings, wherever they are. Inspect before you change anything, say what you found, and tell the user the plan before moving, deleting or reconfiguring things. Copy or back up before you move or overwrite data, and keep the user's originals until the new setup is verified.`;
+    sys += '\n\nStay in scope: do what was asked and no more. Do not refactor, rename, reformat or fix unrelated code, and do not add files, tests, docs or dependencies the user did not ask for; if you notice something worth doing, mention it in one line instead. Before you say you are done, run the project\'s tests or build and report what actually ran and its result.';
     if (conv.permissionMode === 'plan') sys += '\n\nPLAN MODE is active: you may only read and search. Investigate, then call exit_plan_mode with a concrete plan. Do not attempt to change anything.';
   }
   if (conv.mode !== 'code') sys += `\n\nYou have file, shell and other tools in this chat, working from ${conv.cwd || 'the home folder'}. Use them whenever the user asks you to do something on this computer, such as installing, fetching or changing files; each call that changes anything asks the user first. Do not use them for plain questions. If asked to install a plugin or skill from a GitHub URL, clone or copy it to the right place for the app or project the user names. If asked to build or install a mod for GrizzyCode, put it in ~/.GrizzyCode/mods/<name>/ and never use ~/.claude.`;
@@ -448,7 +450,9 @@ async function send(convId, userText, emit, images = [], opts = {}) {
           await Promise.race([Promise.all([...bg.values()]), new Promise((r) => ac.signal.addEventListener('abort', r, { once: true }))]);
           if (bgDone.length) { conv.messages.push({ role: 'user', content: bgBlock() }); store.saveConversation(conv); continue; }
         }
-        const nudge = adef && adef.enabled && turn + 1 < maxSteps ? agents.gate(adef, gs) : ''; // the chosen agent's completion gates
+        gs.request = lastUserText(conv);
+        const checks = adef && adef.enabled ? adef : (conv.mode === 'code' && !conv.ssh && s.completionChecks !== false ? { gates: agents.DEFAULT_GATES } : null); // a plain code turn still has to check its work
+        const nudge = checks && turn + 1 < maxSteps ? agents.gate(checks, gs) : ''; // the chosen agent's completion gates
         if (nudge) { conv.messages.push({ role: 'user', content: nudge }); store.saveConversation(conv); continue; }
         if (!conv.ssh && !ac.signal.aborted && stopHookRuns < 2 && turn + 1 < maxSteps) { // a Stop hook that exits 2 sends the model back to work
           const sh = await hooks.runEvent('Stop', { prompt: userText, answer: lastText.slice(0, 20000) }, conv.cwd, ac.signal);

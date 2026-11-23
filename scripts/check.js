@@ -1367,6 +1367,14 @@ export const register: Register = (on, options) => {
     T.setWindows(null);
     T.setFront(null); T.setApprover(null);
   }
+  { // default completion gates (#8 restraint, #12 verification)
+    const A = require('../src/main/agents'), mk = (request, calls) => A.gateState(['bash'], { request, calls }), def = { gates: A.DEFAULT_GATES };
+    const edit = { name: 'edit_file', input: { path: 'a.js' }, out: '' }, run = { name: 'bash', input: {}, out: 'ok' }, t = { name: 'write_file', input: { path: 'tests/a.test.js' }, out: '' };
+    assert(/did not ask for/.test(A.gate(def, mk('fix the bug', [edit, t, run]))), 'completion gates: an unrequested test file sends the agent back');
+    assert(A.gate(def, mk('fix the bug and add a test', [edit, t, run])) === '', 'completion gates: a requested test file is fine');
+    assert(/not verified/.test(A.gate(def, mk('fix the bug', [edit]))), 'completion gates: edits with no check afterwards send the agent back');
+    assert(A.gate(def, mk('fix the bug', [edit, run])) === '', 'completion gates: edits followed by a passing check finish');
+  }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();
   console.log(failed ? `${failed} FAILED` : 'ALL PASSED'); app.exit(failed ? 1 : 0);

@@ -45,7 +45,18 @@ function badRefs(st) {
   return bad;
 }
 const hasRef = (t) => new RegExp(`[\\w./-]+\\.(?:${CODE_EXT}):\\d+`).test(t);
+// Extras nobody asked for: a test file or a doc the request never mentioned. Checked against the user's own words (st.request).
+const TEST_PATH = /(^|\/)(tests?|__tests__|spec)\/|\.(test|spec)\.[a-z]+$/i, DOC_PATH = /\.(md|rst|txt)$/i;
+function extras(st) {
+  const ask = String(st.request || '').toLowerCase(), out = [];
+  const paths = st.calls.filter((c) => c.name === 'write_file' && c.input?.path).map((c) => String(c.input.path));
+  const tests = [...new Set(paths.filter((p) => TEST_PATH.test(p)))], docs = [...new Set(paths.filter((p) => DOC_PATH.test(p) && !TEST_PATH.test(p)))];
+  if (tests.length && !/\b(tests?|specs?|coverage)\b/.test(ask)) out.push('test files: ' + tests.slice(0, 5).join(', '));
+  if (docs.length && !/\b(docs?|documentation|readme|notes?|write[- ]?up|changelog|markdown|md)\b/.test(ask)) out.push('documents: ' + docs.slice(0, 5).join(', '));
+  return out;
+}
 const GATES = {
+  scope: (st) => { const e = extras(st); return e.length ? `You created things the request did not ask for (${e.join('; ')}). Delete them, or tell the user plainly that you added them and why, so they can decide. Do not add unrequested files, tests or refactors.` : ''; },
   evidence: (st) => (looked(st) ? '' : 'You have not looked at anything yet. Use your tools to read the relevant files or sources before you report.'),
   verify: (st) => {
     const i = lastIdx(st.calls, EDITS);
@@ -78,6 +89,7 @@ const GATES = {
 };
 // Human-readable names for the editor.
 const GATE_INFO = {
+  scope: 'Must not leave test files or documents the request never asked for',
   evidence: 'Must look at files or sources before reporting',
   verify: 'After editing, must run a check (tests/build) and it must not be failing',
   findings: 'Report must rank findings with path:line references that exist',
@@ -113,6 +125,7 @@ function ledger(st) {
   return '\n\n[Run record by GrizzyCode]\n' + lines.map((l) => '- ' + l).join('\n');
 }
 const MAX_NUDGES = 2, FIRST_RUN_ONLY = ['evidence', 'findings', 'plan', 'sources']; // a follow-up message is a conversation, not a fresh report
+const DEFAULT_GATES = ['verify', 'scope']; // what a plain code turn (no chosen agent) must satisfy before it may finish
 const gateState = (can, extra = {}) => ({ calls: [], text: '', can: can instanceof Set ? can : new Set(can), nudges: 0, errors: 0, ...extra });
 function gate(def, st) {
   if (!def || st.nudges >= MAX_NUDGES) return '';
@@ -206,4 +219,4 @@ function blockFor(a, cwd) {
   const rep = String(a.report || '').trim();
   return `\n\nYou are working as the agent “${a.name}”. Follow these agent instructions:\n${a.instructions.trim()}${rep ? `\n\nReport format: ${rep}` : ''}${(a.guards || []).map((g) => GUARD_INFO[g]).filter(Boolean).length ? '\n\nRules enforced on your tool calls: ' + a.guards.map((g) => GUARD_INFO[g]).filter(Boolean).join('; ') + '. A call that breaks one is refused.' : ''}${memoryBlock(a, cwd)}${(a.gates || []).length ? '\n\nYou cannot finish until your report meets this format and your work is verified; GrizzyCode checks the report against what you actually did (cited files and lines must exist, checks must have run) and sends an incomplete one back to you.' : ''}`;
 }
-module.exports = { allowedIn, list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };
+module.exports = { allowedIn, list, get, save, remove, promptBlock, blockFor, accessOf, BUILTIN, gate, gateState, DEFAULT_GATES, GATES, GATE_INFO, GUARD_INFO, guardState, guard, noteCall, ledger, badRefs, notes, addNote, forgetNote, allNotes, clearNotes };
