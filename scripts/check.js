@@ -161,10 +161,12 @@ app.whenReady().then(() => srv.listen(0, async () => {
 
   // MCP
   const mock = path.join(os.tmpdir(), 'mock-mcp.js');
-  fs.writeFileSync(mock, `const rl=require('readline').createInterface({input:process.stdin});rl.on('line',l=>{const m=JSON.parse(l);if(m.id==null)return;const r=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{},serverInfo:{name:'m',version:'1'}}:m.method==='tools/list'?{tools:[{name:'ping',description:'p',inputSchema:{type:'object'}}]}:{content:[{type:'text',text:'pong'}]};console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:r}))})`);
+  fs.writeFileSync(mock, `const rl=require('readline').createInterface({input:process.stdin});rl.on('line',l=>{const m=JSON.parse(l);if(m.id==null)return;const r=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{resources:{}},instructions:'Call ping before anything else.',serverInfo:{name:'m',version:'1'}}:m.method==='resources/list'?{resources:[{uri:'mock://doc',name:'doc'}]}:m.method==='resources/read'?{contents:[{uri:'mock://doc',text:'resource body'}]}:m.method==='tools/list'?{tools:[{name:'ping',description:'p',inputSchema:{type:'object'}}]}:{content:[{type:'text',text:'pong'}]};console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:r}))})`);
   mcp.writeConfig({ mcpServers: { m: { command: process.execPath, args: [mock], env: { ELECTRON_RUN_AS_NODE: '1' } } } });
   await mcp.startAll();
   assert(mcp.toolDefs()[0]?.name === 'mcp__m__ping' && (await mcp.callTool('mcp__m__ping', {})) === 'pong', 'MCP tools listed and callable');
+  assert(mcp.instructionsBlock(['m']).includes('Call ping before anything else.') && mcp.instructionsBlock(['other']) === '', 'MCP server instructions reach the prompt only for servers the agent may use');
+  assert(mcp.resourceDefs().length === 1 && (await mcp.resources({ server: 'm', action: 'list' })).includes('mock://doc') && (await mcp.resources({ server: 'm', action: 'read', uri: 'mock://doc' })) === 'resource body', 'MCP resources list and read');
 
   // real pty terminal: interactive shell sees a tty, echoes input, resizes, exits
   assert(term.available(), 'node-pty loads');

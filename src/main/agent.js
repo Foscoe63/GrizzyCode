@@ -54,7 +54,8 @@ function buildSystem(s, conv, lists = []) {
   if (pr && pr.files?.length) { let left = 80000; sys += `\n\nKnowledge files for project "${pr.name}" (reference material; use when relevant):`; for (const f of pr.files) { if (left <= 0) break; const t = f.text.slice(0, left); left -= t.length; sys += `\n\n<project-file name="${f.name}">\n${t}\n</project-file>`; } }
   const sk = s.capSkills === false ? [] : access.keepSkills(lists, require('./grizzywork').filterSkills(conv, skills.list())); // a GrizzyWork task only sees the skills switched on for it
   if (sk.length) sys += '\n\nInstalled skills (call use_skill with the id to load full instructions when relevant):\n' + sk.map((k) => `- ${k.id}: ${String(k.description).replace(/\s+/g, ' ').slice(0, 110)}`).join('\n');
-  return sys + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
+  const live = access.keep(lists, mcp.toolDefs()).map((d) => (/^mcp__(.+?)__/.exec(d.name) || [])[1]); // only servers this agent may use
+  return sys + mcp.instructionsBlock(live) + require('./grizzywork').promptBlock(conv) + project.promptBlock(s, conv) + artifacts.promptBlock(s) + savings.pinBlock(conv.pinned);
 }
 const title = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 60) || 'New conversation';
 
@@ -153,6 +154,7 @@ const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
 async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean), run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
+  if (c.name === 'mcp_resources') return mcp.resources(c.input); // reads only: no approval, like the other read tools
   if (c.name === 'request_secret') { // answered here: the value goes from the secure field to the sealed store, never through the model
     const secrets = require('./secrets'), name = String(c.input?.name || '').trim().toUpperCase();
     if (conv.ssh) throw new Error('request_secret is not available in SSH sessions: the secret would not reach the remote shell.');
@@ -301,7 +303,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
       sc.permissionMode = clampMode(sub.def.permissionMode, store.getConversation(convId).permissionMode);
       lists = [agents.accessOf(agents.get(root.agentId)), agents.accessOf(sub.def), require('./grizzywork').access(root)].filter(Boolean); // never more than the agent it works for, nor than GrizzyWork's tool switches
       const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, root);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory, team: teams.hasTeamTools(sub.def.id), dismiss: teams.isLead(sub.def.id) }), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(sc.mode, sc.permissionMode, s, { depth: sub.depth, sub: true, agentMemory: !!sub.def.memory, team: teams.hasTeamTools(sub.def.id), dismiss: teams.isLead(sub.def.id) }), ...mods.toolDefs(), ...mcp.resourceDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs], sendDefs = [...baseDefs, ...route.defs];
       gs.can = new Set(toolDefs.map((t) => t.name));
       const system = buildSystem(s, sc, lists) + access.promptBlock(lists) + route.system + agents.blockFor(sub.def, root.cwd) + teams.agentBlock(sub.def.id) + roster(s, sub.depth, convId) + `\n\nYou are a delegated agent (id ${sub.id}), not the main assistant. Do the task you were given with your tools, then finish with a concise final report: what you did or found, with file paths and line numbers where relevant. Your final message is all the delegating agent sees. Other agents may message you; answer briefly.`;
@@ -384,7 +386,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
       const mstr0 = (conv.fast && s.fastModel) || conv.model || agents.get(aid)?.model || s.model;
       const lists = [agents.accessOf(agents.get(aid)), require('./grizzywork').access(conv)].filter(Boolean);
       const mcpDefs = access.keep(lists, mcp.toolDefs()), route = savings.routeMcp(mcpDefs, s, conv);
-      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(aid)?.enabled && agents.get(aid).memory), team: teams.hasTeamTools(aid), dismiss: teams.isLead(aid) }), ...mods.toolDefs(), ...savings.defs(s)]);
+      const baseDefs = access.keep(lists, [...tools.publicDefs(conv.mode, conv.permissionMode, s, { agentMemory: !!(agents.get(aid)?.enabled && agents.get(aid).memory), team: teams.hasTeamTools(aid), dismiss: teams.isLead(aid) }), ...mods.toolDefs(), ...mcp.resourceDefs(), ...savings.defs(s)]);
       const toolDefs = [...baseDefs, ...mcpDefs, ...savings.routerDefs];   // everything a call may name
       const sendDefs = [...baseDefs, ...route.defs];                       // what the model is shown
       const sections = await mods.promptCompose(mstr0);
