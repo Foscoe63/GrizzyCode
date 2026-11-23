@@ -212,6 +212,42 @@ app.whenReady().then(() => srv.listen(0, async () => {
   skills.remove('pdf'); skills.seedBundled();
   assert(!skills.list().some((x) => x.id === 'pdf'), 'removed bundled skill stays removed');
 
+  // hook events: session events, and the call id on tool events
+  {
+    const hooks = require('../src/main/hooks'), hk = hooks.file(), before = fs.existsSync(hk) ? fs.readFileSync(hk, 'utf8') : null;
+    const hdir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-hooks-'));
+    try {
+      fs.writeFileSync(hk, JSON.stringify({ hooks: [
+        { event: 'UserPromptSubmit', command: 'cat >/dev/null; if [ "$GC_EVENT" = UserPromptSubmit ]; then echo ctx-from-hook; fi' },
+        { event: 'Stop', command: 'cat >/dev/null; echo "run the tests first" >&2; exit 2' },
+        { event: 'PostToolUse', matcher: 'bash', command: 'cat >/dev/null; echo "id=$GC_CALL_ID" >&2; exit 2' },
+      ] }));
+      const up = await hooks.runEvent('UserPromptSubmit', { prompt: 'hi' }, hdir);
+      assert(up.context === 'ctx-from-hook' && !up.block, 'hooks: UserPromptSubmit stdout is returned as context');
+      const st = await hooks.runEvent('Stop', { prompt: 'hi', answer: 'done' }, hdir);
+      assert(st.block === 'run the tests first', 'hooks: a Stop hook that exits 2 returns its reason');
+      assert(!(await hooks.runEvent('SessionStart', {}, hdir)).block, 'hooks: an event with no hook configured does nothing');
+      const post = await hooks.run('PostToolUse', 'bash', {}, hdir, undefined, 'out', 'call_42');
+      assert(post.note === 'id=call_42', 'hooks: tool hooks get the call id');
+      fs.writeFileSync(hk, JSON.stringify({ hooks: [{ event: 'UserPromptSubmit', command: 'cat >/dev/null; echo "no secrets in prompts" >&2; exit 2' }] }));
+      assert((await hooks.runEvent('UserPromptSubmit', { prompt: 'x' }, hdir)).block === 'no secrets in prompts', 'hooks: UserPromptSubmit exit 2 blocks the message');
+    } finally { if (before === null) fs.rmSync(hk, { force: true }); else fs.writeFileSync(hk, before); fs.rmSync(hdir, { recursive: true, force: true }); }
+  }
+
+  // project skills: <cwd>/.grizzycode/skills and <cwd>/.agents/skills are listed and readable, an installed skill is never shadowed
+  {
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-projskill-'));
+    for (const [root, id, body] of [['.grizzycode', 'proj-only', 'ProjBody'], ['.agents', 'agents-only', 'AgentsBody'], ['.agents', 'demo', 'EvilOverride']]) {
+      fs.mkdirSync(path.join(proj, root, 'skills', id), { recursive: true });
+      fs.writeFileSync(path.join(proj, root, 'skills', id, 'SKILL.md'), `---\nname: ${id}\ndescription: d\n---\n${body}`);
+    }
+    const withProj = skills.list(proj);
+    assert(withProj.find((x) => x.id === 'proj-only')?.project && withProj.find((x) => x.id === 'agents-only')?.project && !skills.list().some((x) => x.id === 'proj-only'), 'project skills: listed only for that project');
+    assert(skills.read('proj-only', proj) === 'ProjBody' && skills.read('agents-only', proj) === 'AgentsBody' && skills.read('demo', proj) === 'Body', 'project skills: readable, and an installed skill is not shadowed');
+    assert(!withProj.some((x) => x.id === 'demo' && x.project), 'project skills: a project skill with an installed id is ignored');
+    fs.rmSync(proj, { recursive: true, force: true });
+  }
+
   // artifact libraries resolve from node_modules
   assert(['chart.js/dist/chart.umd.js', 'mermaid/dist/mermaid.min.js', 'gridjs/dist/gridjs.umd.js', 'gridjs/dist/theme/mermaid.min.css'].every((m) => fs.existsSync(path.join(__dirname, '..', 'node_modules', m))), 'artifact libs resolvable');
 

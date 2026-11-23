@@ -16,14 +16,26 @@ function parse(file) {
   return { meta, body };
 }
 
-function list() {
-  fs.mkdirSync(dir(), { recursive: true });
+// Skills that live in a project: <cwd>/.grizzycode/skills and the shared agentskills.io folder <cwd>/.agents/skills.
+// They come from the repository, so they are text from a third party: loaded only when the model asks for them by id, and a project
+// skill cannot shadow an installed one (the installed skill wins on an id clash, so a cloned repo cannot swap out your own skill).
+const projectDirs = (cwd) => (cwd ? [path.join(cwd, '.grizzycode', 'skills'), path.join(cwd, '.agents', 'skills')] : []);
+const SAFE_ID = /^[\w][\w.-]{0,63}$/;
+function scan(root, extra) {
   const out = [];
-  for (const d of fs.readdirSync(dir())) {
-    const f = path.join(dir(), d, 'SKILL.md');
-    if (!fs.existsSync(f)) continue;
-    try { const { meta } = parse(f); out.push({ id: d, name: meta.name || d, description: meta.description || '', path: f }); } catch {}
+  let names; try { names = fs.readdirSync(root); } catch { return out; }
+  for (const d of names) {
+    const f = path.join(root, d, 'SKILL.md');
+    if (!SAFE_ID.test(d) || !fs.existsSync(f)) continue;
+    try { const { meta } = parse(f); out.push({ id: d, name: meta.name || d, description: meta.description || '', path: f, ...extra }); } catch {}
   }
+  return out;
+}
+function list(cwd) {
+  fs.mkdirSync(dir(), { recursive: true });
+  const out = scan(dir(), {});
+  const have = new Set(out.map((k) => k.id));
+  for (const root of projectDirs(cwd)) for (const k of scan(root, { project: true })) if (!have.has(k.id)) { have.add(k.id); out.push(k); }
   return out;
 }
 
@@ -51,7 +63,13 @@ function seedBundled() {
   fs.writeFileSync(marker, JSON.stringify(seeded));
 }
 
-function read(id) { return parse(path.join(dir(), path.basename(id), 'SKILL.md')).body; }
+function read(id, cwd) {
+  const base = path.basename(String(id));
+  const installed = path.join(dir(), base, 'SKILL.md');
+  if (fs.existsSync(installed)) return parse(installed).body;
+  if (SAFE_ID.test(base)) for (const root of projectDirs(cwd)) { const f = path.join(root, base, 'SKILL.md'); if (fs.existsSync(f)) return parse(f).body; }
+  return parse(installed).body; // same error as before for an unknown id
+}
 
 function importBundle(file) {
   fs.mkdirSync(dir(), { recursive: true });

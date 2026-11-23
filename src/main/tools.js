@@ -84,7 +84,7 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   if (opts.team) out.push(teamProposeTool, teamSearchTool);
   if (on('capWeb', false) && permissionMode !== 'plan') out.push(webTool, searchTool);
   if (on('memoryEnabled') && on('memoryAuto')) out.push(memoryTool);
-  if (on('capSkills') && skills.list().length) out.push(skillTool);
+  if (on('capSkills') && skills.list(opts.ssh ? '' : opts.cwd).length) out.push(skillTool);
   if (opts.agentMemory) out.push(noteTool);
   if (on('capArtifacts')) out.push(artifacts.toolDef());
   if (on('capComputer', false) && process.platform === 'darwin' && mode === 'code' && permissionMode !== 'plan' && !opts.sub && !opts.depth && !opts.ssh) out.push(computer.toolDef());
@@ -261,7 +261,7 @@ function run(name, input, cwd, signal, ssh, ctx = {}) {
     case 'todo_write': return setTodos(input.todos, ctx);
     case 'web_search': return webSearch(input.query, signal);
     case 'computer': return computer.run(input, ctx, signal);
-    case 'use_skill': return skills.read(input.id);
+    case 'use_skill': return skills.read(input.id, ssh ? '' : cwd);
     case 'save_memory': { const r = memory.add(input.text, 'model'); return r.error || (r.duplicate ? 'Already remembered.' : 'Saved to memory.'); }
     case 'web_fetch': return webFetch(input.url, signal);
     default: throw new Error('Unknown tool ' + name);
