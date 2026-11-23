@@ -1374,6 +1374,8 @@ export const register: Register = (on, options) => {
     assert(A.gate(def, mk('fix the bug and add a test', [edit, t, run])) === '', 'completion gates: a requested test file is fine');
     assert(/not verified/.test(A.gate(def, mk('fix the bug', [edit]))), 'completion gates: edits with no check afterwards send the agent back');
     assert(A.gate(def, mk('fix the bug', [edit, run])) === '', 'completion gates: edits followed by a passing check finish');
+    assert(A.gate(def, mk('fix the bug', [edit, { name: 'read_file', input: { path: 'a.js' }, out: '' }])) === '', 'completion gates: reading the edited file back counts as a check');
+    assert(/not verified/.test(A.gate(def, mk('fix the bug', [edit, { name: 'read_file', input: { path: 'b.js' }, out: '' }]))), 'completion gates: reading some other file does not');
   }
   await modHost.stopAll();
   mcp.stopAll(); srv.close();

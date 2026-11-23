@@ -61,7 +61,10 @@ const GATES = {
   verify: (st) => {
     const i = lastIdx(st.calls, EDITS);
     if (i < 0 || !st.can.has('bash')) return '';
+    const edited = new Set(st.calls.slice(0, i + 1).filter((c) => EDITS.includes(c.name) && c.input?.path).map((c) => String(c.input.path)));
+    const readBack = st.calls.slice(i + 1).some((c) => c.name === 'read_file' && edited.has(String(c.input?.path))); // reading an edited file back is the direct check a plain-text edit has
     const runs = st.calls.slice(i + 1).filter((c) => c.name === 'bash');
+    if (!runs.length && readBack) return '';
     if (!runs.length) return 'You changed files but have not verified the result since. Run the project\'s tests, build or linter with bash (or another direct check), fix what fails, then report. If nothing can be run, say exactly why.';
     const last = runs[runs.length - 1];
     return failedRun(last) && !/\b(fail|still|could not|couldn't|unable|error)\b/i.test(st.text) ? 'Your last check failed (see its exit code). Fix the problem and run it again, or say plainly in your report that it still fails and why.' : '';
