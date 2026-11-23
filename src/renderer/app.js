@@ -610,7 +610,15 @@ function approvalCard(ev) {
   const a = document.createElement('div'); a.className = 'approve';
   const row = document.createElement('div'); row.className = 'row';
   const btn = (label, cls, decision) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.className = cls; b.onclick = () => { gc.agent.approve(ev.approvalId, decision); a.remove(); typing(true); }; row.appendChild(b); };
-  if (ev.plan) {
+  if (ev.secret) {
+    a.innerHTML = `<div class="what">Agent needs a secret: <b>${esc(ev.input.name)}</b>${ev.input.reason ? ' — ' + esc(ev.input.reason) : ''}<br><small>Saved encrypted on this Mac. The agent never sees the value; shell commands get it as the variable ${esc(ev.input.name)}.</small></div>`;
+    const inp = document.createElement('input'); inp.type = 'password'; inp.placeholder = 'Paste or type the value'; inp.autocomplete = 'off'; inp.style.cssText = 'width:100%;margin:6px 0';
+    a.appendChild(inp);
+    const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save'; save.className = 'primary';
+    save.onclick = () => { if (!inp.value) return; gc.agent.approve(ev.approvalId, { secret: inp.value }); inp.value = ''; a.remove(); typing(true); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') save.click(); };
+    row.appendChild(save); btn('Decline', 'outline', 'deny');
+  } else if (ev.plan) {
     a.innerHTML = '<div class="what"><b>Review the plan</b></div>';
     const p = document.createElement('div'); p.className = 'plan b'; setMd(p, ev.input.plan || ''); a.appendChild(p);
     btn('Approve plan & accept edits', 'primary', 'approve'); btn('Keep planning', 'outline', 'deny');

@@ -56,6 +56,9 @@ const delegateTool = { name: 'delegate_agent', kind: 'read', description: 'Hand 
 const messageTool = { name: 'message_agent', kind: 'read', description: 'Send a message to an agent started earlier (by its id) and get its reply. Use it to ask follow-ups, correct course, or pass one agent\'s findings to another. An agent that is busy cannot be messaged.', risky: false,
   input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Agent id returned by delegate_agent' }, message: { type: 'string' }, background: { type: 'boolean', description: 'Return immediately; the reply arrives later as a <background-result> message. Main agent only.' } }, required: ['id', 'message'] } };
 const AGENT_TOOLS = [delegateTool.name, messageTool.name];
+// request_secret: the user types a value into a secure field in the app; the model never sees it. Shell commands get it as the variable NAME. Main agent only (nobody watches a delegated one).
+const secretTool = { name: 'request_secret', kind: 'read', description: 'Ask the user to type a secret (API key, token, password) into a secure field. You never see the value: it is saved encrypted and shell commands get it as the environment variable NAME, and any output containing it is redacted. Use it instead of asking the user to paste a secret into the chat.', risky: false,
+  input_schema: { type: 'object', properties: { name: { type: 'string', description: 'Environment variable name: upper-case letters, digits and underscores, starting with a letter, e.g. GITHUB_TOKEN' }, reason: { type: 'string', description: 'One sentence shown to the user: what it is for' } }, required: ['name', 'reason'] } };
 const noteTool = { name: 'agent_note', kind: 'read', description: 'Keep or drop one of your own notes, which are shown to you in every future conversation in this project. save: a short durable fact you had to discover (a convention, a command that works, a pitfall). forget: remove a note by its id when it is wrong or stale. Never store secrets.', risky: false,
   input_schema: { type: 'object', properties: { action: { type: 'string', enum: ['save', 'forget'] }, text: { type: 'string', description: 'The note (save)' }, id: { type: 'string', description: 'Note id (forget)' } }, required: ['action'] } };
 
@@ -76,6 +79,7 @@ function publicDefs(mode, permissionMode, caps = {}, opts = {}) {
   list = list.filter((d) => (d.kind !== 'exec' || on('capShell')) && (d.kind !== 'edit' || on('capEdit')));
   const out = [...list];
   if (mode === 'code' && permissionMode === 'plan' && !opts.sub) out.push(planTool);
+  if (!opts.sub && mode === 'code' && on('capShell')) out.push(secretTool);
   if (on('capAgents')) { if ((opts.depth || 0) < MAX_AGENT_DEPTH) out.push(delegateTool); out.push(messageTool); if (opts.dismiss) out.push(dismissTool); }
   if (opts.team) out.push(teamProposeTool, teamSearchTool);
   if (on('capWeb', false) && permissionMode !== 'plan') out.push(webTool, searchTool);

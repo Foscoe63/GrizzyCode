@@ -153,6 +153,16 @@ const notEnabled = (name, mode) => (mode !== 'code' && FILE_TOOLS.includes(name)
 async function execTool(conv, convId, c, toolDefs, s, emit, signal, who = '', lists = [agents.accessOf(agents.get(conv.agentId)), require('./grizzywork').access(conv)].filter(Boolean), run = null) {
   // Token-saver tools: answered here, no permission needed (they only read GrizzyCode's own saved data).
   if (c.name === 'retrieve_output') return savings.retrieve(c.input);
+  if (c.name === 'request_secret') { // answered here: the value goes from the secure field to the sealed store, never through the model
+    const secrets = require('./secrets'), name = String(c.input?.name || '').trim().toUpperCase();
+    if (conv.ssh) throw new Error('request_secret is not available in SSH sessions: the secret would not reach the remote shell.');
+    if (!secrets.isValidName(name)) throw new Error('name must be an environment variable name: upper-case letters, digits and underscores, starting with a letter (for example GITHUB_TOKEN).');
+    if (secrets.has(name)) return name + ' is already saved. Shell commands can use $' + name + '. Ask again only if it was rejected as wrong.';
+    const d = await ask(emit, convId, { ...c, input: { name, reason: String(c.input?.reason || '').slice(0, 300) } }, { secret: true });
+    if (!d || typeof d !== 'object' || !d.secret) return 'The user declined to provide ' + name + '. Do not ask again; continue without it or say what you cannot do.';
+    if (!secrets.save(name, d.secret)) throw new Error(name + ' could not be saved.');
+    return 'Saved. Shell commands can use it as $' + name + '; you cannot read the value and any output that contains it is redacted.';
+  }
   if (c.name === 'mcp_tools') return savings.describeTools(access.keep(lists, [...mcp.toolDefs(), ...mods.toolDefs()]), c.input);
   if (c.name === 'pin_fact') { const r = savings.pin(convId, c.input?.fact); return r.error ? 'ERROR: ' + r.error : (conv.pinned = r.pinned, 'Pinned. It will be kept through any compaction of this conversation.'); }
   if (c.name === 'agent_note') { // the agent's own notes: answered here, no permission needed (they only touch GrizzyCode's saved data)
@@ -320,7 +330,7 @@ async function runSub(root, convId, sub, parentCallId, s, emit, signal) {
         try { if (signal.aborted) throw new Error('Cancelled'); out = runs.has(c.id) ? await runs.get(c.id) : await execTool(sc, convId, c, toolDefs, s, emit, signal, sub.name, lists, run); }
         catch (e) { out = 'ERROR: ' + e.message; }
         if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input, out: String(out).slice(-400) }); else gs.errors++;
-        out = savings.compressOutput(root, c.name, out, s);
+        out = savings.compressOutput(root, c.name, require('./secrets').redact(out), s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000), ...where });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
       }
@@ -442,7 +452,7 @@ async function send(convId, userText, emit, images = [], opts = {}) {
         } catch (e) { out = 'ERROR: ' + e.message; }
         agentRuns.delete(c.id);
         if (!/^ERROR/.test(String(out))) gs.calls.push({ name: c.name, input: c.input, out: String(out).slice(-400) }); else gs.errors++;
-        out = savings.compressOutput(conv, c.name, out, s);
+        out = savings.compressOutput(conv, c.name, require('./secrets').redact(out), s);
         emit({ type: 'tool_result', convId, id: c.id, output: String(out).slice(0, 4000) });
         results.push({ type: 'tool_result', tool_use_id: c.id, content: String(out) });
       }

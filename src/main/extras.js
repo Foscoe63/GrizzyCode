@@ -109,7 +109,7 @@ function sandboxArgs(mode, cwd, command) {
 function spawnShell(command, cwd, env = {}, opts = {}) {
   const { spawn } = require('child_process');
   let sb = null; try { sb = sandboxArgs(store.getSettings().sandboxShell, cwd, command); } catch {}
-  const o = { cwd: cwd || process.env.HOME, env: { ...process.env, ...env }, ...opts };
+  const o = { cwd: cwd || process.env.HOME, env: { ...require('./secrets').env(), ...process.env, ...env }, ...opts }; // saved agent secrets as $NAME, below anything already set
   return sb ? spawn(SB_BIN, sb, o) : spawn('/bin/zsh', ['-lc', command], o);
 }
 
