@@ -117,11 +117,30 @@ async function installSkill(id) {
 }
 
 // ---- connectors (official MCP registry) ----
+// Curated connectors shown first (the registry has no popularity data, so its own order is alphabetical).
+// Fields are values the user must supply: a header for remote servers, an env var for local ones.
+const FEATURED = [
+  { name: 'Context7', description: 'Up-to-date docs for any library.', def: { url: 'https://mcp.context7.com/mcp' } },
+  { name: 'GitHub', description: 'Repos, issues and pull requests.', def: { url: 'https://api.githubcopilot.com/mcp/' }, fields: [{ name: 'Authorization', description: 'Bearer <GitHub personal access token>', secret: true }] },
+  { name: 'Notion', description: 'Search and edit your workspace. Signs in with OAuth.', def: { url: 'https://mcp.notion.com/mcp' } },
+  { name: 'Linear', description: 'Issues and projects. Signs in with OAuth.', def: { url: 'https://mcp.linear.app/mcp' } },
+  { name: 'Sentry', description: 'Errors and performance. Signs in with OAuth.', def: { url: 'https://mcp.sentry.dev/mcp' } },
+  { name: 'Stripe', description: 'Payments and customers.', def: { url: 'https://mcp.stripe.com' } },
+  { name: 'Playwright', description: 'Drive a real browser.', def: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] } },
+  { name: 'Filesystem', description: 'Read and write a folder you choose.', def: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '~'] }, note: 'Edit the folder after adding (replace ~).' },
+  { name: 'Memory', description: 'Persistent knowledge graph.', def: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] } },
+  { name: 'Sequential Thinking', description: 'Step-by-step reasoning.', def: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] } },
+  { name: 'Fetch', description: 'Read web pages. Needs uv installed.', def: { command: 'uvx', args: ['mcp-server-fetch'] } },
+  { name: 'Git', description: 'Local git repositories. Needs uv installed.', def: { command: 'uvx', args: ['mcp-server-git'] } },
+].map((f) => ({ ...f, id: 'featured:' + slug(f.name), kind: f.def.url ? 'remote' : 'local', needs: (f.fields || []).map((x) => x.name), featured: true, fields: f.fields || [] }));
+const featuredList = () => { const have = new Set(Object.keys(mcp.readConfig().mcpServers || {})); return FEATURED.map((f) => ({ ...f, installed: have.has(slug(f.name)) })); };
+
+const pickRemote = (s) => { const r = (s.remotes || []).filter((x) => x.url && !/[{}]/.test(x.url)); return r.find((x) => x.type === 'streamable-http') || r[0]; };
 function entryOf(x) {
-  const s = x.server || x; const remote = (s.remotes || []).find((r) => r.type === 'streamable-http') || (s.remotes || [])[0];
+  const s = x.server || x; const remote = pickRemote(s);
   const pkg = (s.packages || []).find((p) => p.registryType === 'npm' || p.registryType === 'pypi');
   const needs = [...(remote?.headers || []), ...(pkg?.environmentVariables || [])].filter((v) => v.isRequired).map((v) => v.name);
-  return { id: s.name, name: s.title || s.name.split('/').pop(), description: s.description || '', version: s.version || '', homepage: s.websiteUrl || s.repository?.url || '',
+  return { id: s.name, name: s.title || s.name.split('/').pop().replace(/[-_]+/g, ' '), description: s.description || '', version: s.version || '', homepage: s.websiteUrl || s.repository?.url || '',
     kind: remote ? 'remote' : pkg ? pkg.registryType : 'unsupported', needs };
 }
 async function connectorSearch({ q = '', cursor = '' } = {}) {
@@ -130,12 +149,21 @@ async function connectorSearch({ q = '', cursor = '' } = {}) {
   const j = await getJson(u.toString()); const have = new Set(mcp.list().map((s) => s.name));
   const seen = new Set();
   const items = (j.servers || []).map(entryOf).filter((e) => e.kind !== 'unsupported' && !seen.has(e.id) && seen.add(e.id)).map((e) => ({ ...e, installed: have.has(slug(e.id.split('/').pop())) || have.has(slug(e.id)) }));
-  return { items, next: j.metadata?.nextCursor || '' };
+  const q2 = q.trim().toLowerCase();
+  const top = cursor ? [] : featuredList().filter((f) => !q2 || `${f.name} ${f.description}`.toLowerCase().includes(q2));
+  return { items: [...top, ...items.filter((e) => !top.some((f) => slug(f.name) === slug(e.name)))], next: j.metadata?.nextCursor || '' };
 }
 async function installConnector(id, values = {}) {
+  if (id.startsWith('featured:')) {
+    const f = FEATURED.find((x) => x.id === id); if (!f) return { error: 'Unknown connector.' };
+    const name = slug(f.name), def = JSON.parse(JSON.stringify(f.def));
+    for (const x of f.fields) { if (!values[x.name]) return { error: `${x.name} is required.` }; (def.url ? (def.headers ||= {}) : (def.env ||= {}))[x.name] = values[x.name]; }
+    const r = await mcp.saveServer({ name, def, oldName: mcp.readConfig().mcpServers?.[name] ? name : undefined });
+    return r.error ? r : { ok: true, name, server: mcp.list().find((x) => x.name === name) };
+  }
   let j; try { j = await getJson(`https://registry.modelcontextprotocol.io/v0/servers/${encodeURIComponent(id)}/versions/latest`); } catch (e) { return { error: e.message }; }
   const s = j.server || j; const name = slug(s.name.split('/').pop()) || 'connector';
-  const remote = (s.remotes || []).find((r) => r.type === 'streamable-http') || (s.remotes || [])[0]; let def;
+  const remote = pickRemote(s); let def;
   if (remote) {
     const headers = {}; for (const h of remote.headers || []) { if (values[h.name]) headers[h.name] = values[h.name]; else if (h.isRequired) return { error: `${h.name} is required.` }; }
     def = { url: remote.url, ...(Object.keys(headers).length ? { headers } : {}) };
@@ -151,13 +179,15 @@ async function installConnector(id, values = {}) {
   return r.error ? r : { ok: true, name, server: mcp.list().find((x) => x.name === name) };
 }
 async function connectorFields(id) {
+  const f = FEATURED.find((x) => x.id === id);
+  if (f) return { run: f.def.url || [f.def.command, ...f.def.args].join(' '), fields: f.fields.map((x) => ({ ...x })) };
   try {
     const j = await getJson(`https://registry.modelcontextprotocol.io/v0/servers/${encodeURIComponent(id)}/versions/latest`); const s = j.server || j;
-    const remote = (s.remotes || [])[0]; const pkg = (s.packages || []).find((p) => p.registryType === 'npm' || p.registryType === 'pypi');
+    const remote = pickRemote(s); const pkg = (s.packages || []).find((p) => p.registryType === 'npm' || p.registryType === 'pypi');
     const f = [...(remote ? remote.headers || [] : pkg?.environmentVariables || [])].filter((v) => v.isRequired);
     const run = remote ? remote.url : pkg ? `${pkg.registryType === 'npm' ? 'npx' : 'uvx'} ${pkg.identifier}` : '';
     return { run, fields: f.map((v) => ({ name: v.name, description: v.description || '', secret: !!v.isSecret })) };
   } catch (e) { return { error: e.message }; }
 }
 
-module.exports = { pluginCatalog, installPlugin, skillCatalog, installSkill, connectorSearch, connectorFields, installConnector };
+module.exports = { featuredList, pluginCatalog, installPlugin, skillCatalog, installSkill, connectorSearch, connectorFields, installConnector };

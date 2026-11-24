@@ -261,7 +261,7 @@ body.paged #termBtn,body.paged #diffBtn{display:none}
 .mcp-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--clay);opacity:.55;transition:opacity .12s}
 .mcp-card:hover{background:color-mix(in srgb,var(--clay) 8%,var(--bg-raised));border-color:var(--clay);color:var(--text);transform:translateY(-1px)}
 .mcp-card:hover::before{opacity:1}
-.mcp-card .mc-name{font-size:13px;font-weight:600;color:var(--text)}
+.mcp-card .mc-name{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--text)}
 .mcp-card:hover .mc-name{color:var(--clay)}
 .mcp-card .mc-desc{font-size:12px;line-height:1.35;color:var(--text-2)}
 

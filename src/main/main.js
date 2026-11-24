@@ -533,6 +533,7 @@ function ipc() {
   h('market:plugins', safe(async () => ({ items: await market.pluginCatalog() })));
   h('market:skills', safe(async () => ({ items: await market.skillCatalog() })));
   h('market:connectors', safe((o) => market.connectorSearch(o)));
+  h('market:featured', safe(() => ({ items: market.featuredList() })));
   h('market:connectorFields', safe((id) => market.connectorFields(id)));
   h('market:installPlugin', safe((n) => market.installPlugin(n)));
   h('market:installSkill', safe((id) => market.installSkill(id)));

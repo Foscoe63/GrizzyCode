@@ -416,8 +416,27 @@ async function cwData(tabs) {
 }
 
 // ---------------- Customize ----------------
+// Connector cards on the Customize page; app.js calls this whenever the connector list changes.
+async function renderCustomizeConnectors() {
+  const box = document.querySelector('#cMcpCards'); if (!box) return;
+  const list = await gc.mcp.list(), cfgEl = document.querySelector('#cMcp');
+  if (cfgEl) cfgEl.value = JSON.stringify(await gc.mcp.config(), null, 2);
+  box.innerHTML = list.length ? '' : '<p class="hint">No connectors yet. Add one to give Code sessions more tools.</p>';
+  box.classList.toggle('two-col', list.length > 5);
+  const dots = { running: 'ok', error: 'bad', starting: 'wait', stopped: 'off', disabled: 'off' };
+  for (const s of list) {
+    const d = document.createElement('div'); d.className = 'mcard';
+    const sum = s.builtin ? `${s.label} · built in` : s.type === 'http' ? s.def.url : [s.def.command, ...(s.def.args || [])].join(' ');
+    d.innerHTML = `<div class="mhead"><span class="mdot ${dots[s.status] || 'off'}" title="${esc(s.status)}"></span><b>${esc(s.name)}</b><span class="mbadge">${s.builtin ? 'built-in' : s.type === 'http' ? 'remote' : 'local'}</span><span class="spacer"></span><span class="hint">${s.tools.length} tool${s.tools.length === 1 ? '' : 's'}</span></div><div class="msum" title="${esc(sum)}">${esc(sum)}</div>${s.error ? `<div class="merr">${esc(s.error)}</div>` : ''}<div class="mact"></div>`;
+    const act = d.querySelector('.mact'), btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.textContent = t; b.onclick = f; act.appendChild(b); };
+    if (!s.builtin) btn('Edit', () => openMcpDialog(s.name, s.def));
+    btn(s.disabled ? 'Connect' : 'Disconnect', async () => { await gc.mcp.toggle(s.name, !s.disabled); renderCustomizeConnectors(); });
+    if (!s.builtin) btn('Remove', async () => { if (await gc.confirm(`Remove “${s.name}”?`, 'The server is stopped and its configuration deleted.', 'Remove')) { await gc.mcp.remove(s.name); renderCustomizeConnectors(); } });
+    box.appendChild(d);
+  }
+}
 async function pgCustomize() {
-  const [st, cfg] = await Promise.all([gc.mcp.status(), gc.mcp.config()]);
+  const cfg = await gc.mcp.config();
   const s = settings = await gc.settings.get();
   $('page').innerHTML = shell('Customize', '<button class="outline" id="cSettings">All settings</button>', `
     <h3>Instructions</h3><p class="hint">Added to every conversation. Project instructions apply on top of these.</p>
@@ -425,9 +444,14 @@ async function pgCustomize() {
     <h3>Skills</h3><div id="cSkillGroups"></div>
     <div class="pg-actions"><button class="outline" id="cSkill">Import .skill / folder…</button></div>
     <h3>Connectors</h3><p class="hint">MCP servers; their tools are available in Code sessions.</p>
-    ${st.length ? st.map((m) => `<div class="rowi"><span><b>${esc(m.name)}</b></span><i>${esc(m.status)}${m.error ? ' – ' + esc(m.error) : ''} · ${m.tools.length} tools</i></div>`).join('') : '<p class="hint">No servers running.</p>'}
-    <textarea id="cMcp" rows="8" spellcheck="false" style="margin-top:10px">${esc(JSON.stringify(cfg, null, 2))}</textarea>
+    <div class="pg-actions"><button class="primary" id="cMcpAdd">Add connector</button><button class="outline" id="cMcpMarket">Browse registry</button></div>
+    <div id="cMcpCards"></div>
+    <p class="hint" style="margin-top:10px">Raw configuration</p>
+    <textarea id="cMcp" rows="8" spellcheck="false">${esc(JSON.stringify(cfg, null, 2))}</textarea>
     <div class="pg-actions"><button class="primary" id="cMcpSave">Save connectors</button></div>`);
+  renderCustomizeConnectors();
+  P('#cMcpAdd').onclick = () => openMcpDialog();
+  P('#cMcpMarket').onclick = () => openMarket('connectors');
   P('#cSettings').onclick = openSettings;
   P('#cInstSave').onclick = async () => { settings = await gc.settings.set({ systemPrompt: P('#cInst').value }); toast('Instructions saved'); };
   P('#cSkill').onclick = async () => { const r = await gc.skills.import(); if (r?.error) toast(r.error); pgCustomize(); };

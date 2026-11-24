@@ -881,20 +881,45 @@ async function renderUsage() {
     <p class="hint" style="margin-top:14px">Counts come from your providers’ usage reports and stay on this computer.</p>`;
 }
 document.querySelectorAll('#usageRange button').forEach((b) => (b.onclick = () => { usageRange = +b.dataset.v; document.querySelectorAll('#usageRange button').forEach((x) => x.classList.toggle('on', x === b)); renderUsage(); }));
-const MCP_PRESETS = [
-  { label: 'Filesystem', name: 'filesystem', type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '~'], note: 'Replace ~ with the folder to share.' },
-  { label: 'Memory', name: 'memory', type: 'stdio', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
-  { label: 'Fetch', name: 'fetch', type: 'stdio', command: 'uvx', args: ['mcp-server-fetch'], note: 'Needs uv installed.' },
-  { label: 'Remote URL', name: '', type: 'http', url: '' },
-];
-
-// Popular servers from the official MCP registry
-const MCP_POPULAR = [
-  { name: 'Git', description: 'Git repository operations', command: 'npx', args: ['-y', '@modelcontextprotocol/server-git'] },
-  { name: 'Time', description: 'Current date and time', command: 'npx', args: ['-y', '@modelcontextprotocol/server-time'] },
-  { name: 'Sequential Thinking', description: 'Step-by-step reasoning', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-  { name: 'Everything', description: 'Everything MCP server', command: 'npx', args: ['-y', '@modelcontextprotocol/server-everything'] },
-];
+// The one-click catalog comes from the main process (market.featuredList), shared with the registry browser.
+// Turn whatever a README gives you (URL, `npx …` line, `claude mcp add …`, JSON) into { name, def } or { json } for multi-server configs.
+function shellSplit(t) { const out = []; const re = /"((?:\\.|[^"\\])*)"|'([^']*)'|(\S+)/g; let m; while ((m = re.exec(t))) out.push(m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2] !== undefined ? m[2] : m[3]); return out; }
+function guessName(def) {
+  if (def.url) { try { return new URL(def.url).hostname.replace(/^(www|mcp|api)\./, '').split('.')[0]; } catch { return ''; } }
+  const pkg = (def.args || []).find((a) => a && !a.startsWith('-') && !a.startsWith('/') && !a.startsWith('~') && !a.startsWith('.')) || def.command || '';
+  return pkg.replace(/@[^/]*\//, '').replace(/@[^@]*$/, '').replace(/^(mcp-server-|server-|mcp-)/, '').replace(/(-mcp-server|-mcp|-server)$/, '').replace(/[^\w-]/g, '-');
+}
+function parseQuickInput(text) {
+  text = text.trim(); if (!text) return null;
+  if (text[0] === '{') {
+    let j; try { j = JSON.parse(text); } catch { return { error: 'That looks like JSON but doesn’t parse yet.' }; }
+    const map = j.mcpServers || (j.command || j.url ? null : j);
+    if (map && typeof map === 'object') { const k = Object.keys(map); if (k.length === 1 && (map[k[0]].command || map[k[0]].url)) return { name: k[0], def: map[k[0]] }; if (k.length) return { json: text }; }
+    if (j.command || j.url) return { name: guessName(j), def: j };
+    return { error: 'Expected a server with "command" or "url".' };
+  }
+  let t = shellSplit(text.replace(/^\$\s*/, ''));
+  if (/^https?:\/\//i.test(t[0]) && t.length === 1) { const def = { url: t[0] }; return { name: guessName(def), def }; }
+  if (t[0] === 'claude' && t[1] === 'mcp' && t[2] === 'add') {
+    t = t.slice(3); const env = {}, headers = {}; let transport = '', name = '', rest = [], i = 0;
+    for (; i < t.length; i++) {
+      const a = t[i];
+      if (a === '--') { rest = t.slice(i + 1); break; }
+      if (a === '-t' || a === '--transport') transport = t[++i];
+      else if (a === '-e' || a === '--env') { const [k, ...v] = (t[++i] || '').split('='); env[k] = v.join('='); }
+      else if (a === '-H' || a === '--header') { const h = t[++i] || '', c = h.indexOf(':'); if (c > 0) headers[h.slice(0, c).trim()] = h.slice(c + 1).trim(); }
+      else if (a === '-s' || a === '--scope') i++;
+      else if (!name) name = a; else rest.push(a);
+    }
+    if (transport === 'http' || transport === 'sse' || /^https?:\/\//i.test(rest[0] || '')) return { name, def: { url: rest[0], ...(Object.keys(headers).length ? { headers } : {}) } };
+    if (!rest.length) return { error: 'No command or URL found after the name.' };
+    return { name, def: { command: rest[0], args: rest.slice(1), ...(Object.keys(env).length ? { env } : {}) } };
+  }
+  const env = {}; while (t.length && /^[A-Z_][A-Z0-9_]*=/.test(t[0])) { const [k, ...v] = t.shift().split('='); env[k] = v.join('='); }
+  if (!t.length) return null;
+  const def = { command: t[0], args: t.slice(1), ...(Object.keys(env).length ? { env } : {}) };
+  return { name: guessName(def), def };
+}
 // Connector tool policy: like Claude's connector settings, each tool is Always allow, Needs approval or Blocked, grouped by what the tool says it does.
 const POLICIES = [['allow', 'Always allow'], ['ask', 'Needs approval'], ['block', 'Blocked']];
 const GROUPS = [['read', 'Read-only tools'], ['write', 'Write/delete tools'], ['other', 'Other tools']];
@@ -962,6 +987,8 @@ async function refreshMcp(list) {
     box.appendChild(d);
   }
   $('mcpCfg').value = JSON.stringify(await gc.mcp.config(), null, 2);
+  renderMcpQuickAdd();
+  if (typeof renderCustomizeConnectors === 'function') renderCustomizeConnectors();
 }
 const renderMcp = () => refreshMcp();
 // Built-in Google connectors: the user's own OAuth client (Client ID + Secret), then one browser sign-in for all five apps.
@@ -1000,9 +1027,9 @@ function fillMcp(name, def, note) {
 function openMcpDialog(name, def) {
   mcpEditing = name || null;
   $('mcpTitle').textContent = name ? `Edit “${name}”` : 'Add connector';
-  $('mcpPresets').hidden = !!name;
+  $('mPasteRow').hidden = !!name; $('mPaste').value = '';
   fillMcp(name, def || { command: '', args: [] });
-  $('mcpDlg').showModal(); $('mName').focus();
+  $('mcpDlg').showModal(); (name ? $('mName') : $('mPaste')).focus();
 }
 function readMcp() {
   const name = $('mName').value.trim(); let def;
@@ -1014,8 +1041,13 @@ function readMcp() {
   }
   return { name, def };
 }
-$('mcpPresets').innerHTML = MCP_PRESETS.map((p, i) => `<button type="button" class="chip" data-i="${i}">${esc(p.label)}</button>`).join('');
-$('mcpPresets').onclick = (e) => { const b = e.target.closest('[data-i]'); if (!b) return; const p = MCP_PRESETS[b.dataset.i]; fillMcp(p.name, p.type === 'http' ? { url: p.url } : { command: p.command, args: p.args }, p.note); };
+$('mPaste').oninput = () => {
+  const r = parseQuickInput($('mPaste').value);
+  if (!r) return mmsg('');
+  if (r.error) return mmsg(r.error, false);
+  if (r.json) { $('mcpDlg').close(); $('impText').value = r.json; $('impName').value = ''; $('impOver').checked = false; $('impMsg').textContent = ''; $('mcpImpDlg').showModal(); return; }
+  fillMcp(r.name, r.def, 'Filled in from what you pasted. Check it, then Test or Save.');
+};
 $('mcpAdd').onclick = () => openMcpDialog();
 $('mcpBrowse').onclick = () => showTab('extensions');
 $('mCancel').onclick = () => $('mcpDlg').close();
@@ -1037,32 +1069,20 @@ $('mcpReload').onclick = async () => { $('mcpReload').disabled = true; await gc.
 $('mcpImport').onclick = () => { $('impText').value = ''; $('impName').value = ''; $('impOver').checked = false; $('impMsg').textContent = ''; $('mcpImpDlg').showModal(); $('impText').focus(); };
 $('impCancel').onclick = () => $('mcpImpDlg').close();
 
-// Populate quick add section with popular MCP servers
-function renderMcpQuickAdd() {
-  const quickBox = $('mcpQuickAdd');
-  if (!quickBox) return;
+// Popular connectors: always shown; ones you have added get an "Added" badge (and open for editing) until you delete them.
+async function renderMcpQuickAdd() {
+  const quickBox = $('mcpQuickAdd'); if (!quickBox) return;
   const grid = quickBox.querySelector('.mcp-grid');
-  if (!grid) return;
-  
-  if (MCP_POPULAR && MCP_POPULAR.length > 0) {
-    quickBox.hidden = false;
-    const n = MCP_POPULAR.length;
-    grid.style.setProperty('--cols', Math.max(2, Math.ceil(n / 2)));
-    grid.innerHTML = MCP_POPULAR.map((server, i) => `
-      <button type="button" class="mcp-card" data-quick="${i}">
-        <span class="mc-name">${esc(server.name)}</span><span class="mc-desc">${esc(server.description)}</span>
-      </button>
-    `).join('');
-    
-    grid.onclick = (e) => {
-      const b = e.target.closest('[data-quick]');
-      if (!b) return;
-      const server = MCP_POPULAR[b.dataset.quick];
-      fillMcp(server.name, { command: server.command, args: server.args });
-    };
-  } else {
-    quickBox.hidden = true;
-  }
+  const r = await gc.market.featured().catch(() => null);
+  if (!r || r.error || !r.items?.length) { quickBox.hidden = true; return; }
+  quickBox.hidden = false; grid.style.setProperty('--cols', 3);
+  grid.innerHTML = r.items.map((f, i) => `<button type="button" class="mcp-card" data-quick="${i}"><span class="mc-name">${esc(f.name)}<span class="mbadge">${f.installed ? 'added' : f.kind}</span></span><span class="mc-desc">${esc(f.description)}</span></button>`).join('');
+  grid.onclick = async (e) => {
+    const b = e.target.closest('[data-quick]'); if (!b) return;
+    const f = r.items[b.dataset.quick];
+    if (f.installed) { const name = f.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-'), cur = (await gc.mcp.list()).find((x) => x.name === name); if (cur) return openMcpDialog(cur.name, cur.def); }
+    openMcpDialog(); fillMcp(f.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-'), f.def, f.note || (f.fields.length ? `Needs ${f.needs.join(', ')}: ${f.fields.map((x) => x.description).join('; ')}` : 'Ready to go. Test or Save.'));
+  };
 }
 $('impGo').onclick = async () => {
   $('impGo').disabled = true; $('impMsg').className = 'mmsg'; $('impMsg').textContent = 'Importing…';
@@ -1536,7 +1556,7 @@ function mkRender() {
   box.innerHTML = '';
   for (const it of shown) {
     const d = document.createElement('div'); d.className = 'mcard';
-    const badge = it.category || (m.kind === 'connectors' ? (it.kind === 'remote' ? 'remote' : it.kind) : '');
+    const badge = it.category || (m.kind === 'connectors' ? (it.featured ? 'featured · ' : '') + it.kind : '');
     d.innerHTML = `<div class="mhead"><b>${esc(it.name)}</b>${badge ? `<span class="mbadge">${esc(badge)}</span>` : ''}<span class="spacer"></span><span class="hint">${esc(it.author || '')}</span></div><div class="msum" style="white-space:normal">${esc((it.description || 'No description.').slice(0, 280))}</div><div class="mfields"></div><div class="mact"></div>`;
     const act = d.querySelector('.mact'), b = document.createElement('button'); b.type = 'button';
     if (it.installed) { b.className = 'outline'; b.textContent = 'Installed'; b.disabled = true; } else { b.className = 'primary'; b.textContent = 'Install'; b.onclick = () => mkInstall(it, b, d); }
