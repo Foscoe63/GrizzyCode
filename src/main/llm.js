@@ -24,7 +24,17 @@ async function failIfBad(res) {
   throw new Error(`API ${res.status}: ${t.slice(0, 500)}${hint}`);
 }
 
-// Prompt caching: mark the system prompt and the newest message as cache breakpoints (never mutates stored messages).
+// A system prompt may carry this marker. What is before it is the same from one message to the next and is cached;
+// what is after it (saved memory, pinned items, the roster) changes and is sent after the cache breakpoint, so a change
+// there does not rewrite the cached prompt. Providers that do not cache just see the two parts joined.
+const CACHE_BOUNDARY = '\n\n<!--cache-boundary-->\n\n';
+const splitSystem = (system) => {
+  const i = (system || '').indexOf(CACHE_BOUNDARY);
+  return i < 0 ? { stable: system || '', volatile: '' } : { stable: system.slice(0, i), volatile: system.slice(i + CACHE_BOUNDARY.length) };
+};
+const joinSystem = (system) => (system || '').split(CACHE_BOUNDARY).filter((x) => x.trim()).join('\n\n');
+
+// Prompt caching: mark the stable system prompt and the newest message as cache breakpoints (never mutates stored messages).
 function withCache(system, messages) {
   const out = messages.slice();
   const i = out.length - 1;
@@ -35,7 +45,11 @@ function withCache(system, messages) {
     if (last && last.type !== 'thinking' && last.type !== 'redacted_thinking') last.cache_control = { type: 'ephemeral' };
     out[i] = { ...m, content };
   }
-  return { system: system ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : null, messages: out };
+  const { stable, volatile } = splitSystem(system);
+  const blocks = [];
+  if (stable) blocks.push({ type: 'text', text: stable, cache_control: { type: 'ephemeral' } });
+  if (volatile.trim()) blocks.push({ type: 'text', text: volatile });
+  return { system: blocks.length ? blocks : null, messages: out };
 }
 
 // Reasoning effort per conversation ('off' | 'low' | 'medium' | 'high'). Anthropic: extended thinking with a token budget;
@@ -84,7 +98,7 @@ async function streamAnthropic(s, { system, messages, tools }, onText, signal) {
 }
 
 function toOpenAI(system, messages) {
-  const out = [{ role: 'system', content: system }];
+  const out = [{ role: 'system', content: joinSystem(system) }];
   for (const m of messages) {
     if (typeof m.content === 'string') { out.push({ role: m.role, content: m.content }); continue; }
     if (m.role === 'assistant') {
@@ -160,4 +174,4 @@ async function streamMLX(settings, req, onText, signal) {
   return streamOpenAI({ ...settings, baseUrl, model: modelPath, apiKey: '' }, req, onText, signal);
 }
 
-module.exports = { stream, toOpenAI, withCache, thinkingFor };
+module.exports = { stream, toOpenAI, withCache, thinkingFor, CACHE_BOUNDARY };
