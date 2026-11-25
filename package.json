@@ -1,7 +1,7 @@
 {
   "name": "grizzycode",
   "productName": "GrizzyCode",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "Desktop AI assistant: chat, code agent, MCP tools, skills, quick entry.",
   "main": "src/main/main.js",
   "build": {
